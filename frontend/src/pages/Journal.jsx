@@ -1,9 +1,24 @@
 import { useState } from 'react'
-import { Empty, Meter, PageHead, fmtDate } from '../ui'
+import { api } from '../api'
+import { Empty, ErrorRetry, Meter, PageHead, fmtDate, isoDay, useAction } from '../ui'
 
 const TYPES = [['all', 'All'], ['interview', 'Mock interviews'], ['coach', 'Coach calls']]
 const TYPE_LABEL = { interview: 'Mock interview', coach: 'Coach call' }
 const SCORE_LABELS = { structure: 'Structure', clarity: 'Clarity', evidence: 'Evidence', uk_tone: 'UK tone' }
+
+// What was said in that session, fetched only when the user asks for it
+function Transcript({ entry }) {
+  const load = useAction(() => api(`/api/journal/${entry.id}/transcript`))
+  if (load.result) return <pre className="draft small" style={{ marginTop: 8, fontFamily: 'inherit' }}>{load.result.transcript}</pre>
+  return (
+    <>
+      <button className="linkish small" style={{ marginTop: 8 }} disabled={load.loading} onClick={() => load.run()}>
+        {load.loading ? 'Loading transcript' : entry.type === 'interview' ? 'View what you said in this interview' : 'View what you told the coach'}
+      </button>
+      <ErrorRetry error={load.error} onRetry={load.retry} />
+    </>
+  )
+}
 
 export default function Journal({ s, go }) {
   const [type, setType] = useState('all')
@@ -28,7 +43,7 @@ export default function Journal({ s, go }) {
             <div className="list">
               {entries.map((e) => (
                 <article key={e.id} className="journal-entry">
-                  <div className="when">{fmtDate(e.created_at, { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                  <div className="when">{fmtDate(isoDay(new Date(e.created_at)), { day: 'numeric', month: 'short', year: 'numeric' })}</div>
                   <div>
                     <div className="row" style={{ gap: 8 }}>
                       <span className="chip good">{TYPE_LABEL[e.type]}</span>
@@ -50,6 +65,7 @@ export default function Journal({ s, go }) {
                         </div>
                       </details>
                     )}
+                    {e.has_transcript && <div><Transcript entry={e} /></div>}
                   </div>
                 </article>
               ))}

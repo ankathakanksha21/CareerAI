@@ -24,11 +24,27 @@ const SESSIONS = [
     opening: 'Let us start with teamwork. Tell me about a time you worked in a team under pressure.' },
 ]
 
+// A feedback comment with the user's own words it is about, when the transcript has them
+function Points({ items }) {
+  return (
+    <ul className="dots small">
+      {items.map((x) => (
+        <li key={x.point}>
+          {x.point}
+          {x.you_said && <span className="said" style={{ display: 'block' }}>You said: "{x.you_said}"</span>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function Sessions({ s, focus, refresh, session }) {
   const [jobId, setJobId] = useState(focus.jobId || '')
   const [type, setType] = useState(SESSIONS[1])
   const [adding, setAdding] = useState(false)
+  const [heard, setHeard] = useState('') // the transcript being scored, kept so the user can read it back
   const fb = useAction(async (transcript) => {
+    setHeard(transcript)
     const r = await post('/api/ai/interview-feedback', { transcript, job_id: jobId || null, interview_type: type.label })
     refresh()
     return r
@@ -86,11 +102,17 @@ function Sessions({ s, focus, refresh, session }) {
                   <div key={k} className="score"><span>{SCORE_LABELS[k] || k}</span><Meter value={v * 20} /><b>{v}/5</b></div>
                 ))}
               </div>
-              {d.strengths.length > 0 && <div><h3>What worked</h3><ul className="dots small">{d.strengths.map((x) => <li key={x}>{x}</li>)}</ul></div>}
-              <div><h3>Change next time</h3><ul className="dots small">{d.fixes.map((x) => <li key={x}>{x}</li>)}</ul></div>
+              {d.strengths.length > 0 && <div><h3>What worked</h3><Points items={d.strengths} /></div>}
+              <div><h3>Change next time</h3><Points items={d.fixes} /></div>
               {d.rewrite.better_answer && <div><h3>A stronger answer</h3><p className="small muted">{d.rewrite.question}</p><p className="draft" style={{ marginTop: 6 }}>{d.rewrite.better_answer}</p></div>}
               {d.uk_tone_notes.length > 0 && <div><h3>UK tone</h3><ul className="dots small">{d.uk_tone_notes.map((x) => <li key={x}>{x}</li>)}</ul></div>}
-              <p className="small muted">Saved to your Journal.</p>
+              {heard && (
+                <details>
+                  <summary className="linkish small">View full transcript</summary>
+                  <pre className="draft small" style={{ marginTop: 8, fontFamily: 'inherit' }}>{heard}</pre>
+                </details>
+              )}
+              <p className="small muted">Saved to your Journal, with the transcript.</p>
             </div>
           )}
         </section>

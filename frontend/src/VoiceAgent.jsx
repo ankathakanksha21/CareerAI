@@ -119,14 +119,24 @@ export default function VoiceAgent({ agent, agentLabel, userId, dynamicVariables
           : <button className="btn" onClick={start}>{status === 'ended' ? 'Start again' : 'Start talking'}</button>}
       </div>
       {error && <p className="error">{error}</p>}
-      {turns.length > 0 && (
-        <div className="transcript" ref={boxRef}>
-          {turns.map((t, i) => (
-            <div key={i} className={`turn ${t.role}`}>
-              <span className="who">{t.role === 'agent' ? agentLabel : 'You'}</span>
-              {t.message}
-            </div>
-          ))}
+      {/* Proof of what was heard: the user's words appear here as the call goes on, and stay after it ends */}
+      {status !== 'idle' && (
+        <div className="heard">
+          <div className="heard-head">
+            <span className="strong">{status === 'ended' ? 'Transcript of this call' : 'Live transcript'}</span>
+            <span className="small muted">
+              {status === 'ended' ? `Everything below is built from these words.` : `What the ${agentLabel.toLowerCase()} hears. Your words appear a moment after each sentence.`}
+            </span>
+          </div>
+          <div className="transcript" ref={boxRef} aria-live="polite">
+            {turns.length === 0 && <p className="small muted">{status === 'ended' ? 'Nothing was captured in this call.' : 'Nothing yet. Start speaking when you are ready.'}</p>}
+            {turns.map((t, i) => (
+              <div key={i} className={`turn ${t.role}`}>
+                <span className="who">{t.role === 'agent' ? agentLabel : 'You said'}</span>
+                {t.message}
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {children}

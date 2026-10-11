@@ -23,7 +23,7 @@ def test_every_route_but_config_needs_a_token():
         if not path.startswith("/api") or path == "/api/config":
             continue
         url = path.replace("{conversation_id}", "conv_1")
-        for name in ("id", "app_id", "job_id", "family_id", "achievement_id"):
+        for name in ("id", "app_id", "job_id", "family_id", "achievement_id", "entry_id"):
             url = url.replace("{" + name + "}", str(uuid.uuid4()))
         assert "{" not in url, f"unfilled path parameter in {path}"
         for method in route.methods - {"HEAD", "OPTIONS"}:

@@ -41,6 +41,10 @@ STATS = {"funnel": {"applied": 6, "responses": 1, "interviews": 0, "offers": 0, 
 
 CHECKS = [
     ("achievements", lambda: ai.extract_achievements(BACKGROUND, PROFILE), lambda r: len(r["items"]) >= 1),
+    # "You said" quotes must survive the check against the text, or the proof-of-hearing feature shows nothing
+    ("achievement quotes", lambda: ai.extract_achievements(BACKGROUND, PROFILE), lambda r: sum(bool(i["raw"]) for i in r["items"]) >= 1),
+    ("interview quotes", lambda: ai.interview_feedback(INTERVIEW, JOB, PROFILE, "Behavioural round"),
+     lambda r: any(p["you_said"] for p in r["strengths"] + r["fixes"])),
     ("families", lambda: ai.suggest_families(ACHIEVEMENTS, PROFILE), lambda r: len(r["families"]) >= 2),
     ("job summary", lambda: ai.summarise_job("Data Analyst", "a UK retailer", DESCRIPTION, ["Data Analyst", "BI Analyst"]), lambda r: bool(r["summary"])),
     ("tailor", lambda: ai.tailor(JOB, ACHIEVEMENTS, PROFILE), lambda r: len(r["bullets"]) >= 1 and bool(r["cover_letter"]["why_them"])),

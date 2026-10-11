@@ -273,7 +273,8 @@ def ai_achievements(body: Background, user: CurrentUser):
             conn, user.id, type="coach", with_whom="Careers coach",
             title="Background call with your careers coach" if body.source == "voice" else "Profile built from your pasted background",
             summary=f"{analytics.plural(len(items), 'achievement')} captured and rewritten for UK employers.",
-            points=[i["title"] for i in items], actions=["Review your profile and add any missing numbers"])
+            points=[i["title"] for i in items], actions=["Review your profile and add any missing numbers"],
+            transcript=transcript)
     return {"items": items, "pitch": result["pitch"]}
 
 
@@ -368,8 +369,16 @@ def ai_interview(body: InterviewIn, user: CurrentUser):
     about = f"{job['title']}, {job['company']}" if job else "general practice"
     with db.transaction() as conn:
         repo.add_journal_entry(conn, user.id, type="interview", title=f"{body.interview_type}: {about}", with_whom="Mock interviewer",
-                               summary=feedback["summary"], points=feedback["strengths"], actions=feedback["fixes"], scores=feedback["scores"])
+                               summary=feedback["summary"], points=[p["point"] for p in feedback["strengths"]],
+                               actions=[p["point"] for p in feedback["fixes"]], scores=feedback["scores"], transcript=transcript)
     return feedback
+
+
+@app.get("/api/journal/{entry_id}/transcript")
+def journal_transcript(entry_id: UUID, user: CurrentUser):
+    """What was said in a coach call or mock interview. Fetched on demand, since it can be long."""
+    with db.transaction() as conn:
+        return {"transcript": _found(repo.get_journal_transcript(conn, user.id, str(entry_id)))}
 
 
 class ToneIn(BaseModel):

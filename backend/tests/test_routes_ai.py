@@ -14,7 +14,7 @@ DESCRIPTION = "Analyse customer data and report findings to the team every week.
 TAILORED = {"profile": "P", "bullets": [{"text": "Built X", "achievement_id": ""}], "keywords": ["SQL"],
             "cover_letter": {"why_them": "A", "why_you": "B", "what_you_deliver": "C"}, "gaps": []}
 FEEDBACK = {"scores": {"structure": 3, "clarity": 4, "evidence": 2, "uk_tone": 3}, "summary": "Clear but late results.",
-            "strengths": ["s1"], "fixes": ["f1"], "rewrite": {"question": "q", "better_answer": "a"}, "uk_tone_notes": []}
+            "strengths": [{"point": "s1", "you_said": "I built X"}], "fixes": [{"point": "f1", "you_said": ""}], "rewrite": {"question": "q", "better_answer": "a"}, "uk_tone_notes": []}
 STORY = {"title": "Story", "competency": "c", "situation": "s", "task": "t", "action": "a", "result": "r", "strength": "strong", "tip": ""}
 
 
@@ -273,6 +273,38 @@ def test_diagnosis_with_applications(client, stub):
     client.post("/api/applications", json={"company": "Company A", "role": "Role A", "source": "Company site"})
     stub("explain_diagnosis", {"headline": "h", "working": "w", "problem": "p", "one_change": "c", "signal": "s"})
     assert client.post("/api/ai/diagnosis").json()["headline"] == "h"
+
+
+# ---------- transcripts: proof of what was heard ----------
+
+def test_coach_call_transcript_is_kept_with_its_journal_entry(client, stub):
+    stub("extract_achievements", {"items": ITEMS, "pitch": ""})
+    client.post("/api/ai/achievements", json={"transcript": TRANSCRIPT, "source": "voice"})
+    entry = state(client)["journal"][0]
+    assert entry["has_transcript"] is True and "transcript" not in entry
+    r = client.get(f"/api/journal/{entry['id']}/transcript")
+    assert r.status_code == 200 and r.json() == {"transcript": TRANSCRIPT}
+
+
+def test_interview_transcript_is_kept_with_its_journal_entry(client, stub):
+    stub("interview_feedback", FEEDBACK)
+    client.post("/api/ai/interview-feedback", json={"transcript": "  " + TRANSCRIPT + "\n", "interview_type": "HR screening call"})
+    entry = state(client)["journal"][0]
+    assert client.get(f"/api/journal/{entry['id']}/transcript").json() == {"transcript": TRANSCRIPT}
+
+
+def test_transcript_is_private_to_its_owner(client, stub, user_b, as_user):
+    stub("interview_feedback", FEEDBACK)
+    client.post("/api/ai/interview-feedback", json={"transcript": TRANSCRIPT, "interview_type": "HR screening call"})
+    entry = state(client)["journal"][0]
+    as_user(user_b)
+    r = client.get(f"/api/journal/{entry['id']}/transcript")
+    assert r.status_code == 404 and TRANSCRIPT not in r.text
+
+
+def test_transcript_bad_or_unknown_id(client):
+    assert client.get("/api/journal/not-a-uuid/transcript").status_code == 422
+    assert client.get("/api/journal/11111111-1111-1111-1111-111111111111/transcript").status_code == 404
 
 
 # ---------- voice ----------

@@ -223,16 +223,28 @@ def delete_application(conn, user_id, app_id) -> bool:
 
 # ---------- journal ----------
 
+# A transcript can run to thousands of words, so entries are listed without it and it is fetched on demand
+_JOURNAL = ("id, user_id, type, title, with_whom, summary, points, actions, scores, created_at, "
+            "transcript is not null as has_transcript")
+
+
 def list_journal(conn, user_id) -> list[dict]:
-    return _rows(conn.execute("select * from journal_entries where user_id = %s order by created_at desc, id", (user_id,)))
+    return _rows(conn.execute(f"select {_JOURNAL} from journal_entries where user_id = %s order by created_at desc, id", (user_id,)))
 
 
-def add_journal_entry(conn, user_id, *, type: str, title: str, with_whom: str, summary: str, points, actions, scores=None) -> dict:
+def add_journal_entry(conn, user_id, *, type: str, title: str, with_whom: str, summary: str, points, actions,
+                      scores=None, transcript: str | None = None) -> dict:
     return _row(conn.execute(
-        "insert into journal_entries (user_id, type, title, with_whom, summary, points, actions, scores) "
-        "values (%s, %s, %s, %s, %s, %s, %s, %s) returning *",
+        "insert into journal_entries (user_id, type, title, with_whom, summary, points, actions, scores, transcript) "
+        f"values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning {_JOURNAL}",
         (user_id, type, title, with_whom, summary, Jsonb(list(points)), Jsonb(list(actions)),
-         Jsonb(scores) if scores is not None else None)).fetchone())
+         Jsonb(scores) if scores is not None else None, transcript)).fetchone())
+
+
+def get_journal_transcript(conn, user_id, entry_id) -> str | None:
+    """What was said in that session, or None if the entry is not this user's or has no transcript."""
+    row = conn.execute("select transcript from journal_entries where id = %s and user_id = %s", (entry_id, user_id)).fetchone()
+    return row["transcript"] if row else None
 
 
 # ---------- everything one user owns ----------

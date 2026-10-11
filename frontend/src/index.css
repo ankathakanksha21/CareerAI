@@ -381,3 +381,10 @@ button.me:hover { border-color: var(--green-line); }
 .prose h2 { font-size: 18px; font-weight: 650; margin: 26px 0 6px; }
 .prose p, .prose li { color: var(--ink-2); }
 .land-foot a { color: var(--ink-3); }
+
+/* ---------- live transcript: proof of what was heard ---------- */
+.heard { border: 1px solid var(--green-line); background: var(--green-tint); border-radius: 10px; padding: 12px 14px; display: grid; gap: 10px; }
+.heard-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.heard .transcript { background: #fff; border-radius: 8px; padding: 10px; min-height: 64px; }
+.heard .turn.user { border: 1px solid var(--green-line); font-weight: 500; }
+.heard .turn.user .who { color: var(--green); }

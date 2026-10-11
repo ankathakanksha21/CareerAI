@@ -22,7 +22,7 @@ function ProfileStep({ s, back, next }) {
     <>
       <div className="ob-title">
         <h1>Your profile</h1>
-        <p>Here is what you already have, written the way UK employers read it.</p>
+        <p>Here is what you told us, written the way UK employers read it. Each one shows the words it came from.</p>
       </div>
       <div className="card">
         <div className="profile-head">
@@ -40,6 +40,7 @@ function ProfileStep({ s, back, next }) {
           <div key={e.id} className="card tight">
             <div className="strong">{e.title}</div>
             <p style={{ marginTop: 4 }}>{e.uk_version}</p>
+            {e.raw && <p className="said" style={{ marginTop: 4 }}>You said: "{e.raw}"</p>}
             <div className="row" style={{ marginTop: 8 }}>{e.skills.slice(0, 4).map((k) => <span key={k} className="chip">{k}</span>)}</div>
           </div>
         ))}

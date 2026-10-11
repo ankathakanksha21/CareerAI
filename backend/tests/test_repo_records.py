@@ -174,6 +174,18 @@ def test_journal_round_trip(conn, user_a):
     assert {x["id"] for x in repo.list_journal(conn, user_a)} == {e["id"], plain["id"]}
 
 
+def test_journal_transcript_saved_but_not_listed(conn, user_a, user_b):
+    with_text = repo.add_journal_entry(conn, user_a, type="coach", title="t", with_whom="Careers coach", summary="s",
+                                       points=[], actions=[], transcript="Coach: hi\nCandidate: hello")
+    without = repo.add_journal_entry(conn, user_a, type="coach", title="t2", with_whom="Careers coach", summary="s", points=[], actions=[])
+    listed = {e["id"]: e for e in repo.list_journal(conn, user_a)}
+    assert "transcript" not in with_text and all("transcript" not in e for e in listed.values())  # kept out of every page load
+    assert listed[with_text["id"]]["has_transcript"] is True and listed[without["id"]]["has_transcript"] is False
+    assert repo.get_journal_transcript(conn, user_a, with_text["id"]) == "Coach: hi\nCandidate: hello"
+    assert repo.get_journal_transcript(conn, user_a, without["id"]) is None
+    assert repo.get_journal_transcript(conn, user_b, with_text["id"]) is None
+
+
 # ---------- everything at once ----------
 
 def test_load_state_only_own_rows(conn, user_a, user_b):
