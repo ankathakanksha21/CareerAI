@@ -3,3 +3,5 @@ uvicorn[standard]
 anthropic[bedrock]
 httpx
 python-dotenv
+psycopg[binary]
+PyJWT[crypto]
