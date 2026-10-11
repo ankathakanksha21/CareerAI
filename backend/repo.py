@@ -247,3 +247,24 @@ def load_state(conn, user_id) -> dict:
         "applications": list_applications(conn, user_id),
         "journal": list_journal(conn, user_id),
     }
+
+
+# ---------- usage (daily limits now, streaks later) ----------
+
+# midnight today in London, as a point in time
+_LONDON_MIDNIGHT = "(date_trunc('day', now() at time zone 'Europe/London') at time zone 'Europe/London')"
+
+
+def count_usage_today(conn, user_id, kind: str) -> int:
+    return conn.execute(f"select count(*) as n from usage_events where user_id = %s and kind = %s and created_at >= {_LONDON_MIDNIGHT}",
+                        (user_id, kind)).fetchone()["n"]
+
+
+def record_usage(conn, user_id, kind: str, action: str) -> None:
+    conn.execute("insert into usage_events (user_id, kind, action) values (%s, %s, %s)", (user_id, kind, action))
+
+
+def seconds_since_last_usage(conn, user_id, kind: str, action: str) -> float | None:
+    row = conn.execute("select extract(epoch from now() - max(created_at)) as s from usage_events "
+                       "where user_id = %s and kind = %s and action = %s", (user_id, kind, action)).fetchone()
+    return float(row["s"]) if row["s"] is not None else None
