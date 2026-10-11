@@ -61,9 +61,10 @@ def test_retry_window_is_free(conn, user_a):
 
 def test_retry_window_expires(conn, user_a):
     limits.check_and_record(conn, user_a, "voice", "onboarding")
-    conn.execute("update usage_events set created_at = now() - interval '5 minutes' where user_id = %s", (user_a,))
+    # aged by seconds, not minutes, so the record stays inside today even just after midnight
+    conn.execute("update usage_events set created_at = now() - interval '3 seconds' where user_id = %s", (user_a,))
     with pytest.raises(limits.LimitReached):
-        limits.check_and_record(conn, user_a, "voice", "onboarding", retry_window_s=120)
+        limits.check_and_record(conn, user_a, "voice", "onboarding", retry_window_s=1)
 
 
 def test_retry_window_only_for_same_action(conn, user_a, monkeypatch):
