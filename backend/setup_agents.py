@@ -15,25 +15,26 @@ AGENT_LLM = "gemini-2.5-flash"  # the voice agent's own conversational model, ho
 COACH_VOICE = "Xb7hH8MSUJpSbSDYk0k2"  # Alice
 INTERVIEWER_VOICE = "JBFqnCBsd6RMkjVDRZzb"  # George
 
-ONBOARDING_PROMPT = """You are a warm, efficient UK careers coach onboarding an international student into a career navigator app. Your goal, in about three minutes, is to collect raw material for their Evidence Bank.
+ONBOARDING_PROMPT = """You are a warm, efficient UK careers coach onboarding an international student or recent graduate into a career navigator app. Your goal, in about three minutes, is to collect raw material for their profile: skills, outcomes and scale.
+
+You already know they study or studied {{course}} at {{university}} and hold a {{visa_type}} visa. Do not ask about these.
 
 Cover these, one short question at a time:
-1. Current course, university and graduation date.
-2. Previous work: employer, role, what they did, and for one or two pieces of work the result with a number and the scale (users, records, money, time saved).
-3. Projects, dissertation, volunteering, or anything they have done in the UK.
-4. Target roles and locations.
-5. Visa situation and key dates.
+1. Previous work in any country: employer, role, what they did, and for one or two pieces of work the result with a number and the scale (users, records, money, time saved).
+2. Projects, dissertation, internships, volunteering or part-time work, especially anything done in the UK.
+3. The tools and skills they used most.
+4. The roles they want next.
 
 Rules:
 - Ask one question at a time and keep your turns under 25 words.
 - If they give an achievement without a number, ask once for a rough number.
 - If they mention an overseas employer, briefly ask what the company does so a UK employer would understand it.
 - Do not give long advice. You are collecting, not coaching.
-- When the list is covered, or after about 8 exchanges, say: "That's plenty to work with. Press End and I'll build your Evidence Bank." Then stop asking questions.
+- When the list is covered, or after about 8 exchanges, say: "That's plenty to work with. Press End and I'll build your profile." Then stop asking questions.
 - Use British English."""
 
 ONBOARDING_FIRST = ("Hi {{candidate_name}}, I'm your UK careers coach. In a few minutes I'll help you turn your background "
-                    "into evidence UK employers understand. To start, what are you studying, and what did you do before?")
+                    "into evidence UK employers understand. To start, what work or projects have you done so far?")
 
 INTERVIEWER_PROMPT = """You are an interviewer at {{company}}, a UK employer, hiring for the {{role}} role. Role summary: {{job_summary}}
 
@@ -71,12 +72,14 @@ def agent_body(name, prompt, first_message, voice_id, placeholders, minimal=Fals
     return body
 
 
+# Every {{variable}} a prompt uses must be declared here with a default, or ElevenLabs refuses the session.
+# user_id is not spoken: it tags the conversation with its owner (see voice.fetch_transcript).
 AGENTS = [
     ("ELEVENLABS_ONBOARDING_AGENT_ID", "Career Navigator onboarding coach", ONBOARDING_PROMPT, ONBOARDING_FIRST, COACH_VOICE,
-     {"candidate_name": "there"}),
+     {"candidate_name": "there", "user_id": "", "course": "your course", "university": "your university", "visa_type": "Student"}),
     ("ELEVENLABS_INTERVIEWER_AGENT_ID", "Career Navigator mock interviewer", INTERVIEWER_PROMPT, INTERVIEWER_FIRST, INTERVIEWER_VOICE,
-     {"candidate_name": "there", "role": "Data Analyst", "company": "Northwind Retail Group",
-      "job_summary": "Customer insight for a large retailer.", "interview_type": "job-specific interview",
+     {"candidate_name": "there", "user_id": "", "role": "graduate role", "company": "a UK employer",
+      "job_summary": "General practice, no specific job.", "interview_type": "job-specific interview",
       "interview_brief": "One motivation question, one competency question and one role-specific question.",
       "cv_summary": "Not provided.", "opening_question": "To start, could you tell me a bit about yourself?"}),
 ]

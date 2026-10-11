@@ -1,0 +1,39 @@
+{
+  "uk_market": [
+    {"title": "Graduate schemes recruit a year ahead", "body": "Applications usually open between September and December for a start the following autumn. Direct-entry roles are advertised all year and often close within two to three weeks."},
+    {"title": "Know the entry routes", "body": "A spring week is a short insight programme, mostly for first and second-year undergraduates. Summer internships and placements often lead to graduate offers. Your university careers service can tell you which ones you are eligible for."},
+    {"title": "Check the sponsor register before you apply", "body": "Only employers on the gov.uk register of licensed sponsors can sponsor a Skilled Worker visa. Some employers will hire you on a Graduate visa but cannot sponsor you afterwards."},
+    {"title": "UK CVs are two pages", "body": "No photo, date of birth or marital status. Start each bullet with an action and include a number. A cover letter answers why this company before why you."},
+    {"title": "Referrals and conversations matter", "body": "Many UK roles are filled through referrals or are never advertised. A 15-minute chat with someone inside a company often does more than several online applications."}
+  ],
+  "where_to_look": [
+    {"name": "Graduate and early-career boards", "tip": "Prospects, Bright Network and Handshake list graduate schemes, internships and entry-level roles with fixed deadlines."},
+    {"name": "Your university careers service", "tip": "Employers who post here already want graduates from your university, and advisers explain how UK recruitment works."},
+    {"name": "LinkedIn and Indeed", "tip": "Set daily alerts for your target titles and apply within 48 hours of posting."},
+    {"name": "Company career pages", "tip": "Roles often appear here first. Check the employers you want every week."},
+    {"name": "Register of licensed sponsors (gov.uk)", "tip": "Check an employer before you spend time on a tailored application."}
+  ],
+  "tone_phrases": [
+    {"phrase": "Not bad at all.", "meaning": "Genuinely good. British praise is understated."},
+    {"phrase": "I'll bear that in mind.", "meaning": "Probably will not act on it."},
+    {"phrase": "With respect...", "meaning": "I disagree with you."},
+    {"phrase": "We'd love to keep in touch.", "meaning": "Usually a polite no. Thank them and do not wait on it."},
+    {"phrase": "That's quite interesting.", "meaning": "Often polite and lukewarm, not real enthusiasm."},
+    {"phrase": "We'll be in touch.", "meaning": "Neutral. If no date was given, follow up after a week."},
+    {"phrase": "Do you have any questions for us?", "meaning": "You are expected to ask two or three thoughtful ones. Saying no reads as low interest."},
+    {"phrase": "Tell me about yourself.", "meaning": "A 90-second pitch: what you do now, what you did before, why this role."}
+  ],
+  "tone_norms": [
+    "Say 'I led' or 'I built', not 'I single-handedly'. Confident but understated works best.",
+    "Use 'we' for team results and 'I' for your part. UK interviewers listen for your exact contribution.",
+    "A little small talk at the start is normal. Ask how their week is going.",
+    "Feedback is often softened and indirect. If you are unsure where you stand, ask one specific follow-up question.",
+    "Address people by first name unless told otherwise. 'Sir' and 'Madam' sound overly formal."
+  ],
+  "cv_rules": [
+    "Two pages. No photo, date of birth or marital status.",
+    "Each bullet starts with an action and carries a number.",
+    "Overseas employers get one line of context.",
+    "The cover letter answers why them before why you."
+  ]
+}
