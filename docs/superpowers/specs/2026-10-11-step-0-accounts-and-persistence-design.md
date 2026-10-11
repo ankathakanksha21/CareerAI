@@ -1,7 +1,7 @@
 # Step 0: accounts, saved data and removal of the demo persona
 
 Date: 11 October 2026
-Status: awaiting review by Dharan
+Status: approved by the project owner on 11 October 2026
 Branch: `live-features`
 
 ## 1. Why this step exists
@@ -16,20 +16,20 @@ The product goal is different: a real career agent for international students an
 
 | Topic | Decision | Decided by |
 |---|---|---|
-| Audience | International students on a Student visa and recent graduates on the Graduate (post-study work) visa, all already in the UK | Dharan |
-| Who uses it | Real multi-user product: sign-up, login, per-user saved data | Dharan |
-| Timeline | 2 to 4 weeks for all steps, one step at a time | Dharan |
-| Stack | Keep React (Vite) + Python FastAPI on Vercel. No migration to Next.js | Dharan |
-| Login and database | Supabase (Auth + Postgres) | Dharan |
-| Sign-in method | Email + password. Google can be added later without other changes | Dharan |
-| Demo persona | Removed completely. Real accounts start empty | Dharan |
-| Data architecture | Postgres tables behind FastAPI. FastAPI is the single gateway | Dharan |
-| Features without real data yet | Hidden from the menu until their step makes them live | Dharan |
-| Basic details | Short form first, then the voice call | Dharan |
-| Cost control | Per-user daily limits, set in `.env` | Dharan |
-| Job input before real listings | User pastes a job's title, company and description | Dharan |
-| Voice | Two private ElevenLabs agents (coach, interviewer), API key on the server | Dharan |
-| Git | Small local commits on `live-features`. No pushing | Dharan |
+| Audience | International students on a Student visa and recent graduates on the Graduate (post-study work) visa, all already in the UK | Project owner |
+| Who uses it | Real multi-user product: sign-up, login, per-user saved data | Project owner |
+| Timeline | 2 to 4 weeks for all steps, one step at a time | Project owner |
+| Stack | Keep React (Vite) + Python FastAPI on Vercel. No migration to Next.js | Project owner |
+| Login and database | Supabase (Auth + Postgres) | Project owner |
+| Sign-in method | Email + password. Google can be added later without other changes | Project owner |
+| Demo persona | Removed completely. Real accounts start empty | Project owner |
+| Data architecture | Postgres tables behind FastAPI. FastAPI is the single gateway | Project owner |
+| Features without real data yet | Hidden from the menu until their step makes them live | Project owner |
+| Basic details | Short form first, then the voice call | Project owner |
+| Cost control | Per-user daily limits, set in `.env` | Project owner |
+| Job input before real listings | User pastes a job's title, company and description | Project owner |
+| Voice | Two private ElevenLabs agents (coach, interviewer), API key on the server | Project owner |
+| Git | Small local commits on `live-features`. No pushing | Project owner |
 
 ## 3. Scope
 
@@ -163,7 +163,8 @@ Deleted: `store.py` (Upstash Redis), `data/seed.json`, the passcode middleware, 
 | `src/pages/Onboarding.jsx` | Four steps: details, background, profile, target roles |
 | `src/pages/Privacy.jsx` (new) | Draft privacy notice |
 | `src/pages/Account.jsx` (new) | Usage, sign out, delete account |
-| `src/components/AddJob.jsx` (new) | Paste-a-job form, used by Resume and Interview coach |
+| `src/components/Jobs.jsx` (new) | Job picker and paste-a-job form, used by Resume and Interview coach |
+| `src/components/DetailsForm.jsx` (new) | The "Your details" form, used by onboarding and Profile |
 | `src/ui.jsx` | Menu without hidden pages; `TODAY` becomes the real date; badge components removed |
 | Existing pages | Read the new state shape; empty states; demo controls removed |
 | Deleted | `pages/Networking.jsx`, `pages/Peers.jsx` (recoverable from commit `7567a0a`; rebuilt in steps 6 and 7) |
@@ -413,14 +414,14 @@ Database connection: Supabase's shared pooler in transaction mode (port 6543), a
 
 Frontend has no test runner today and little pure logic; it is verified through the end-to-end run. A runner is added when a step introduces logic worth unit-testing.
 
-## 15. What Dharan needs to do
+## 15. What the project owner needs to do
 
 1. Create a Supabase project in the **London (`eu-west-2`)** region.
 2. Authentication → Sign In / Providers → Email: turn **Confirm email off** for now. Supabase's built-in mailer sends only a few emails an hour. Before a public launch, connect an email provider and turn it back on.
 3. Copy `backend/.env.example` to `backend/.env` and fill in the Supabase values (Project Settings → API Keys, and the Connect dialog for the pooler string), the ElevenLabs API key, and the Bedrock values.
 4. Rotate the Bedrock key that was pasted into the chat, at a convenient time.
 
-Claude then runs the migrations and `setup_agents.py`, and runs the tests and the browser walkthrough. Deploying to Vercel is a separate action Dharan triggers; the variables above must be added to the Vercel project first.
+Claude then runs the migrations and `setup_agents.py`, and runs the tests and the browser walkthrough. Deploying to Vercel is a separate action the project owner triggers; the variables above must be added to the Vercel project first.
 
 ## 16. Trade-offs
 
