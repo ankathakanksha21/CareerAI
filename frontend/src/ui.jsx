@@ -1,30 +1,17 @@
-import { useState } from 'react'
-import { BookOpen, BriefcaseBusiness, CalendarDays, Compass, FileText, House, Mic, UserRound, Users } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { BookOpen, BriefcaseBusiness, Check, Compass, FileText, House, Mic, UserRound } from 'lucide-react'
 
-// Sidebar, in two groups. key = route, label = what the user sees
+// Sidebar. key = route, label = what the user sees. Pages return here as their step goes live
 export const NAV = [
-  { group: 'Your search', items: [
-    { key: 'home', label: 'This week', icon: House },
-    { key: 'profile', label: 'Profile', icon: UserRound },
-    { key: 'pathways', label: 'Career pathways', icon: Compass },
-    { key: 'resume', label: 'Resume', icon: FileText },
-    { key: 'interview', label: 'Interview coach', icon: Mic },
-    { key: 'applications', label: 'Applications', icon: BriefcaseBusiness },
-  ] },
-  { group: 'Community', items: [
-    { key: 'networking', label: 'Networking', icon: CalendarDays },
-    { key: 'peers', label: 'Peers', icon: Users },
-    { key: 'journal', label: 'Journal', icon: BookOpen },
-  ] },
+  { key: 'home', label: 'This week', icon: House },
+  { key: 'profile', label: 'Profile', icon: UserRound },
+  { key: 'pathways', label: 'Career pathways', icon: Compass },
+  { key: 'resume', label: 'Resume', icon: FileText },
+  { key: 'interview', label: 'Interview coach', icon: Mic },
+  { key: 'applications', label: 'Applications', icon: BriefcaseBusiness },
+  { key: 'journal', label: 'Journal', icon: BookOpen },
 ]
-export const PAGE_LABEL = Object.fromEntries(NAV.flatMap((g) => g.items).map((i) => [i.key, i.label]))
-
-// The backend and seed still use the original page names; translate them to the new routes
-export function resolvePage(page, tab) {
-  const alias = { evidence: 'profile', direction: 'pathways', reach: 'networking', tracker: 'applications', buddies: 'peers' }
-  if (page === 'prep') return tab === 'interview' ? ['interview', null] : tab === 'cv' ? ['resume', null] : ['interview', tab]
-  return [alias[page] || page, tab]
-}
+export const PAGE_LABEL = Object.fromEntries(NAV.map((i) => [i.key, i.label]))
 
 export function PageHead({ title, lede, children }) {
   return (
@@ -38,26 +25,14 @@ export function PageHead({ title, lede, children }) {
   )
 }
 
-export function AiBadge({ res }) {
-  if (!res) return null
-  return (
-    <span className={`ai-badge ${res.live ? 'live' : 'demo'}`} title={res.note || 'Generated live by the model'}>
-      {res.live ? 'Live AI' : 'Demo fallback'}
-    </span>
-  )
-}
-
-export function FallbackNote({ res }) {
-  if (!res || res.live || !res.note) return null
-  return <p className="note">{res.note}</p>
-}
-
-// Wraps a call so each AI button gets its own loading, result and error state
+// Wraps a call so each button gets its own loading, result and error state, and can be retried
 export function useAction(fn) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const last = useRef([])
   const run = async (...args) => {
+    last.current = args
     setLoading(true)
     setError(null)
     try {
@@ -65,12 +40,33 @@ export function useAction(fn) {
       setResult(r)
       return r
     } catch (e) {
-      setError(e.message)
+      setError(e)
     } finally {
       setLoading(false)
     }
   }
-  return { run, loading, result, error, setResult }
+  return { run, loading, result, error, setResult, retry: () => run(...last.current) }
+}
+
+// A failed action: what went wrong, and a way to try again unless the daily limit was reached
+export function ErrorRetry({ error, onRetry }) {
+  if (!error) return null
+  return (
+    <div className="row error" role="alert" style={{ marginTop: 10 }}>
+      <span>{error.message || String(error)}</span>
+      {onRetry && error.status !== 429 && <button className="btn ghost small" onClick={onRetry}>Retry</button>}
+    </div>
+  )
+}
+
+export function Empty({ title, body, action, onAction }) {
+  return (
+    <div className="card empty">
+      <h2>{title}</h2>
+      {body && <p className="muted">{body}</p>}
+      {action && <button className="btn" onClick={onAction}>{action}</button>}
+    </div>
+  )
 }
 
 export function Meter({ value }) {
@@ -81,25 +77,48 @@ export function Meter({ value }) {
   )
 }
 
-export const initials = (name) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
+export const initials = (name) => (name || '?').split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || '?'
 export function Avatar({ name, size = '' }) {
   return <span className={`avatar ${size}`} aria-hidden>{initials(name)}</span>
 }
 
-export const TODAY = new Date('2026-10-08') // fixed demo date so the seeded week stays consistent
-export const money = (n) => `£${Number(n).toLocaleString('en-GB')}`
+const pad = (n) => String(n).padStart(2, '0')
+// Dates are handled as local calendar days ("2026-10-12"), never as UTC instants
+export const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+export const today = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
+export const parseDay = (iso) => { const [y, m, d] = iso.slice(0, 10).split('-').map(Number); return new Date(y, m - 1, d) }
+export const daysUntil = (iso) => Math.round((parseDay(iso) - today()) / 86400000)
 export const pct = (x) => `${Math.round(x * 100)}%`
-export const fmtDate = (iso, opts = { day: 'numeric', month: 'short' }) => new Date(iso).toLocaleDateString('en-GB', opts)
-export const posted = (d) => (d === 0 ? 'Posted today' : d === 1 ? 'Posted yesterday' : `Posted ${d} days ago`)
+export const fmtDate = (iso, opts = { day: 'numeric', month: 'short' }) => parseDay(iso).toLocaleDateString('en-GB', opts)
+export const VISA_LABEL = { student: 'Student', graduate: 'Graduate' }
+export const FIT_LABEL = { direct: 'Direct fit', near: 'Near fit', stretch: 'Stretch' }
 
-// Which of a role family's requirements the Evidence Bank already shows
-export function coverage(needs, evidence) {
-  const docs = evidence.map((e) => ({ e, text: [e.title, e.uk_version, ...(e.skills || [])].join(' ').toLowerCase() }))
-  return needs.map((n) => {
-    if (n.advice) return { ...n, status: 'prep' }
-    const hit = docs.find((d) => n.keywords.some((k) => d.text.includes(k)))
-    return { ...n, status: hit ? 'yes' : 'no', evidence: hit?.e.title }
-  })
+// One AI-suggested role family: fit, estimated overlap, and what the user already shows or lacks
+export function FamilyCard({ f, onToggle }) {
+  return (
+    <article className={`card family ${f.targeted ? 'selected' : ''}`}>
+      <div className="row">
+        <span className="fit">{FIT_LABEL[f.fit]}</span>
+        <span className="spacer" />
+        <label className="check"><input type="checkbox" checked={f.targeted} onChange={() => onToggle(f)} />Targeting</label>
+      </div>
+      <h3 style={{ fontSize: 17 }}>{f.name}</h3>
+      <div className="row small"><span style={{ width: 170 }}>{f.overlap}% overlap (AI estimate)</span><span style={{ flex: 1 }}><Meter value={f.overlap} /></span></div>
+      {f.why && <p className="small">{f.why}</p>}
+      {f.uk_titles.length > 0 && <p className="small muted">UK job titles: {f.uk_titles.join(', ')}</p>}
+      <div className="stack" style={{ gap: 8 }}>
+        {f.needs.map((n) => (
+          <div key={n.need} className="need">
+            <span className={`mark ${n.shown_by ? 'yes' : 'no'}`}>{n.shown_by ? <Check size={13} strokeWidth={3} /> : ''}</span>
+            <div>
+              <div className={n.shown_by ? '' : 'strong'}>{n.need}</div>
+              <div className="small muted">{n.shown_by ? `Shown by: ${n.shown_by}` : 'Gap'}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </article>
+  )
 }
 
 export function Brand({ onClick }) {
@@ -108,7 +127,7 @@ export function Brand({ onClick }) {
       <span className="brand-mark"><Compass size={18} /></span>
       <span>
         <span className="brand-name">UK Career Navigator</span>
-        <span className="brand-sub">for international students</span>
+        <span className="brand-sub">for international students and graduates</span>
       </span>
     </button>
   )

@@ -6,9 +6,9 @@ import { api } from './api'
   One ElevenLabs agent call over WebRTC. The backend mints a short-lived
   conversation token, so the API key never reaches the browser. Transcript
   turns stream in through onMessage; when the call ends the full transcript
-  is handed to onDone(text) for Bedrock to work on.
+  is handed to onDone(text) for the AI to work on.
 */
-export default function VoiceAgent({ agent, agentLabel, dynamicVariables, color, onDone, intro, children }) {
+export default function VoiceAgent({ agent, agentLabel, userId, dynamicVariables, color, onDone, intro, children }) {
   const [status, setStatus] = useState('idle') // idle | connecting | live | ended
   const [mode, setMode] = useState('listening')
   const [turns, setTurns] = useState([])
@@ -59,7 +59,8 @@ export default function VoiceAgent({ agent, agentLabel, dynamicVariables, color,
     setStatus('connecting')
     const open = (auth) => Conversation.startSession({
       ...auth,
-      dynamicVariables,
+      userId, // tags the conversation with its owner, so only they can read its transcript
+      dynamicVariables: { ...dynamicVariables, user_id: userId },
       onConnect: () => setStatus('live'),
       onMessage: addTurn,
       onModeChange: ({ mode }) => setMode(mode),
@@ -110,7 +111,7 @@ export default function VoiceAgent({ agent, agentLabel, dynamicVariables, color,
             {status === 'ended' && 'Call ended'}
           </div>
           <div className="small muted">
-            {status === 'live' ? 'Speak naturally. Press End when you are done.' : 'Uses your microphone. Voice by ElevenLabs.'}
+            {status === 'live' ? 'Speak naturally. Press End when you are done.' : 'Uses your microphone. Your voice is processed by ElevenLabs to run and transcribe this call.'}
           </div>
         </div>
         {status === 'live' || status === 'connecting'
