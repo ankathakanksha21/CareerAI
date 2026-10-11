@@ -114,3 +114,136 @@ def sync_families(conn, user_id, families: list[dict]) -> list[dict]:
 def set_family_targeted(conn, user_id, family_id, targeted: bool) -> dict | None:
     return _row(conn.execute("update role_families set targeted = %s where id = %s and user_id = %s returning *",
                              (targeted, family_id, user_id)).fetchone())
+
+
+# ---------- references to the user's other rows ----------
+
+def _own(conn, user_id, table: str, row_id):
+    """row_id if it names one of this user's rows in `table`, else None. Stops a row
+    from pointing at something that belongs to someone else or no longer exists."""
+    if row_id is None:
+        return None
+    found = conn.execute(f"select id from {table} where id = %s and user_id = %s", (row_id, user_id)).fetchone()
+    return found["id"] if found else None
+
+
+# ---------- saved jobs ----------
+
+def list_jobs(conn, user_id) -> list[dict]:
+    return _rows(conn.execute("select * from saved_jobs where user_id = %s order by created_at desc, id", (user_id,)))
+
+
+def get_job(conn, user_id, job_id) -> dict | None:
+    return _row(conn.execute("select * from saved_jobs where id = %s and user_id = %s", (job_id, user_id)).fetchone())
+
+
+def add_job(conn, user_id, *, title: str, company: str, location, url, description: str, summary: str,
+            keywords: list[str], role_family_id) -> dict:
+    return _row(conn.execute(
+        "insert into saved_jobs (user_id, title, company, location, url, description, summary, keywords, role_family_id) "
+        "values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
+        (user_id, title, company, location, url, description, summary, keywords or [],
+         _own(conn, user_id, "role_families", role_family_id))).fetchone())
+
+
+def delete_job(conn, user_id, job_id) -> bool:
+    return conn.execute("delete from saved_jobs where id = %s and user_id = %s", (job_id, user_id)).rowcount == 1
+
+
+# ---------- CV versions ----------
+
+def list_cv_versions(conn, user_id) -> list[dict]:
+    return _rows(conn.execute("select * from cv_versions where user_id = %s order by created_at desc, name desc", (user_id,)))
+
+
+def get_cv_version(conn, user_id, cv_version_id) -> dict | None:
+    return _row(conn.execute("select * from cv_versions where id = %s and user_id = %s", (cv_version_id, user_id)).fetchone())
+
+
+def add_cv_version(conn, user_id, *, saved_job_id, role_family_id, base_name: str, content: dict) -> dict:
+    """Save a tailored CV. Versions are numbered per job: "<base_name> v1", "v2", ..."""
+    job_id = _own(conn, user_id, "saved_jobs", saved_job_id)
+    n = conn.execute("select count(*) as n from cv_versions where user_id = %s and saved_job_id is not distinct from %s",
+                     (user_id, job_id)).fetchone()["n"]
+    return _row(conn.execute(
+        "insert into cv_versions (user_id, name, saved_job_id, role_family_id, content) values (%s, %s, %s, %s, %s) returning *",
+        (user_id, f"{base_name} v{n + 1}", job_id, _own(conn, user_id, "role_families", role_family_id), Jsonb(content))).fetchone())
+
+
+# ---------- STAR stories ----------
+
+def list_stories(conn, user_id) -> list[dict]:
+    return _rows(conn.execute("select * from stories where user_id = %s order by created_at desc, id", (user_id,)))
+
+
+def add_story(conn, user_id, achievement_id, story: dict) -> dict:
+    fields = ("title", "competency", "situation", "task", "action", "result", "strength", "tip")
+    return _row(conn.execute(
+        f"insert into stories (user_id, achievement_id, {', '.join(fields)}) values (%s, %s, {', '.join(['%s'] * len(fields))}) returning *",
+        (user_id, _own(conn, user_id, "achievements", achievement_id), *(story.get(f, "") for f in fields))).fetchone())
+
+
+# ---------- applications ----------
+
+APPLICATION_FIELDS = ("company", "role", "role_family_id", "cv_version_id", "saved_job_id", "source", "stage",
+                      "applied_on", "posted_on", "job_url", "contact", "notes", "sponsor_licence", "follow_up_on")
+_REFERENCES = {"role_family_id": "role_families", "cv_version_id": "cv_versions", "saved_job_id": "saved_jobs"}
+
+
+def _application_values(conn, user_id, fields: dict) -> dict:
+    unknown = set(fields) - set(APPLICATION_FIELDS)
+    if unknown:
+        raise ValueError(f"not application fields: {sorted(unknown)}")
+    return {k: _own(conn, user_id, _REFERENCES[k], v) if k in _REFERENCES else v for k, v in fields.items()}
+
+
+def list_applications(conn, user_id) -> list[dict]:
+    return _rows(conn.execute("select * from applications where user_id = %s order by applied_on desc, created_at desc, id", (user_id,)))
+
+
+def add_application(conn, user_id, fields: dict) -> dict:
+    # a field left out, or given as None where the column has a default (stage, applied_on), takes the default
+    values = {k: v for k, v in _application_values(conn, user_id, fields).items() if v is not None}
+    columns = ["user_id", *values]
+    return _row(conn.execute(
+        f"insert into applications ({', '.join(columns)}) values ({', '.join(['%s'] * len(columns))}) returning *",
+        (user_id, *values.values())).fetchone())
+
+
+def update_application(conn, user_id, app_id, fields: dict) -> dict | None:
+    values = _application_values(conn, user_id, fields)
+    assignments = ", ".join([f"{k} = %s" for k in values] + ["updated_at = now()"])
+    return _row(conn.execute(f"update applications set {assignments} where id = %s and user_id = %s returning *",
+                             (*values.values(), app_id, user_id)).fetchone())
+
+
+def delete_application(conn, user_id, app_id) -> bool:
+    return conn.execute("delete from applications where id = %s and user_id = %s", (app_id, user_id)).rowcount == 1
+
+
+# ---------- journal ----------
+
+def list_journal(conn, user_id) -> list[dict]:
+    return _rows(conn.execute("select * from journal_entries where user_id = %s order by created_at desc, id", (user_id,)))
+
+
+def add_journal_entry(conn, user_id, *, type: str, title: str, with_whom: str, summary: str, points, actions, scores=None) -> dict:
+    return _row(conn.execute(
+        "insert into journal_entries (user_id, type, title, with_whom, summary, points, actions, scores) "
+        "values (%s, %s, %s, %s, %s, %s, %s, %s) returning *",
+        (user_id, type, title, with_whom, summary, Jsonb(list(points)), Jsonb(list(actions)),
+         Jsonb(scores) if scores is not None else None)).fetchone())
+
+
+# ---------- everything one user owns ----------
+
+def load_state(conn, user_id) -> dict:
+    return {
+        "achievements": list_achievements(conn, user_id),
+        "role_families": list_families(conn, user_id),
+        "saved_jobs": list_jobs(conn, user_id),
+        "cv_versions": list_cv_versions(conn, user_id),
+        "stories": list_stories(conn, user_id),
+        "applications": list_applications(conn, user_id),
+        "journal": list_journal(conn, user_id),
+    }
