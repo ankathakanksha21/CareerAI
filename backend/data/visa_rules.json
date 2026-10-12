@@ -1,0 +1,18 @@
+{
+  "checked_on": "2026-10-12",
+  "standard_salary": 41700,
+  "lower_salary": 33400,
+  "links": {
+    "salary": "https://www.gov.uk/skilled-worker-visa/your-job",
+    "paid_less": "https://www.gov.uk/skilled-worker-visa/when-you-can-be-paid-less",
+    "eligible_occupations": "https://www.gov.uk/government/publications/skilled-worker-visa-eligible-occupations",
+    "going_rates": "https://www.gov.uk/government/publications/skilled-worker-visa-going-rates-for-eligible-occupations",
+    "register": "https://www.gov.uk/government/publications/register-of-licensed-sponsors-workers",
+    "graduate_visa": "https://www.gov.uk/graduate-visa",
+    "student_visa": "https://www.gov.uk/student-visa"
+  },
+  "sources": [
+    {"label": "Skilled Worker visa: your job", "url": "https://www.gov.uk/skilled-worker-visa/your-job"},
+    {"label": "Skilled Worker visa: when you can be paid less", "url": "https://www.gov.uk/skilled-worker-visa/when-you-can-be-paid-less"}
+  ]
+}
