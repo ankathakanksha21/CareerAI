@@ -17,20 +17,26 @@ Design principles:
 
 ## 2. Roadmap and status
 
-| Step | What | Status |
-|---|---|---|
-| 0 | Accounts, saved data, removal of the demo persona | Built. Verification record in section 13 |
-| 1 | Deeper onboarding: CV upload, LinkedIn and GitHub import, editing achievements, automatic STAR bank | Not started |
-| 2 | Real jobs, sponsor register, visa check, fit scoring, alerts | Not started. Sources decided (below) |
-| 3 | Full UK-standard CV with all sections, DOCX/PDF export | Not started |
-| 4 | Tracker extras (link, follow-up, notes, contact in the UI), per-rejection learning, weekly plan, streaks, milestones | Not started. The database columns already exist |
-| 5 | Interview prep: company research, questions to ask, 6 to 8 story bank | Not started |
-| 6 | Hidden market: real events, contacts, outreach drafts | Not started |
-| 7 | Peers: matching, buddy groups | Not started |
+Every step has a document holding its goal, every decision made for it, the design, the behaviours to test, the hand checks and what "done" means. All eight designs were agreed with the project owner on 12 October 2026. To build a step, open a new session in this repository and say "build step N".
 
-Decided for step 2: job data comes from the official **Adzuna** and **Reed** APIs plus the **gov.uk register of licensed sponsors**. Graduate boards without a public API (Prospects, Bright Network, Handshake) are deferred. The matching approach is proposed but not yet agreed: the AI lists what each job description asks for, checks each requirement against the user's achievements, and labels the job direct fit, about 70% overlap, or stretch.
+| Step | What | Depends on | Status | Document |
+|---|---|---|---|---|
+| 0 | Accounts, saved data, removal of the demo persona | – | Built. Three hand checks left (section 13) | `careerai-step-0-accounts-and-saved-data` |
+| 1 | Deeper onboarding: CV upload, GitHub import, editing achievements, education and work history, story bank | 0 | Designed | `careerai-step-1-deeper-onboarding` |
+| 2 | Real jobs from Adzuna and Reed, fit scoring, sponsor register, visa salary facts | 0 | Designed | `careerai-step-2-real-jobs` |
+| 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Designed | `careerai-step-3-full-uk-cv` |
+| 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Designed | `careerai-step-4-tracker-and-habits` |
+| 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Designed | `careerai-step-5-interview-prep` |
+| 6 | Hidden market: contacts, outreach drafts, saved events, referrals | 4 | Designed | `careerai-step-6-hidden-market` |
+| 7 | Peers: opt-in buddy groups of two or three | 4 | Designed | `careerai-step-7-peers` |
 
-Each step follows the same cycle: questions to the project owner, a written spec, a written plan, test-first build, verification, then this document is updated. Specs and plans live in `docs/superpowers/`.
+The documents live in `.claude/skills/<name>/SKILL.md`. The method every step follows is `careerai-building-a-step`, in the same folder. Project-wide rules are in `CLAUDE.md`.
+
+**Agreed build order:** 2, 1, 3, 4, 5, 6, 7. Real jobs come first because they are the largest gap and need nothing but step 0.
+
+**How a step is built.** One step per session, on its own branch from `main`: orient and run the tests; re-check anything listed under "Verify at build time"; write a task-by-task plan against the code as it then is, for the owner to approve; build test-first; verify by tests, real-model checks and by hand; update this document. The owner merges the branch into `main` through a pull request.
+
+**What the step documents fix, and what they leave to the build session.** Fixed: what is built, every product decision, the data model, the routes, the tests that must exist. Left to the session: the file-by-file task list, and anything about an outside service that may have changed (prices, limits, exact fields, current visa figures).
 
 ## 3. System overview
 

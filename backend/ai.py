@@ -98,10 +98,21 @@ def _words(text: str) -> list[str]:
     return re.findall(r"[a-z0-9']+", text.lower())
 
 
+SPEAKER = re.compile(r"^\s*(coach|interviewer|candidate)\s*:\s?(.*)$", re.I)
+
+
 def _said_by_candidate(transcript: str) -> str:
-    """The candidate's own lines of a call transcript, or the whole text if it has no speaker labels."""
-    lines = [line.split(":", 1)[1] for line in transcript.splitlines() if line.strip().lower().startswith("candidate:")]
-    return "\n".join(lines) if lines else transcript
+    """Only what the candidate said in a call transcript. A line with no speaker label continues
+    the previous speaker's turn. Text with no labels at all (a pasted CV) is all the candidate's;
+    a call in which the candidate never spoke yields nothing, never the other speaker's words."""
+    labelled, speaker, mine = False, None, []
+    for line in transcript.splitlines():
+        m = SPEAKER.match(line)
+        if m:
+            labelled, speaker, line = True, m.group(1).lower(), m.group(2)
+        if speaker == "candidate":
+            mine.append(line)
+    return "\n".join(mine) if labelled else transcript
 
 
 MIN_SHARED_SHARE = 0.5  # how much of a paraphrase must appear in one sentence to count as its source...

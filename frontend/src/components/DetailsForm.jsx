@@ -3,6 +3,9 @@ import { X } from 'lucide-react'
 import { put } from '../api'
 
 const MAX_LOCATIONS = 5
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const THIS_YEAR = new Date().getFullYear()
+const YEARS = Array.from({ length: 13 }, (_, i) => THIS_YEAR - 6 + i) // graduated up to 6 years ago, or graduating within 6
 
 // The exact facts the app needs from every user. Typed rather than spoken, so dates and names are right.
 export default function DetailsForm({ profile, onSaved, onCancel, submitLabel = 'Save' }) {
@@ -10,7 +13,8 @@ export default function DetailsForm({ profile, onSaved, onCancel, submitLabel = 
     full_name: profile.full_name || '',
     university: profile.university || '',
     course: profile.course || '',
-    graduation: (profile.graduation_date || '').slice(0, 7),
+    grad_month: (profile.graduation_date || '').slice(5, 7),
+    grad_year: (profile.graduation_date || '').slice(0, 4),
     visa_type: profile.visa_type || '',
     visa_end_date: profile.visa_end_date || '',
     locations: profile.locations || [],
@@ -39,7 +43,7 @@ export default function DetailsForm({ profile, onSaved, onCancel, submitLabel = 
     if (!form.full_name.trim()) e.full_name = 'Enter your full name.'
     if (!form.university.trim()) e.university = 'Enter your university.'
     if (!form.course.trim()) e.course = 'Enter your course.'
-    if (!form.graduation) e.graduation = 'Choose the month you graduate or graduated.'
+    if (!form.grad_month || !form.grad_year) e.graduation = 'Choose the month and year you graduate or graduated.'
     if (!form.visa_type) e.visa_type = 'Choose your visa type.'
     if (!form.visa_end_date) e.visa_end_date = 'Enter the date your visa ends.'
     if (locations.length === 0) e.locations = 'Add at least one location.'
@@ -49,7 +53,7 @@ export default function DetailsForm({ profile, onSaved, onCancel, submitLabel = 
     try {
       const saved = await put('/api/profile', {
         full_name: form.full_name, university: form.university, course: form.course,
-        graduation_date: `${form.graduation}-01`, visa_type: form.visa_type, visa_end_date: form.visa_end_date, locations,
+        graduation_date: `${form.grad_year}-${form.grad_month}-01`, visa_type: form.visa_type, visa_end_date: form.visa_end_date, locations,
       })
       setPlace('')
       await onSaved(saved)
@@ -69,7 +73,20 @@ export default function DetailsForm({ profile, onSaved, onCancel, submitLabel = 
         <label className="field">Course<input type="text" value={form.course} onChange={set('course')} placeholder="e.g. MSc Business Analytics" />{err('course')}</label>
       </div>
       <div className="grid cols-2">
-        <label className="field">Graduation month<input type="month" value={form.graduation} onChange={set('graduation')} />{err('graduation')}</label>
+        <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend style={{ padding: 0, marginBottom: 4 }}>Graduation</legend>
+          <div className="row" style={{ gap: 8 }}>
+            <select value={form.grad_month} onChange={set('grad_month')} aria-label="Graduation month">
+              <option value="">Month</option>
+              {MONTHS.map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
+            </select>
+            <select value={form.grad_year} onChange={set('grad_year')} aria-label="Graduation year">
+              <option value="">Year</option>
+              {(form.grad_year && !YEARS.includes(+form.grad_year) ? [+form.grad_year, ...YEARS] : YEARS).map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          {err('graduation')}
+        </fieldset>
         <label className="field">Visa end date<input type="date" value={form.visa_end_date} onChange={set('visa_end_date')} />{err('visa_end_date')}</label>
       </div>
       <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>

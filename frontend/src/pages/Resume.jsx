@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { del, post } from '../api'
-import { Empty, ErrorRetry, PageHead, useAction } from '../ui'
+import { Empty, ErrorRetry, PageHead, attempt, useAction } from '../ui'
 import { AddJob, JobPicker } from '../components/Jobs'
 
 export default function Resume({ s, focus, refresh, go, notify }) {
@@ -25,10 +25,12 @@ export default function Resume({ s, focus, refresh, go, notify }) {
   const onAdded = async (j) => { await refresh(); setJobId(j.id); setOpenId(null); setAdding(false); notify('Job saved') }
   const removeJob = async () => {
     if (!window.confirm(`Remove ${job.title}, ${job.company}? CVs already tailored for it are kept.`)) return
-    await del(`/api/jobs/${job.id}`)
-    await refresh()
-    setJobId('')
-    setOpenId(null)
+    await attempt(notify)(async () => {
+      await del(`/api/jobs/${job.id}`)
+      await refresh()
+      setJobId('')
+      setOpenId(null)
+    })
   }
 
   const versions = job ? s.cv_versions.filter((c) => c.saved_job_id === job.id) : []

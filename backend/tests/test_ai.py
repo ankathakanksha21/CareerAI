@@ -261,6 +261,23 @@ def test_verbatim_never_quotes_the_coach():
     assert ai.verbatim("What did you do before your course?", CALL) == ""
 
 
+def test_verbatim_never_quotes_the_coach_when_the_candidate_said_nothing():
+    only_coach = ("Coach: Hi there, what work or projects have you done so far?\n"
+                  "Coach: Could you tell me about the delays report you built?")
+    assert ai.verbatim("the delays report you built", only_coach) == ""
+
+
+def test_verbatim_never_quotes_the_interviewer():
+    call = "Interviewer: Tell me about a time you worked under pressure in a team.\nCandidate: Yes, of course."
+    assert ai.verbatim("worked under pressure in a team", call) == ""
+
+
+def test_verbatim_keeps_a_candidates_second_line():
+    call = "Coach: Tell me more.\nCandidate: I built a report.\nIt saved the team five hours a week.\nCoach: Great."
+    assert ai.verbatim("It saved the team five hours a week", call) == "It saved the team five hours a week"
+    assert ai.verbatim("Great", call) == ""
+
+
 def test_verbatim_does_not_match_inside_other_words():
     # "he said" must not be found inside "the said"
     assert ai.verbatim("he said", "Candidate: the said report was late.") == ""
