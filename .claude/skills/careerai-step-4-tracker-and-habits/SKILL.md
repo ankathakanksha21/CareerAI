@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 4 of the CareerAI r
 
 # Step 4: tracker and habits
 
-**Status:** Not started. **Depends on:** step 0. Uses steps 2 and 3 where they exist (sponsor status, full CV versions) and must work without them. **Size:** medium.
+**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Uses steps 2 and 3 where they exist (sponsor status, full CV versions) and must work without them. **Size:** medium.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -21,13 +21,13 @@ This is the product's main differentiator in the owner's words: tracking quality
 | Streak | Counts weeks in which the user met their own weekly goal. A missed day does not break it | Owner, 12 Oct 2026 |
 | Rejections | The tracker asks where it ended and whether feedback was given, then suggests one specific change. One AI action each | Owner, 12 Oct 2026 |
 | Tracker view | The drag-and-drop board, plus a detail panel with every field when a card is clicked. No table view | Owner, 12 Oct 2026 |
-| Weekly goal | Set by the user. Defaults: 5 applications and 2 practice sessions a week | Recommended, owner to confirm on review |
-| What counts as an application for the goal | One with a CV version recorded. Others are still logged, and shown as "no CV recorded", but do not count. This rewards the tailored application the product is built around | Recommended, owner to confirm on review |
-| What counts as practice | A finished mock interview or daily drill (step 5) | Recommended |
-| Week | Monday to Sunday, UK time | Recommended |
-| Follow-ups | In the app only. Suggested 7 days after applying. Nothing is ever sent for the user | Recommended |
-| Weekly plan | Built by rules from the user's real state, not by AI, and ticked automatically when the thing is done. No manual tick boxes | Recommended |
-| Milestones | Worked out from real data, shown once each as a small banner | Recommended |
+| Weekly goal | Set by the user. Defaults: 5 applications and 2 practice sessions a week | Recommended; approved 12 Oct 2026 |
+| What counts as an application for the goal | One with a CV version recorded. Others are still logged, and shown as "no CV recorded", but do not count. This rewards the tailored application the product is built around | Recommended; approved 12 Oct 2026 |
+| What counts as practice | A finished mock interview. There is no daily drill (owner's decision for step 5) | Recommended; approved 12 Oct 2026 |
+| Week | Monday to Sunday, UK time | Recommended; approved 12 Oct 2026 |
+| Follow-ups | In the app only. Suggested 7 days after applying. Nothing is ever sent for the user | Recommended; approved 12 Oct 2026 |
+| Weekly plan | Built by rules from the user's real state, not by AI, and ticked automatically when the thing is done. No manual tick boxes | Recommended; approved 12 Oct 2026 |
+| Milestones | Worked out from real data, shown once each as a small banner | Recommended; approved 12 Oct 2026 |
 
 ## In scope
 
@@ -176,5 +176,5 @@ A user can open the app on any day and see what is due, what to do this week and
 
 ## Verify at build time
 
-- Which earlier steps have shipped, and switch the dependent parts on or off accordingly: sponsor status and "new jobs" tasks need step 2; lessons are richer with step 3's full CV content; "practice" also counts daily drills once step 5 exists.
+- Which earlier steps have shipped, and switch the dependent parts on or off accordingly: sponsor status and "new jobs" tasks need step 2; lessons are richer with step 3's full CV content.
 - That the weekly-goal definition ("an application counts when a CV version is recorded") still matches what the owner wants once they have used the tracker for real.
