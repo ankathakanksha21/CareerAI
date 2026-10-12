@@ -2,6 +2,8 @@
 
 > **For agentic workers:** follow `careerai-building-a-step` stage 4. Every task is test-first: write the tests, watch them fail for the right reason, write the code, watch them pass, run the whole suite, commit. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status, 12 October 2026:** tasks 1 to 12 are built and committed. Still open: task 5 step 1 (looking at Reed's real replies) and, in task 13, everything that needs the Reed key or the owner signed in. Task 5 was built against Reed's documented reply because no key was available. Three things changed from this plan while building, each for a stated reason: the offer check became `POST /api/visa-facts` so an offer never reaches a log; `SCORE_BATCH` is 5, so scoring is three calls side by side; and a repost of a job the user already has, or dismissed, is never matched again.
+
 **Goal:** A signed-in user who has picked target roles opens Jobs and sees real, current Reed adverts for those roles and locations, each scored against their own achievements, labelled with what the gov.uk sponsor register says about the employer and the current visa salary figures, and can save, tailor, practise for, track or dismiss any of them in one click.
 
 **Architecture:** Reed is searched server-side through a shared six-hour cache. Listings and the sponsor register are shared public tables with no `user_id`; each user's view of a listing is a private `job_matches` row. A refresh reads its plan in one short transaction, calls Reed and the model with no connection open, then writes. The register is reloaded weekly from gov.uk by a scheduled job or a script.

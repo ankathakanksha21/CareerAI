@@ -1,12 +1,27 @@
 ---
 name: careerai-step-2-real-jobs
-description: Use when building, continuing or reviewing step 2 of the CareerAI roadmap - real job listings from Adzuna and Reed, matching jobs to the user's profile, the gov.uk sponsor register, and visa salary facts
+description: Use when building, continuing or reviewing step 2 of the CareerAI roadmap - real job listings from Reed, matching jobs to the user's profile, the gov.uk sponsor register, and visa salary facts
 ---
 
 # Step 2: real jobs
 
-**Status:** In progress on branch `step-2-real-jobs`. Design approved by the owner, 12 October 2026; sources rechecked and four changes agreed the same day (see "Changed at build time"). **Depends on:** step 0 (works better after step 1, which adds skills and work history, but does not require it). **Size:** large, about the same as step 0.
+**Status:** Built on branch `step-2-real-jobs` (12 October 2026), not yet merged. **Not finished:** it has never run against the real Reed API (no key was available) and none of the hand checks are done. See "Where it stands" straight below. **Depends on:** step 0 (works better after step 1, which adds skills and work history, but does not require it). **Size:** large, about the same as step 0.
 **REQUIRED:** follow `careerai-building-a-step`.
+
+## Where it stands (12 October 2026)
+
+All thirteen tasks in `docs/superpowers/plans/2026-10-12-step-2-real-jobs.md` are built and committed except the verification that needs the owner. 511 backend tests pass; the real register is loaded; the fit-scoring task passes on the real model.
+
+To finish the step, in this order:
+
+1. The owner adds `REED_API_KEY` to `backend/.env` (free, from reed.co.uk/developers/jobseeker).
+2. Run `python scripts/reed_check.py` from `backend/`. It prints the shape of Reed's real replies. Compare with what `reed.py` assumes: the posting date field in search results (`date` or `datePosted`, as `dd/mm/yyyy` or ISO), the order of results, the length of search descriptions, `salaryType` in the full advert. Fix `reed.parse` and `reed.details` test-first if anything differs, and record what was found here.
+3. If most of the first 100 results of a search are older than 14 days, results are not newest-first: page through more results or tell the owner before changing the design.
+4. With the owner signed in, do the eight hand checks below in the browser, and look closely at the Jobs page layout, which has only been checked by lint and build.
+5. Check how fit scores look on the owner's real profile. The model is strict (a sample analyst profile scored 40% on a matching analyst advert). If good matches land under "Not a match", soften the wording in `ai.score_jobs` and re-run `scripts/live_check.py`.
+6. Update `docs/ARCHITECTURE.md` section 16 and this section, then give the owner the pull request link when they ask.
+
+Decisions made while building, beyond those in "Changed at build time", are in the plan's table and in `docs/ARCHITECTURE.md` sections 5 and 15. Two that differ from this document's original design: the offer check is `POST /api/visa-facts` (not GET), and sponsor status is stored on the shared listing, not on each match.
 
 ## Goal
 

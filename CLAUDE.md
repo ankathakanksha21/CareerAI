@@ -19,7 +19,8 @@ The product is built in numbered steps, 0 to 7. Each step has its own document i
 - **No database connection held open across an AI, voice or other outside call.**
 - **Everything that costs money is limited per user per day** (`limits.py`).
 - **The menu shows only features that genuinely work.** Every page has an empty state with one clear action.
-- **Tests first.** Write the failing test, watch it fail, then write the code. Run the whole suite before every commit.
+- **Tests first.** Write the failing test, watch it fail, then write the code. Run the whole suite before every commit, and on its own: the tests use the real database.
+- **Shared tables are real.** `job_listings`, `job_searches`, `sponsors` and `reference_meta` hold live public data with no `user_id`. A test must use names that cannot be real, must never count or clear a whole table, and must use the `own_transaction` fixture for any code that calls `db.transaction()`.
 - **Ask before building.** The project owner wants open questions settled before code is written. Decisions recorded in a step document are settled; do not re-ask them.
 - **British English** in all copy and prompts. No em dashes in UI copy or prompts.
 
@@ -41,6 +42,8 @@ The product is built in numbered steps, 0 to 7. Each step has its own document i
 cd backend && .venv\Scripts\python -m pytest tests          # all backend tests (uses the real database, rolled back)
 cd backend && .venv\Scripts\python migrate.py               # apply new migrations
 cd backend && .venv\Scripts\python scripts/live_check.py    # one real call per AI task (uses credits)
+cd backend && .venv\Scripts\python scripts/refresh_sponsors.py   # reload the gov.uk sponsor register
+cd backend && .venv\Scripts\python scripts/reed_check.py   # one real Reed search; prints the reply's shape
 cd backend && .venv\Scripts\python -m uvicorn main:app --reload --port 8000
 cd frontend && npm run dev                                  # http://localhost:5173
 cd frontend && npm run lint && npm run build
