@@ -333,3 +333,40 @@ def explain_diagnosis(findings: list, stats: dict, profile: dict) -> dict:
     )
     template = {"headline": "", "working": "", "problem": "", "one_change": "", "signal": ""}
     return _run("diagnosis", system, user, template, 900, required=("headline", "one_change"))
+
+
+# 9. Job adverts against the candidate's achievements
+MAX_REQUIREMENTS = 6
+ADVERT_CHARS = 2500
+
+
+def score_jobs(batch: list, achievements: list) -> dict:
+    """What each advert asks for and which of the candidate's achievements shows it, keyed by
+    the advert's number: {n: [{"need", "shown_by"}]}. An advert the model left out is simply
+    absent. Only the achievements are sent, nothing else about the person."""
+    system = (
+        "Compare job adverts with a candidate's achievements. For every numbered advert, list the 4 to 6 main things it asks for: "
+        "skills, tools, experience or qualifications. Leave out benefits, the company description and generic wishes such as 'team player'. "
+        "List them for every advert, including ones the candidate plainly does not fit. "
+        "For each one, shown_by is the title of the achievement that gives real evidence of it, copied exactly from the list: "
+        "the same skill or tool, or the same kind of work, even if the advert words it differently. "
+        "If no achievement gives real evidence, shown_by is an empty string. Do not credit a loosely related topic."
+    )
+    adverts = [{"n": b["n"], "title": b["title"], "employer": b["employer"], "advert": (b.get("description") or "")[:ADVERT_CHARS]} for b in batch]
+    user = (
+        f"Achievements: {_j([{k: a.get(k) for k in ('title', 'uk_version', 'skills')} for a in achievements])}\n\n"
+        f"Adverts: {_j(adverts)}\n\n"
+        'Return {"jobs":[{"n":int (the advert number),"requirements":[{"need":str (under 12 words),"shown_by":str (an achievement title, or "")}]}]}'
+    )
+    template = {"jobs": [{"n": 0, "requirements": [{"need": "", "shown_by": ""}]}]}
+    data = _run("job fit", system, user, template, 400 + 320 * len(batch), required=("jobs",))
+    sent, scored = {b["n"] for b in batch}, {}
+    for job in data["jobs"]:
+        if job["n"] not in sent or job["n"] in scored:
+            continue
+        requirements = [{"need": r["need"].strip(), "shown_by": "" if r["shown_by"].strip().lower() in NOT_SHOWN else r["shown_by"].strip()}
+                        for r in job["requirements"] if r["need"].strip()]
+        scored[job["n"]] = requirements[:MAX_REQUIREMENTS]
+    if not scored:
+        raise AIError("job fit")
+    return scored

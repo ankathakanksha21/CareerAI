@@ -71,6 +71,14 @@ def test_complete_json_no_json_raises_value_error(calls):
         llm.complete_json("sys", "user")
 
 
+@pytest.mark.parametrize("reply", ['{"a": [1, 2]}}', '{"a": [1, 2]}`', '{"a": [1, 2]}"', '{"a": [1, 2]})',
+                                   '{"a": [1, 2]}\nI hope this helps {really}'])
+def test_complete_json_ignores_whatever_follows_the_json(calls, reply):
+    """The model sometimes adds a stray bracket or quote after a complete answer."""
+    calls(reply)
+    assert llm.complete_json("sys", "user") == {"a": [1, 2]}
+
+
 def test_complete_json_truncated_json_raises_value_error(calls):
     calls('{"items": [{"title": "cut off he')
     with pytest.raises(ValueError):

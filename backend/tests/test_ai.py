@@ -319,3 +319,69 @@ def test_interview_requires_at_least_one_fix(model):
     model(FEEDBACK | {"fixes": []}, FEEDBACK | {"fixes": [{"point": "", "you_said": ""}]})
     with pytest.raises(ai.AIError):
         ai.interview_feedback(INTERVIEW_CALL, JOB, PROFILE, "Behavioural round")
+
+
+# ---------- job adverts against the candidate's achievements ----------
+
+BATCH = [{"n": 1, "title": "Role A", "employer": "Company A", "description": "Needs SQL."},
+         {"n": 2, "title": "Role B", "employer": "Company B", "description": "Needs Python."}]
+
+
+def scored(n, *requirements):
+    return {"n": n, "requirements": [{"need": need, "shown_by": by} for need, by in requirements]}
+
+
+def test_score_jobs_returns_requirements_per_advert(model):
+    model({"jobs": [scored(1, ("SQL", "Thing one")), scored(2, ("Python", ""))]})
+    assert ai.score_jobs(BATCH, ACHIEVEMENTS) == {1: [{"need": "SQL", "shown_by": "Thing one"}], 2: [{"need": "Python", "shown_by": ""}]}
+
+
+def test_score_jobs_keeps_only_adverts_that_were_sent(model):
+    model({"jobs": [scored(7, ("SQL", "Thing one")), scored(2, ("Python", ""))]})
+    assert list(ai.score_jobs(BATCH, ACHIEVEMENTS)) == [2]
+
+
+def test_score_jobs_first_entry_for_an_advert_wins(model):
+    model({"jobs": [scored(1, ("SQL", "Thing one")), scored(1, ("Something else", ""))]})
+    assert ai.score_jobs(BATCH, ACHIEVEMENTS) == {1: [{"need": "SQL", "shown_by": "Thing one"}]}
+
+
+def test_score_jobs_reads_the_advert_number_from_text(model):
+    model({"jobs": [{"n": "2", "requirements": ["Python"]}, {"n": "Advert 1", "requirements": [{"need": "SQL", "shown_by": "Thing one"}]}]})
+    assert ai.score_jobs(BATCH, ACHIEVEMENTS) == {2: [{"need": "Python", "shown_by": ""}], 1: [{"need": "SQL", "shown_by": "Thing one"}]}
+
+
+def test_score_jobs_drops_blank_needs_and_keeps_six_at_most(model):
+    model({"jobs": [scored(1, ("  ", "Thing one"), *[(f"need {i}", "") for i in range(9)])]})
+    assert [r["need"] for r in ai.score_jobs(BATCH, ACHIEVEMENTS)[1]] == [f"need {i}" for i in range(6)]
+
+
+@pytest.mark.parametrize("word", ["None", "gap", "N/A", "-", "null"])
+def test_score_jobs_none_like_shown_by_is_a_gap(model, word):
+    model({"jobs": [scored(1, ("SQL", word))]})
+    assert ai.score_jobs(BATCH, ACHIEVEMENTS)[1] == [{"need": "SQL", "shown_by": ""}]
+
+
+def test_score_jobs_keeps_an_advert_with_no_requirements_as_empty(model):
+    model({"jobs": [scored(1), scored(2, ("Python", ""))]})
+    assert ai.score_jobs(BATCH, ACHIEVEMENTS)[1] == []  # too little in the advert to judge: no score, and not asked again
+
+
+def test_score_jobs_raises_when_no_advert_comes_back(model):
+    calls = model({"jobs": []}, {"jobs": [scored(9, ("SQL", ""))]})
+    with pytest.raises(ai.AIError):
+        ai.score_jobs(BATCH, ACHIEVEMENTS)
+    assert len(calls) == 2  # an empty reply is retried once; a reply about other adverts is not usable
+
+
+def test_score_jobs_prompt_cuts_long_adverts_and_names_the_achievements(model):
+    calls = model({"jobs": [scored(1, ("SQL", ""))]})
+    ai.score_jobs([BATCH[0] | {"description": "x" * 5000 + " TAILMARK"}], ACHIEVEMENTS)
+    assert "TAILMARK" not in calls[0]["user"] and "Thing one" in calls[0]["user"]
+
+
+def test_score_jobs_sends_nothing_about_the_person_but_their_achievements(model):
+    calls = model({"jobs": [scored(1, ("SQL", ""))]})
+    ai.score_jobs(BATCH, ACHIEVEMENTS)
+    prompt = calls[0]["system"] + calls[0]["user"]
+    assert "Test Person" not in prompt and "visa" not in prompt.lower() and "University A" not in prompt
