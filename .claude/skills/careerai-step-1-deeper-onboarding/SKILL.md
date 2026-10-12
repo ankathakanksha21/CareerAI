@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 1 of the CareerAI r
 
 # Step 1: deeper onboarding
 
-**Status:** Not started. **Depends on:** step 0. **Size:** medium (smaller than step 0).
+**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 0. **Size:** medium (smaller than step 0).
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -22,12 +22,12 @@ After step 0 a profile can only be built by voice or pasted text, achievements c
 | LinkedIn | Not included. Users can paste their LinkedIn text into the existing paste box | Owner, 12 Oct 2026 |
 | Uploaded files | Read, then discarded. Only the extracted text and what is built from it are saved | Owner, 12 Oct 2026 |
 | CV facts | Education, work history, skills and languages are collected and confirmed in this step, not in step 3 | Owner, 12 Oct 2026 |
-| File types | PDF and Word (.docx), up to 5 MB. Text is cut at 30,000 characters with a notice | Recommended, owner to confirm on review |
-| Unreadable files | A scanned or image-only PDF gets "We could not read any text in this file. Paste the text instead." No OCR | Recommended |
-| Editing | Every field of an achievement can be edited by hand. "Improve with AI" rewrites the bullet using the existing facts plus a short note the user types (for example the missing number) | Recommended |
-| Missing numbers | Achievements with no number show an "Add a number" prompt | Recommended |
-| Story bank | One button, "Build my story bank", writes STAR stories for up to 8 of the strongest achievements that have none, in one AI call. Stories can be edited and deleted | Recommended |
-| Duplicates | When importing from a second source the AI is given the existing achievements and told not to repeat them. The user deletes any that slip through | Recommended |
+| File types | PDF and Word (.docx), up to 5 MB. Text is cut at 30,000 characters with a notice | Recommended; approved 12 Oct 2026 |
+| Unreadable files | A scanned or image-only PDF gets "We could not read any text in this file. Paste the text instead." No OCR | Recommended; approved 12 Oct 2026 |
+| Editing | Every field of an achievement can be edited by hand. "Improve with AI" rewrites the bullet using the existing facts plus a short note the user types (for example the missing number) | Recommended; approved 12 Oct 2026 |
+| Missing numbers | Achievements with no number show an "Add a number" prompt | Recommended; approved 12 Oct 2026 |
+| Story bank | One button, "Build my story bank", writes STAR stories for up to 8 of the strongest achievements that have none, in one AI call. Stories can be edited and deleted | Recommended; approved 12 Oct 2026 |
+| Duplicates | When importing from a second source the AI is given the existing achievements and told not to repeat them. The user deletes any that slip through | Recommended; approved 12 Oct 2026 |
 
 ## In scope
 
