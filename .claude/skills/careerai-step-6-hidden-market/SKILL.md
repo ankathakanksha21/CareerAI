@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 6 of the CareerAI r
 
 # Step 6: the hidden market
 
-**Status:** Not started. **Depends on:** step 4 (weekly goals and streak). **Size:** medium.
+**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 4 (weekly goals and streak). **Size:** medium.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -20,11 +20,11 @@ The owner's notes: many UK roles are filled through referrals or never advertise
 |---|---|---|
 | Events | The app builds search links that open on Meetup, Eventbrite, the user's university and professional bodies. The user saves the events they find. Nothing is scraped or invented | Owner, 12 Oct 2026 |
 | Outreach target | A third weekly target beside applications and practice. The user can set it to zero | Owner, 12 Oct 2026 |
-| Contacts | Added by the user. The app never looks people up or imports them | Recommended (LinkedIn offers no API for this) |
-| Messages | The AI drafts; the user copies and sends them wherever they like. The app never sends anything | Recommended, as in step 4 |
-| No invented connection | A draft may mention only the link the user entered ("how you know them"). It must not claim a shared history, mutual contact or meeting that was not entered | Recommended, follows the project's real-data rule |
-| Existing users | The outreach target starts at 0 for accounts created before this step, with an invitation to set one, so nobody's streak breaks without warning. New accounts start at 2 | Recommended |
-| What counts | Each message the user marks as sent, of any type, counts once toward the week | Recommended |
+| Contacts | Added by the user. The app never looks people up or imports them | Recommended; approved 12 Oct 2026 (LinkedIn offers no API for this) |
+| Messages | The AI drafts; the user copies and sends them wherever they like. The app never sends anything | Recommended; approved 12 Oct 2026 |
+| No invented connection | A draft may mention only the link the user entered ("how you know them"). It must not claim a shared history, mutual contact or meeting that was not entered | Recommended; approved 12 Oct 2026 |
+| Existing users | The outreach target starts at 0 for accounts created before this step, with an invitation to set one, so nobody's streak breaks without warning. New accounts start at 2 | Recommended; approved 12 Oct 2026 |
+| What counts | Each message the user marks as sent, of any type, counts once toward the week | Recommended; approved 12 Oct 2026 |
 
 ## In scope
 
