@@ -4,7 +4,10 @@
   "functions": {
     "app.py": {
       "maxDuration": 60,
-      "excludeFiles": "{frontend/node_modules/**,frontend/src/**,frontend/public/**,backend/.venv/**,**/__pycache__/**,docs/**,.claude/**}"
+      "excludeFiles": "{frontend/node_modules/**,frontend/src/**,frontend/public/**,backend/.venv/**,backend/tests/**,backend/scripts/**,**/__pycache__/**,docs/**,.claude/**,.superpowers/**}"
     }
-  }
+  },
+  "regions": [
+    "lhr1"
+  ]
 }

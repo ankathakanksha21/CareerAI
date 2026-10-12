@@ -355,7 +355,8 @@ input[type=checkbox] { accent-color: var(--green); width: 16px; height: 16px; }
   .event { grid-template-columns: 52px 1fr; }
   .event > :last-child { grid-column: 2; }
   .stats4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .topbar .btn.ghost, .ob-top .brand-sub { display: none; }
+  .topbar .brand-sub, .ob-top .brand-sub { display: none; }  /* Sign in must stay reachable on a phone */
+  .topbar { gap: 10px; }
   .ob-top { flex-wrap: wrap; gap: 10px; justify-content: space-between; }
   .stepper { order: 3; width: 100%; margin: 0; justify-content: center; }
 }

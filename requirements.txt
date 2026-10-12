@@ -1,5 +1,8 @@
-# Runtime dependencies for the Vercel deployment (app.py). Local dev uses backend/requirements.txt.
-fastapi==0.142.4
-anthropic[bedrock]==1.12.1
+# Runtime dependencies for the Vercel deployment (app.py), pinned to the versions the test suite runs on.
+# Local development uses backend/requirements.txt.
+fastapi==0.143.0
+anthropic[bedrock]==1.13.0
 httpx==0.28.1
-python-dotenv
+python-dotenv==1.2.4
+psycopg[binary]==3.3.6
+PyJWT[crypto]==2.15.1
