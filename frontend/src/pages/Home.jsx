@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react'
-import { Meter, PageHead, VISA_LABEL, daysUntil, fmtDate } from '../ui'
+import { Meter, PageHead, VISA_LABEL, daysUntil, fmtDate, plural } from '../ui'
 
 function VisaCard({ profile }) {
   const days = daysUntil(profile.visa_end_date)
@@ -19,10 +19,15 @@ export default function Home({ s, go }) {
   const step = s.next_steps.find((x) => !x.done)
   const done = s.next_steps.filter((x) => x.done).length
   const f = s.stats.funnel
-  // what the tracker found comes first; otherwise the next getting-started step
-  const next = finding
-    ? { text: finding.action, why: finding.evidence, label: finding.link?.label, page: finding.link?.page }
-    : step && { text: step.text, why: step.why, label: 'Open', page: step.page }
+  const fresh = s.jobs.fresh
+  // jobs just posted come first, since they go stale; then what the tracker found; then the next getting-started step
+  const next = fresh > 0
+    ? { text: `${plural(fresh, 'new matching job')} posted in the last 48 hours`, why: 'Roles get most of their applications in the first few days.', label: 'See jobs', page: 'jobs' }
+    : finding
+      ? { text: finding.action, why: finding.evidence, label: finding.link?.label, page: finding.link?.page }
+      : step && { text: step.text, why: step.why, label: 'Open', page: step.page }
+  // a finding that is not the headline is listed below it
+  const others = fresh > 0 ? s.stats.findings : s.stats.findings.slice(1)
 
   return (
     <>
@@ -56,11 +61,11 @@ export default function Home({ s, go }) {
               </div>
             </section>
           )}
-          {s.stats.findings.length > 1 && (
+          {others.length > 0 && (
             <section className="card">
               <div className="row"><h2>Also worth fixing</h2><span className="spacer" /><button className="linkish small" onClick={() => go('applications')}>Applications</button></div>
               <div className="list" style={{ marginTop: 12 }}>
-                {s.stats.findings.slice(1).map((x) => <div key={x.id}><div className="strong">{x.title}</div><p className="small muted">{x.evidence}</p></div>)}
+                {others.map((x) => <div key={x.id}><div className="strong">{x.title}</div><p className="small muted">{x.evidence}</p></div>)}
               </div>
             </section>
           )}

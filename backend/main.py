@@ -9,7 +9,7 @@ from uuid import UUID
 
 import httpx
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
@@ -406,16 +406,20 @@ def track_matched_job(match_id: UUID, user: CurrentUser, response: Response):
             "sponsor_licence": SPONSOR_LICENCE.get(match["sponsor_status"])})
 
 
-@app.get("/api/visa-facts")
-def visa_facts(user: CurrentUser, salary: Annotated[int | None, Query(ge=0, le=10_000_000)] = None,
-               employer: Annotated[str | None, Query(max_length=160)] = None):
+class Offer(BaseModel):
+    salary: Annotated[int, Field(ge=0, le=10_000_000)] | None = None
+    employer: Text(160, 0) | None = None
+
+
+@app.post("/api/visa-facts")
+def visa_facts(body: Offer, user: CurrentUser):
     """The offer check: a salary beside the published Skilled Worker figures, and what the register
-    says about an employer. Facts with their sources, never a verdict."""
-    name = (employer or "").strip()
+    says about an employer. Facts with their sources, never a verdict. The offer travels in the
+    request body, so it never appears in an address or a log line."""
     with db.transaction() as conn:
-        sponsor = sponsors.status(conn, name) if name else None
+        sponsor = sponsors.status(conn, body.employer) if body.employer else None
         register = _register(conn)
-    return visa.salary_facts(salary, salary, bool(salary)) | {"sponsor": sponsor, "register": register}
+    return visa.salary_facts(body.salary, body.salary, bool(body.salary)) | {"sponsor": sponsor, "register": register}
 
 
 @app.get("/api/internal/refresh-sponsors")

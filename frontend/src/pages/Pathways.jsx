@@ -1,5 +1,42 @@
+import { useState } from 'react'
 import { post } from '../api'
 import { Empty, ErrorRetry, FamilyCard, PageHead, VISA_LABEL, attempt, fmtDate, useAction } from '../ui'
+import { SalaryFacts, SourcesLine, SponsorLine } from '../components/Visa'
+
+// Check an offer or an advert against the published facts: the salary figures and the sponsor register
+function OfferCheck() {
+  const [salary, setSalary] = useState('')
+  const [employer, setEmployer] = useState('')
+  const [missing, setMissing] = useState(false)
+  const check = useAction(() => post('/api/visa-facts', { salary: salary ? Number(salary) : null, employer: employer.trim() || null }))
+  const submit = (e) => {
+    e.preventDefault()
+    const empty = !salary && !employer.trim()
+    setMissing(empty)
+    if (!empty) check.run()
+  }
+  const f = check.result
+  return (
+    <section className="card section">
+      <h2>Check an offer</h2>
+      <p className="sub">See a salary beside the Skilled Worker visa figures, and whether an employer is on the register of licensed sponsors.</p>
+      <form className="form-row" onSubmit={submit} noValidate>
+        <label className="field">Salary a year, in pounds<input type="number" min="0" step="500" value={salary} onChange={(e) => setSalary(e.target.value)} style={{ width: 170 }} /></label>
+        <label className="field">Employer name<input type="text" value={employer} onChange={(e) => setEmployer(e.target.value)} style={{ width: 240 }} maxLength={160} /></label>
+        <button className="btn" type="submit" disabled={check.loading}>{check.loading ? 'Checking' : 'Check'}</button>
+      </form>
+      {missing && <p className="error" role="alert" style={{ marginTop: 8 }}>Enter a salary, an employer, or both.</p>}
+      <ErrorRetry error={check.error} onRetry={check.retry} />
+      {f && (
+        <div className="stack" style={{ marginTop: 14 }}>
+          {f.sponsor && <SponsorLine status={f.sponsor.status} name={f.sponsor.name} links={f.links} />}
+          <SalaryFacts visa={f} advertised={f.advertised} />
+          <SourcesLine register={f.register} visa={f} />
+        </div>
+      )}
+    </section>
+  )
+}
 
 export default function Pathways({ s, refresh, go, notify }) {
   const suggest = useAction(async () => { await post('/api/ai/families'); await refresh() })
@@ -20,7 +57,13 @@ export default function Pathways({ s, refresh, go, notify }) {
       {s.achievements.length > 0 && !hasFamilies && (
         <Empty title="See which roles fit you" body="We compare your achievements with what UK employers ask for." action={suggest.loading ? 'Reading your profile' : 'Find roles that fit my profile'} onAction={() => !suggest.loading && suggest.run()} />
       )}
-      {hasFamilies && <div className="grid cols-3">{s.role_families.map((f) => <FamilyCard key={f.id} f={f} onToggle={toggle} />)}</div>}
+      {hasFamilies && (
+        <div className="grid cols-3">
+          {s.role_families.map((f) => <FamilyCard key={f.id} f={f} onToggle={toggle} market={s.market[f.id]} onJobs={() => go('jobs')} />)}
+        </div>
+      )}
+
+      <OfferCheck />
 
       <div className="grid cols-3 section">
         <section className="card">

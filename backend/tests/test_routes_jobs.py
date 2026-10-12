@@ -467,8 +467,8 @@ def test_user_b_cannot_see_save_hide_or_track_user_a_match(client, conn, user_a,
 # ---------- visa facts ----------
 
 def test_visa_facts_always_have_the_source_and_the_date_checked(client):
-    for query in ("", "?salary=38000", "?employer=Zzqx%20Holdings"):
-        facts = client.get(f"/api/visa-facts{query}").json()
+    for offer in ({}, {"salary": 38000}, {"employer": "Zzqx Holdings"}):
+        facts = client.post("/api/visa-facts", json=offer).json()
         assert facts["checked_on"] and facts["sources"] and all(s["url"].startswith("https://www.gov.uk/") for s in facts["sources"])
         assert facts["standard_salary"] > facts["lower_salary"] > 0
         assert "register" in facts and not {"eligible", "meets", "verdict"} & set(facts)
@@ -476,16 +476,21 @@ def test_visa_facts_always_have_the_source_and_the_date_checked(client):
 
 def test_visa_facts_report_the_salary_and_look_the_employer_up(client, conn):
     register(conn, "Zzqx Holdings Ltd")
-    facts = client.get("/api/visa-facts", params={"salary": 38000, "employer": " Zzqx Holdings "}).json()
+    facts = client.post("/api/visa-facts", json={"salary": 38000, "employer": " Zzqx Holdings "}).json()
     assert facts["advertised"] == {"min": 38000, "max": 38000}
     assert facts["sponsor"] == {"status": "listed", "name": "Zzqx Holdings Ltd"} and facts["register"]["published_on"]
-    nothing = client.get("/api/visa-facts").json()
+    nothing = client.post("/api/visa-facts", json={"salary": None, "employer": ""}).json()
     assert nothing["advertised"] is None and nothing["sponsor"] is None
 
 
-@pytest.mark.parametrize("params", [{"salary": -1}, {"salary": "lots"}, {"salary": 10_000_001}, {"employer": "x" * 161}])
-def test_visa_facts_validation(client, params):
-    assert client.get("/api/visa-facts", params=params).status_code == 422
+@pytest.mark.parametrize("offer", [{"salary": -1}, {"salary": "lots"}, {"salary": 10_000_001}, {"employer": "x" * 161}])
+def test_visa_facts_validation(client, offer):
+    assert client.post("/api/visa-facts", json=offer).status_code == 422
+
+
+def test_an_offer_is_sent_in_the_body_not_the_address(client):
+    """A salary and employer in the address would end up in server logs."""
+    assert client.get("/api/visa-facts", params={"salary": 38000}).status_code == 405
 
 
 # ---------- state, and no secrets ----------
@@ -506,7 +511,7 @@ def test_state_has_job_counts_market_figures_and_reed_as_a_source(client, conn, 
 def test_no_key_appears_in_any_jobs_response(client, conn, user_a, site, model, monkeypatch):
     monkeypatch.setenv("CRON_SECRET", "cron-marker-secret")
     m = one_match(client, conn, user_a, site)
-    replies = [client.get("/api/jobs"), client.post("/api/jobs/refresh"), client.get("/api/state"), client.get("/api/visa-facts"),
+    replies = [client.get("/api/jobs"), client.post("/api/jobs/refresh"), client.get("/api/state"), client.post("/api/visa-facts", json={}),
                client.post(f"/api/jobs/{m['id']}/save"), client.get("/api/internal/refresh-sponsors"), client.get("/api/config")]
     for r in replies:
         assert "reed-marker-key" not in r.text and "cron-marker-secret" not in r.text
