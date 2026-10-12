@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 2 of the CareerAI r
 
 # Step 2: real jobs
 
-**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 0 (works better after step 1, which adds skills and work history, but does not require it). **Size:** large, about the same as step 0.
+**Status:** In progress on branch `step-2-real-jobs`. Design approved by the owner, 12 October 2026; sources rechecked and four changes agreed the same day (see "Changed at build time"). **Depends on:** step 0 (works better after step 1, which adds skills and work history, but does not require it). **Size:** large, about the same as step 0.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -18,7 +18,7 @@ Today a user must find jobs elsewhere and paste them in. That stays; this step a
 
 | Decision | Detail | Decided by |
 |---|---|---|
-| Job sources | The official Adzuna and Reed APIs | Owner, 12 Oct 2026 |
+| Job sources | The official Reed API. Adzuna is left out for now (see "Changed at build time") | Owner, 12 Oct 2026 |
 | Graduate boards | Prospects, Bright Network, Handshake and similar are left out for now. No scraping | Owner, 12 Oct 2026 |
 | Sponsor data | The gov.uk register of licensed sponsors (workers) | Owner, 12 Oct 2026 |
 | Which jobs to show | All jobs, each labelled for sponsorship, with a "Sponsors only" filter | Owner, 12 Oct 2026 |
@@ -28,6 +28,21 @@ Today a user must find jobs elsewhere and paste them in. That stays; this step a
 | Where it lives | A new menu item, "Jobs", between Career pathways and Resume | Recommended; approved 12 Oct 2026 |
 | Seniority | Titles containing senior, lead, principal, head, director or manager are left out unless the user turns on "Include senior roles" | Recommended; approved 12 Oct 2026 |
 | Freshness | Jobs posted in the last 14 days. "Posted in the last 48 hours" is highlighted | Recommended; approved 12 Oct 2026. From the owner's "apply within 48 hours" |
+
+## Changed at build time (12 October 2026)
+
+The sources were rechecked against their live documentation. Where this section disagrees with the rest of the document, this section wins.
+
+| Change | Why | Decided by |
+|---|---|---|
+| **Adzuna is left out. Reed is the only job source in this step** | Adzuna's default allowance is 25 calls a minute, 250 a day, 1,000 a week and 2,500 a month, which the per-title search design uses up with a handful of users. Its terms permit showing adverts with an "Adzuna" label on each, but totals such as vacancy counts and average salaries need written consent, and its salary estimates need their own labelling. To add it later: write to Adzuna for a higher allowance and consent first | Owner |
+| **Salary fact wording** | gov.uk now says the occupation must also be on the eligible list (in force since 22 July 2025). Agreed text: "Skilled Worker visa: usually at least £41,700 a year. At least £33,400 if you are on a Student or Graduate visa, or under 26. The going rate for the occupation can be higher, and the occupation must be on the eligible list. Source: gov.uk, checked <date>. Not immigration advice." The term "new entrant" is not used; gov.uk describes who qualifies instead | Owner |
+| **One visa line on the Jobs page, by the user's visa type** | Graduate: "On a Graduate visa you can work in most jobs without a sponsor until your visa ends on <their date>. Sponsorship matters if you want to stay after that." Student: "On a Student visa, how much you can work depends on your course and whether it is term time. Check your conditions on gov.uk." Each links to gov.uk. No hour figures | Owner |
+| **The register-reload route is `GET`, not `POST`** | Vercel's scheduled jobs call the address with GET and send `Authorization: Bearer <CRON_SECRET>` | Forced by Vercel |
+
+Verified and unchanged: the register is one CSV (columns `Organisation Name`, `Town/City`, `County`, `Type & Rating`, `Route`; 143,198 rows of which 123,175 are Skilled Worker), found through `https://www.gov.uk/api/content/government/publications/register-of-licensed-sponsors-workers`, reusable under the Open Government Licence v3.0. Vercel scheduled jobs are available on every plan; on Hobby at most once a day.
+
+Still to confirm with a real key: Reed's documentation does not list the posting date field, the result order, whether search descriptions are cut short, or any call limit or terms of use.
 
 ## In scope
 
