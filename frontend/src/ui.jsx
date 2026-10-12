@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react'
-import { BookOpen, BriefcaseBusiness, Check, Compass, FileText, House, Mic, UserRound } from 'lucide-react'
+import { BookOpen, BriefcaseBusiness, Check, Compass, FileText, House, Mic, Search, UserRound } from 'lucide-react'
 
 // Sidebar. key = route, label = what the user sees. Pages return here as their step goes live
 export const NAV = [
   { key: 'home', label: 'This week', icon: House },
   { key: 'profile', label: 'Profile', icon: UserRound },
   { key: 'pathways', label: 'Career pathways', icon: Compass },
+  { key: 'jobs', label: 'Jobs', icon: Search },
   { key: 'resume', label: 'Resume', icon: FileText },
   { key: 'interview', label: 'Interview coach', icon: Mic },
   { key: 'applications', label: 'Applications', icon: BriefcaseBusiness },
@@ -100,10 +101,21 @@ export const daysUntil = (iso) => Math.round((parseDay(iso) - today()) / 8640000
 export const pct = (x) => `${Math.round(x * 100)}%`
 export const fmtDate = (iso, opts = { day: 'numeric', month: 'short' }) => parseDay(iso).toLocaleDateString('en-GB', opts)
 export const VISA_LABEL = { student: 'Student', graduate: 'Graduate' }
-export const FIT_LABEL = { direct: 'Direct fit', near: 'Near fit', stretch: 'Stretch' }
+export const FIT_LABEL = { direct: 'Direct fit', near: 'Near fit', stretch: 'Stretch', none: 'Not a match' }
+export const money = (n) => `£${Math.round(n).toLocaleString('en-GB')}`
+export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+// Live adverts for one targeted role family: how many, what they pay, how many employers can sponsor
+function marketLine(m) {
+  if (!m || !m.jobs) return 'No live jobs found yet.'
+  const parts = [`${plural(m.jobs, 'live job')}.`]
+  if (m.salary_n) parts.push(`Median advertised salary ${money(m.salary_median)} from ${plural(m.salary_n, 'advert')}.`)
+  if (m.named) parts.push(`${m.listed} of ${plural(m.named, 'named employer')} ${m.listed === 1 ? 'is' : 'are'} on the sponsor register.`)
+  return parts.join(' ')
+}
 
 // One AI-suggested role family: fit, estimated overlap, and what the user already shows or lacks
-export function FamilyCard({ f, onToggle }) {
+export function FamilyCard({ f, onToggle, market, onJobs }) {
   return (
     <article className={`card family ${f.targeted ? 'selected' : ''}`}>
       <div className="row">
@@ -115,6 +127,9 @@ export function FamilyCard({ f, onToggle }) {
       <div className="row small"><span style={{ width: 170 }}>{f.overlap}% overlap (AI estimate)</span><span style={{ flex: 1 }}><Meter value={f.overlap} /></span></div>
       {f.why && <p className="small">{f.why}</p>}
       {f.uk_titles.length > 0 && <p className="small muted">UK job titles: {f.uk_titles.join(', ')}</p>}
+      {f.targeted && onJobs && (
+        <p className="small market">{marketLine(market)} <button className="linkish" onClick={onJobs}>See jobs</button></p>
+      )}
       <div className="stack" style={{ gap: 8 }}>
         {f.needs.map((n) => (
           <div key={n.need} className="need">

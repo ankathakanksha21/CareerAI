@@ -10,13 +10,14 @@ import Onboarding from './pages/Onboarding'
 import Home from './pages/Home'
 import Profile from './pages/Profile'
 import Pathways from './pages/Pathways'
+import Jobs from './pages/Jobs'
 import Resume from './pages/Resume'
 import Interview from './pages/Interview'
 import Applications from './pages/Applications'
 import Journal from './pages/Journal'
 import Account from './pages/Account'
 
-const PAGES = { home: Home, profile: Profile, pathways: Pathways, resume: Resume, interview: Interview, applications: Applications, journal: Journal, account: Account }
+const PAGES = { home: Home, profile: Profile, pathways: Pathways, jobs: Jobs, resume: Resume, interview: Interview, applications: Applications, journal: Journal, account: Account }
 
 function readHash() {
   const [page, tab] = window.location.hash.slice(1).split('/')
@@ -116,6 +117,7 @@ export default function App() {
               <Icon size={18} strokeWidth={1.9} />
               {label}
               {key === 'applications' && s.stats.findings.length > 0 && <span className="count" title="Things to fix">{s.stats.findings.length}</span>}
+              {key === 'jobs' && s.jobs.new > 0 && <span className="count" title="New matching jobs">{s.jobs.new}</span>}
             </button>
           ))}
         </nav>
