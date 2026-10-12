@@ -1,7 +1,7 @@
 # Step 0: accounts, saved data and removal of the demo persona
 
 Date: 11 October 2026
-Status: approved by the project owner on 11 October 2026
+Status: approved by the project owner on 11 October 2026; amended 12 October 2026 (section 18)
 Branch: `live-features`
 
 ## 1. Why this step exists
@@ -445,3 +445,19 @@ Claude then runs the migrations and `setup_agents.py`, and runs the tests and th
 - No fictional person, company, job, date or canned AI answer appears anywhere in the app or the codebase.
 - All automated tests pass; the live checks and the browser walkthrough are recorded in `docs/ARCHITECTURE.md`.
 - `docs/ARCHITECTURE.md` exists and covers stack, decisions and trade-offs, data model, security and privacy, how to run and deploy, and the roadmap. The old `PLAN.md` and `docs/phases/Phase-1.md` are moved to `docs/archive/`.
+
+## 18. Changes agreed after approval
+
+**12 October 2026, requested by the project owner: show that the user's voice was actually heard.**
+
+The owner's concern: after a voice call, nothing on screen proved the result came from what they said.
+
+| Change | Detail |
+|---|---|
+| Live transcript | During a call a highlighted panel shows each thing the user says, a moment after each sentence, beside the coach's or interviewer's lines. ElevenLabs sends the user's words per finished sentence, not word by word |
+| Transcript kept | The panel stays after the call. The transcript is saved with the session's journal entry (`journal_entries.transcript`, migration `002_journal_transcript`) and opened from the Journal. It is fetched on demand through `GET /api/journal/{id}/transcript`, not included in `/api/state` |
+| "You said" on achievements | Shown in onboarding as well as on the Profile page |
+| Quotes in interview feedback | `strengths` and `fixes` change from lists of strings to lists of `{point, you_said}`. A "View full transcript" link sits under the feedback |
+| Quotes are checked | Anything shown as "You said" is checked against the user's own lines of the transcript: kept if they said exactly that, replaced by their closest sentence if the model paraphrased, dropped if nothing matches. The app never attributes words the user did not say |
+
+Other changes from the plan are listed in `docs/ARCHITECTURE.md` section 5.
