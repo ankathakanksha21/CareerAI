@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 3 of the CareerAI r
 
 # Step 3: the full UK CV
 
-**Status:** Not started. **Depends on:** step 1 (needs work history, education and skills). **Size:** medium.
+**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 1 (needs work history, education and skills). **Size:** medium.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -21,11 +21,11 @@ Today "tailoring" produces a profile paragraph, four or five bullets and a cover
 | Formats | Word (.docx) and PDF, generated from the same content | Owner, 12 Oct 2026 |
 | Layouts | One ATS-safe, single-column layout | Owner, 12 Oct 2026 |
 | Editing | In the app. The saved version keeps the user's edits | Owner, 12 Oct 2026 |
-| Two kinds of CV | A base CV from the whole profile (no job), and a tailored CV per saved job | Recommended, owner to confirm on review |
-| Facts are never written by the AI | Employers, job titles, dates, institutions, qualifications and grades are copied from the stored records. The AI writes only the profile paragraph, chooses and rewords bullets, and orders skills | Recommended |
-| Sent versions do not change | Editing a CV version that is already attached to an application creates a new version, so reply rates by version stay true | Recommended |
-| Length | Two pages. The app shows the page count and says what to trim; it never cuts content silently | Recommended |
-| Right-to-work line | Off by default. The user can switch it on and edit the wording. The app offers neutral wording stating the current visa and its end date and makes no claim about future eligibility | Recommended, owner to confirm on review |
+| Two kinds of CV | A base CV from the whole profile (no job), and a tailored CV per saved job | Recommended; approved 12 Oct 2026 |
+| Facts are never written by the AI | Employers, job titles, dates, institutions, qualifications and grades are copied from the stored records. The AI writes only the profile paragraph, chooses and rewords bullets, and orders skills | Recommended; approved 12 Oct 2026 |
+| Sent versions do not change | Editing a CV version that is already attached to an application creates a new version, so reply rates by version stay true | Recommended; approved 12 Oct 2026 |
+| Length | Two pages. The app shows the page count and says what to trim; it never cuts content silently | Recommended; approved 12 Oct 2026 |
+| Right-to-work line | Off by default. The user can switch it on and edit the wording. The app offers neutral wording stating the current visa and its end date and makes no claim about future eligibility | Recommended; approved 12 Oct 2026 |
 
 ## In scope
 
