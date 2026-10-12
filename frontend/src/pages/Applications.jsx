@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { del, patch, post } from '../api'
-import { Empty, ErrorRetry, Meter, PageHead, fmtDate, isoDay, parseDay, pct, today, useAction } from '../ui'
+import { Empty, ErrorRetry, Meter, PageHead, attempt, fmtDate, isoDay, parseDay, pct, today, useAction } from '../ui'
 
 const STAGE_LABEL = { applied: 'Applied', no_response: 'No reply', rejected: 'Rejected at CV', screening: 'Phone screen', interview: 'Interview', rejected_after_interview: 'Rejected after interview', offer: 'Offer' }
 const COLUMNS = [
@@ -78,12 +78,11 @@ function Board({ s, refresh, notify }) {
   const [over, setOver] = useState(null)
   const fam = Object.fromEntries(s.role_families.map((f) => [f.id, f.name]))
   const cvs = Object.fromEntries(s.cv_versions.map((c) => [c.id, c.name]))
-  const setStage = async (id, stage) => { await patch(`/api/applications/${id}`, { stage }); refresh() }
-  const remove = async (a) => {
+  const safely = attempt(notify)
+  const setStage = (id, stage) => safely(async () => { await patch(`/api/applications/${id}`, { stage }); await refresh() })
+  const remove = (a) => {
     if (!window.confirm(`Delete the application to ${a.company}?`)) return
-    await del(`/api/applications/${a.id}`)
-    await refresh()
-    notify('Application deleted')
+    safely(async () => { await del(`/api/applications/${a.id}`); await refresh(); notify('Application deleted') })
   }
   const drop = (e, col) => {
     e.preventDefault()

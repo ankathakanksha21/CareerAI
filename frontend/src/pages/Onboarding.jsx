@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { post } from '../api'
-import { Avatar, Brand, ErrorRetry, FamilyCard, useAction } from '../ui'
+import { Avatar, Brand, ErrorRetry, FamilyCard, attempt, useAction } from '../ui'
 import DetailsForm from '../components/DetailsForm'
 import BackgroundInput from '../components/BackgroundInput'
 
@@ -56,9 +56,9 @@ function ProfileStep({ s, back, next }) {
   )
 }
 
-function RolesStep({ s, refresh, go }) {
+function RolesStep({ s, refresh, go, notify }) {
   const targeted = s.role_families.filter((f) => f.targeted).length
-  const toggle = async (f) => { await post(`/api/families/${f.id}/target`, { targeted: !f.targeted }); refresh() }
+  const toggle = (f) => attempt(notify)(async () => { await post(`/api/families/${f.id}/target`, { targeted: !f.targeted }); await refresh() })
   return (
     <>
       <div className="ob-title">
@@ -76,7 +76,7 @@ function RolesStep({ s, refresh, go }) {
   )
 }
 
-export default function Onboarding({ s, refresh, go, session }) {
+export default function Onboarding({ s, refresh, go, session, notify }) {
   const [step, setStep] = useState(() => firstOpenStep(s))
   const reachable = firstOpenStep(s)
   const current = Math.min(step, reachable) // never show a step whose earlier steps are unfinished
@@ -119,7 +119,7 @@ export default function Onboarding({ s, refresh, go, session }) {
           </>
         )}
         {current === 2 && <ProfileStep s={s} back={() => setStep(1)} next={async () => { await refresh(); setStep(3) }} />}
-        {current === 3 && <RolesStep s={s} refresh={refresh} go={go} />}
+        {current === 3 && <RolesStep s={s} refresh={refresh} go={go} notify={notify} />}
       </main>
     </div>
   )

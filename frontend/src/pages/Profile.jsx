@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { del, post } from '../api'
-import { Avatar, ErrorRetry, PageHead, VISA_LABEL, fmtDate, useAction } from '../ui'
+import { Avatar, ErrorRetry, PageHead, VISA_LABEL, attempt, fmtDate, useAction } from '../ui'
 import DetailsForm from '../components/DetailsForm'
 import BackgroundInput from '../components/BackgroundInput'
 
@@ -14,9 +14,11 @@ export default function Profile({ s, refresh, go, notify, session }) {
   })
   const remove = async (a) => {
     if (!window.confirm('Delete this achievement?')) return
-    await del(`/api/achievements/${a.id}`)
-    await refresh()
-    notify('Achievement deleted')
+    await attempt(notify)(async () => {
+      await del(`/api/achievements/${a.id}`)
+      await refresh()
+      notify('Achievement deleted')
+    })
   }
 
   return (

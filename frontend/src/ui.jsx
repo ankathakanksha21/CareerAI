@@ -48,6 +48,15 @@ export function useAction(fn) {
   return { run, loading, result, error, setResult, retry: () => run(...last.current) }
 }
 
+// For one-click actions (tick, drag, delete): if the request fails, tell the user instead of failing silently
+export const attempt = (notify) => async (fn) => {
+  try {
+    return await fn()
+  } catch (e) {
+    notify(e.message || 'That did not work. Try again.')
+  }
+}
+
 // A failed action: what went wrong, and a way to try again unless the daily limit was reached
 export function ErrorRetry({ error, onRetry }) {
   if (!error) return null

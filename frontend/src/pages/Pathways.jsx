@@ -1,9 +1,9 @@
 import { post } from '../api'
-import { Empty, ErrorRetry, FamilyCard, PageHead, VISA_LABEL, fmtDate, useAction } from '../ui'
+import { Empty, ErrorRetry, FamilyCard, PageHead, VISA_LABEL, attempt, fmtDate, useAction } from '../ui'
 
-export default function Pathways({ s, refresh, go }) {
+export default function Pathways({ s, refresh, go, notify }) {
   const suggest = useAction(async () => { await post('/api/ai/families'); await refresh() })
-  const toggle = async (f) => { await post(`/api/families/${f.id}/target`, { targeted: !f.targeted }); refresh() }
+  const toggle = (f) => attempt(notify)(async () => { await post(`/api/families/${f.id}/target`, { targeted: !f.targeted }); await refresh() })
   const p = s.profile
   const hasFamilies = s.role_families.length > 0
 
