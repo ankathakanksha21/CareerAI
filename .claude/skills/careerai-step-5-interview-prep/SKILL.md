@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 5 of the CareerAI r
 
 # Step 5: interview preparation
 
-**Status:** Not started. **Depends on:** step 0. Better after step 1 (story bank) and step 4 (application stages). **Size:** medium to large, mostly because of the research.
+**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Better after step 1 (story bank) and step 4 (application stages). **Size:** medium to large, mostly because of the research.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -20,12 +20,12 @@ Today the mock interview knows only the job title and summary, and there is no c
 |---|---|---|
 | Research sources | The employer's own website, the official Companies House record, and a web search service for recent news and competitors | Owner, 12 Oct 2026 |
 | Daily drill | Not included. Voice practice stays as full mock interviews | Owner, 12 Oct 2026 |
-| Nothing from the model's memory | Every statement in a company brief must come from text the app fetched, and shows its source. A statement with no source is dropped | Recommended, follows the project's real-data rule |
-| The user confirms the company | Companies House often returns several similar names. The user picks the right one, or says none match | Recommended |
-| Research is shared, advice is personal | Facts about a company are stored once and reused for every user for 14 days. "Why this company, for you" and the question-to-story matching are per user | Recommended |
-| Research limit | 5 companies per user per day (`DAILY_RESEARCH_LIMIT`), separate from the AI limit, because searches cost money | Recommended |
-| Right-to-work answer | The pack helps the user phrase a one-line answer from their own visa type and end date. It states facts only and carries "not immigration advice" | Recommended, owner to confirm on review |
-| Export | The pack prints from the browser. No Word or PDF export | Recommended |
+| Nothing from the model's memory | Every statement in a company brief must come from text the app fetched, and shows its source. A statement with no source is dropped | Recommended; approved 12 Oct 2026 |
+| The user confirms the company | Companies House often returns several similar names. The user picks the right one, or says none match | Recommended; approved 12 Oct 2026 |
+| Research is shared, advice is personal | Facts about a company are stored once and reused for every user for 14 days. "Why this company, for you" and the question-to-story matching are per user | Recommended; approved 12 Oct 2026 |
+| Research limit | 5 companies per user per day (`DAILY_RESEARCH_LIMIT`), separate from the AI limit, because searches cost money | Recommended; approved 12 Oct 2026 |
+| Right-to-work answer | The pack helps the user phrase a one-line answer from their own visa type and end date. It states facts only and carries "not immigration advice" | Recommended; approved 12 Oct 2026 |
+| Export | The pack prints from the browser. No Word or PDF export | Recommended; approved 12 Oct 2026 |
 
 ## In scope
 
