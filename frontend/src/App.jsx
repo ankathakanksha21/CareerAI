@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
-import { RotateCcw } from 'lucide-react'
-import { api, post, setPasscode } from './api'
-import { Avatar, Brand, NAV, resolvePage } from './ui'
+import { Component, useCallback, useEffect, useState } from 'react'
+import { LogOut } from 'lucide-react'
+import { api, onSignedOut } from './api'
+import { getSupabase } from './supabase'
+import { Avatar, Brand, ErrorRetry, NAV } from './ui'
 import Landing from './pages/Landing'
+import Auth from './pages/Auth'
+import Privacy from './pages/Privacy'
 import Onboarding from './pages/Onboarding'
 import Home from './pages/Home'
 import Profile from './pages/Profile'
@@ -10,59 +13,60 @@ import Pathways from './pages/Pathways'
 import Resume from './pages/Resume'
 import Interview from './pages/Interview'
 import Applications from './pages/Applications'
-import Networking from './pages/Networking'
-import Peers from './pages/Peers'
 import Journal from './pages/Journal'
+import Account from './pages/Account'
 
-const PAGES = { home: Home, profile: Profile, pathways: Pathways, resume: Resume, interview: Interview, applications: Applications, networking: Networking, peers: Peers, journal: Journal }
+const PAGES = { home: Home, profile: Profile, pathways: Pathways, resume: Resume, interview: Interview, applications: Applications, journal: Journal, account: Account }
 
 function readHash() {
-  const [raw, rawTab] = window.location.hash.slice(1).split('/')
-  if (!raw) return { page: 'landing', tab: null }
-  if (raw === 'landing' || raw === 'onboarding') return { page: raw, tab: rawTab || null }
-  const [page, tab] = resolvePage(raw, rawTab || null)
-  return { page: PAGES[page] ? page : 'home', tab }
+  const [page, tab] = window.location.hash.slice(1).split('/')
+  return { page: page || '', tab: tab || null }
 }
 
-function PasscodeGate({ wrong, onSubmit }) {
-  const [code, setCode] = useState('')
-  return (
-    <main className="ob-body" style={{ maxWidth: 440 }}>
-      <div className="ob-title">
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}><Brand onClick={() => {}} /></div>
-        <h1>Enter the demo passcode</h1>
-        <p>This prototype uses live AI and voice, so it is behind a passcode.</p>
-      </div>
-      <form className="card stack" onSubmit={(e) => { e.preventDefault(); if (code.trim()) onSubmit(code.trim()) }}>
-        <label className="field">Passcode<input type="password" value={code} onChange={(e) => setCode(e.target.value)} autoFocus /></label>
-        {wrong && <p className="error">That passcode did not work. Check it and try again.</p>}
-        <button className="btn large" type="submit">Open the demo</button>
-      </form>
-    </main>
-  )
+const isReset = () => new URLSearchParams(window.location.search).has('reset')
+
+// A page that throws shows a message instead of blanking the whole app
+class PageBoundary extends Component {
+  state = { error: null }
+  static getDerivedStateFromError(error) { return { error } }
+  render() {
+    if (this.state.error) return <ErrorRetry error={new Error('Something went wrong on this page.')} onRetry={() => this.setState({ error: null })} />
+    return this.props.children
+  }
 }
 
 export default function App() {
+  const [session, setSession] = useState(undefined) // undefined while loading, null when signed out
   const [s, setS] = useState(null)
   const [error, setError] = useState(null)
   const [nav, setNav] = useState(readHash)
   const [focus, setFocus] = useState({}) // cross-page hand-offs, e.g. which job to tailor
   const [toast, setToast] = useState(null)
-  const [locked, setLocked] = useState(null) // null, 'ask' or 'wrong' when the backend wants a passcode
+  const [reset, setReset] = useState(isReset)
+  const userId = session?.user?.id
 
-  const refresh = useCallback(() => api('/api/state').then((d) => { setLocked(null); setS(d) }).catch((e) => {
-    if (e.status === 401) setLocked((l) => (l ? 'wrong' : 'ask'))
-    else setError(e.message)
-  }), [])
-  useEffect(() => { refresh() }, [refresh])
   useEffect(() => {
+    let unsubscribe = () => {}
+    getSupabase().then((sb) => {
+      onSignedOut(() => sb.auth.signOut({ scope: 'local' }))
+      sb.auth.getSession().then(({ data }) => setSession(data.session))
+      const { data } = sb.auth.onAuthStateChange((_event, next) => setSession(next))
+      unsubscribe = () => data.subscription.unsubscribe()
+    }).catch(() => setError("We can't reach the server. Try again in a minute."))
     const onHash = () => setNav(readHash())
     window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
+    return () => { unsubscribe(); window.removeEventListener('hashchange', onHash) }
   }, [])
 
-  const go = (rawPage, rawTab = null, extra = {}) => {
-    const [page, tab] = ['landing', 'onboarding'].includes(rawPage) ? [rawPage, rawTab] : resolvePage(rawPage, rawTab)
+  const refresh = useCallback(() => api('/api/state').then((d) => { setError(null); setS(d) }).catch((e) => {
+    if (e.status !== 401) setError(e.message)
+  }), [])
+  useEffect(() => {
+    if (userId) refresh()
+    else setS(null)
+  }, [userId, refresh])
+
+  const go = (page, tab = null, extra = {}) => {
     setFocus(extra)
     window.location.hash = tab ? `${page}/${tab}` : page
     window.scrollTo(0, 0)
@@ -71,54 +75,63 @@ export default function App() {
     setToast(msg)
     setTimeout(() => setToast(null), 3200)
   }
-  const reset = async () => {
-    await post('/api/reset')
-    await refresh()
-    notify('Demo data restored')
+  const signOut = async () => {
+    const sb = await getSupabase()
+    await sb.auth.signOut()
+    window.location.hash = ''
+  }
+  const finishReset = () => {
+    window.history.replaceState(null, '', window.location.pathname)
+    setReset(false)
+    go('home')
   }
 
-  if (locked) return <PasscodeGate wrong={locked === 'wrong'} onSubmit={(code) => { setPasscode(code); refresh() }} />
-  if (error) return <div className="main"><p className="error">Cannot reach the backend: {error}. Start it with uvicorn on port 8000.</p></div>
+  const toastEl = toast && <div className="toast" role="status">{toast}</div>
+  if (session === undefined && !error) return <div className="main muted">Loading</div>
+  if (nav.page === 'privacy') return <Privacy go={go} signedIn={!!session} />
+
+  if (!session) {
+    if (error) return <div className="main"><p className="error">{error}</p></div>
+    if (nav.page === 'auth') return <Auth mode={nav.tab || 'signin'} go={go} />
+    return <Landing go={go} signedIn={false} />
+  }
+
+  if (reset) return <Auth mode="newpassword" go={go} onDone={finishReset} />
+  if (error && !s) return <div className="main"><ErrorRetry error={new Error(error)} onRetry={refresh} /></div>
   if (!s) return <div className="main muted">Loading</div>
 
-  const props = { s, refresh, go, tab: nav.tab, focus, notify }
-  const toastEl = toast && <div className="toast" role="status">{toast}</div>
-  if (nav.page === 'landing') return <><Landing {...props} />{toastEl}</>
-  if (nav.page === 'onboarding') return <><Onboarding {...props} />{toastEl}</>
+  const props = { s, refresh, go, tab: nav.tab, focus, notify, session, signOut }
+  if (nav.page === 'landing') return <><Landing go={go} signedIn />{toastEl}</>
+  if (!s.details_complete || nav.page === 'onboarding') return <><Onboarding {...props} />{toastEl}</>
 
-  const Page = PAGES[nav.page]
-  const voiceReady = s.config.voice.onboarding && s.config.voice.interviewer
+  const page = PAGES[nav.page] ? nav.page : 'home'
+  const Page = PAGES[page]
   return (
     <div className="shell">
       <aside className="side">
-        <Brand onClick={() => go('landing')} />
-        {NAV.map((g) => (
-          <nav key={g.group} className="nav-group" aria-label={g.group}>
-            <span className="nav-label">{g.group}</span>
-            {g.items.map(({ key, label, icon: Icon }) => (
-              <button key={key} className={`nav-item ${nav.page === key ? 'active' : ''}`} onClick={() => go(key)} aria-current={nav.page === key ? 'page' : undefined}>
-                <Icon size={18} strokeWidth={1.9} />
-                {label}
-                {key === 'applications' && s.stats.findings.length > 0 && <span className="count" title="Things to fix">{s.stats.findings.length}</span>}
-              </button>
-            ))}
-          </nav>
-        ))}
+        <Brand onClick={() => go('home')} />
+        <nav className="nav-group" aria-label="Your search">
+          {NAV.map(({ key, label, icon: Icon }) => (
+            <button key={key} className={`nav-item ${page === key ? 'active' : ''}`} onClick={() => go(key)} aria-current={page === key ? 'page' : undefined}>
+              <Icon size={18} strokeWidth={1.9} />
+              {label}
+              {key === 'applications' && s.stats.findings.length > 0 && <span className="count" title="Things to fix">{s.stats.findings.length}</span>}
+            </button>
+          ))}
+        </nav>
         <div className="side-foot">
-          <div className="status-row"><span className={`pip ${s.config.llm ? 'on' : ''}`} />{s.config.llm ? 'AI live' : 'AI in demo mode'}</div>
-          <div className="status-row"><span className={`pip ${voiceReady ? 'on' : ''}`} />{voiceReady ? 'Voice ready' : 'Voice not set up'}</div>
-          <div className="me">
-            <Avatar name={s.persona.name} size="sm" />
-            <div style={{ minWidth: 0 }}>
-              <div className="name">{s.persona.name}</div>
-              <div className="course">{s.persona.course.split(',')[0]}</div>
-            </div>
-          </div>
-          <button className="btn ghost small" onClick={reset}><RotateCcw size={14} />Reset demo data</button>
+          <button className="me" onClick={() => go('account')} aria-label="Your account">
+            <Avatar name={s.profile.full_name} size="sm" />
+            <span style={{ minWidth: 0, textAlign: 'left' }}>
+              <span className="name" style={{ display: 'block' }}>{s.profile.full_name}</span>
+              <span className="course" style={{ display: 'block' }}>{s.profile.course}</span>
+            </span>
+          </button>
+          <button className="btn ghost small" onClick={signOut}><LogOut size={14} />Sign out</button>
         </div>
       </aside>
       <main className="main">
-        <Page {...props} />
+        <PageBoundary key={page}><Page {...props} /></PageBoundary>
       </main>
       {toastEl}
     </div>

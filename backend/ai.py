@@ -68,8 +68,10 @@ def _conform(data, template):
 def _blank(value) -> bool:
     if isinstance(value, dict):
         return all(_blank(v) for v in value.values())
-    if isinstance(value, (list, str)):
-        return not (value.strip() if isinstance(value, str) else value)
+    if isinstance(value, list):
+        return all(_blank(v) for v in value)  # an empty list, or a list of empty things
+    if isinstance(value, str):
+        return not value.strip()
     return value is None
 
 
@@ -92,6 +94,39 @@ def _j(obj) -> str:
     return json.dumps(obj, ensure_ascii=False, indent=1, default=str)
 
 
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", text.lower())
+
+
+def _said_by_candidate(transcript: str) -> str:
+    """The candidate's own lines of a call transcript, or the whole text if it has no speaker labels."""
+    lines = [line.split(":", 1)[1] for line in transcript.splitlines() if line.strip().lower().startswith("candidate:")]
+    return "\n".join(lines) if lines else transcript
+
+
+MIN_SHARED_SHARE = 0.5  # how much of a paraphrase must appear in one sentence to count as its source...
+MIN_SHARED_WORDS = 3    # ...and at least this many words, so one common word never makes a match
+
+
+def verbatim(quote: str, transcript: str) -> str:
+    """What the candidate actually said that backs up `quote`, so the app never shows words
+    they did not say. The quote itself if they said exactly that (ignoring case and punctuation),
+    otherwise their sentence that shares most words with it, otherwise an empty string."""
+    said = _said_by_candidate(transcript)
+    wanted = _words(quote)
+    if not wanted:
+        return ""
+    if f" {' '.join(wanted)} " in f" {' '.join(_words(said))} ":
+        return quote.strip()
+    best, best_shared = "", 0
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", said):
+        shared = len(set(_words(sentence)) & set(wanted))
+        if shared > best_shared:
+            best, best_shared = sentence.strip(), shared
+    enough = best_shared >= MIN_SHARED_WORDS and best_shared / len(set(wanted)) >= MIN_SHARED_SHARE
+    return best[:300] if enough else ""
+
+
 def _who(profile: dict) -> str:
     """One line on the candidate from the facts they typed in."""
     study = " at ".join(x for x in (profile.get("course"), profile.get("university")) if x)
@@ -111,7 +146,7 @@ def extract_achievements(transcript: str, profile: dict) -> dict:
     )
     user = (
         f"Candidate: {_who(profile)}.\nBackground transcript:\n{transcript}\n\n"
-        'Return {"items":[{"title":str,"raw":str (their own words, short),"uk_version":str,"skills":[str],'
+        'Return {"items":[{"title":str,"raw":str (an exact quote copied from the candidate, under 25 words),"uk_version":str,"skills":[str],'
         '"outcome":str,"scale":str,"context_note":str}],'
         '"pitch":str (two sentences in the first person, starting with I am, for networking)}. 3 to 6 items.'
     )
@@ -121,7 +156,9 @@ def extract_achievements(transcript: str, profile: dict) -> dict:
     for item in data["items"]:
         text = item["uk_version"].strip() or item["raw"].strip() or item["title"].strip()
         if text:  # an item with nothing in it is not an achievement
-            items.append(item | {"uk_version": text, "title": item["title"].strip() or text[:60]})
+            # "raw" is shown to the user as "You said", so it must be their words, not the model's
+            items.append(item | {"uk_version": text, "title": item["title"].strip() or text[:60],
+                                 "raw": verbatim(item["raw"] or text, transcript)})
     return {"items": items, "pitch": data["pitch"].strip()}
 
 
@@ -236,15 +273,26 @@ def interview_feedback(transcript: str, job: dict | None, profile: dict, intervi
     user = (
         f"Session type: {interview_type}\n{role}\nCandidate: {profile.get('full_name', '')}\nTranscript:\n{transcript}\n\n"
         'Return {"scores":{"structure":int 1-5,"clarity":int 1-5,"evidence":int 1-5,"uk_tone":int 1-5},'
-        '"summary":str (2 sentences),"strengths":[str],"fixes":[str] (max 3, concrete),'
+        '"summary":str (2 sentences),'
+        '"strengths":[{"point":str,"you_said":str (the exact words of the candidate this is about, copied from the transcript, under 20 words)}],'
+        '"fixes":[{"point":str (concrete),"you_said":str}] (max 3),'
         '"rewrite":{"question":str,"better_answer":str (a stronger STAR answer under 120 words, using only facts from the transcript)},'
         '"uk_tone_notes":[str]}'
     )
-    template = {"scores": {"structure": 0, "clarity": 0, "evidence": 0, "uk_tone": 0}, "summary": "", "strengths": [""],
-                "fixes": [""], "rewrite": {"question": "", "better_answer": ""}, "uk_tone_notes": [""]}
+    point = {"point": "", "you_said": ""}
+    template = {"scores": {"structure": 0, "clarity": 0, "evidence": 0, "uk_tone": 0}, "summary": "", "strengths": [point],
+                "fixes": [point], "rewrite": {"question": "", "better_answer": ""}, "uk_tone_notes": [""]}
+
+    def checked(points: list) -> list:
+        # each comment keeps a quote only if the candidate really said it
+        return [{"point": p["point"].strip(), "you_said": verbatim(p["you_said"], transcript)} for p in points if p["point"].strip()]
+
     data = _run("interview", system, user, template, 1600, required=("summary", "fixes"))
+    fixes = checked(data["fixes"])
+    if not fixes:
+        raise AIError("interview")
     scores = {k: max(0, min(5, data["scores"][k])) for k in template["scores"]}
-    return {k: data[k] for k in template} | {"scores": scores}
+    return {k: data[k] for k in template} | {"scores": scores, "strengths": checked(data["strengths"]), "fixes": fixes}
 
 
 # 7. UK tone decoder

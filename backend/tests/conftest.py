@@ -42,3 +42,43 @@ def user_a(conn) -> str:
 @pytest.fixture
 def user_b(conn) -> str:
     return _throwaway_user(conn)
+
+
+# ---------- API fixtures ----------
+
+@pytest.fixture
+def client(conn, user_a, monkeypatch):
+    """The API as user_a, with every route's database work running inside this test's
+    rolled-back transaction instead of committing."""
+    from contextlib import contextmanager
+
+    from fastapi.testclient import TestClient
+
+    import db
+    import main
+    from auth import User, current_user
+
+    @contextmanager
+    def in_test_transaction():
+        with conn.transaction():  # a savepoint: a failing route rolls back only its own work
+            yield conn
+
+    monkeypatch.setattr(db, "transaction", in_test_transaction)
+    monkeypatch.setenv("DAILY_AI_LIMIT", "40")
+    monkeypatch.setenv("DAILY_VOICE_LIMIT", "3")
+    main.app.dependency_overrides[current_user] = lambda: User(user_a, "a@example.test", "Test Person")
+    try:
+        yield TestClient(main.app)
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def as_user():
+    """Switch which user the API sees: as_user(user_b)."""
+    import main
+    from auth import User, current_user
+
+    def switch(user_id, name="Other Person"):
+        main.app.dependency_overrides[current_user] = lambda: User(user_id, "other@example.test", name)
+    return switch

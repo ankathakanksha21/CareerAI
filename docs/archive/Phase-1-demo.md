@@ -1,3 +1,5 @@
+> **Archived.** This describes the retired single-persona demo (October 2026), not the current app. See `docs/ARCHITECTURE.md`.
+
 # Phase 1: clickable app on seeded data, fallbacks wired, agent setup script written
 
 Scope from PLAN.md: the full app on seeded data, every live endpoint wired with a demo-safe fallback, the agent setup script written, verified in fallback mode without keys. No keys are needed to run or test this phase.

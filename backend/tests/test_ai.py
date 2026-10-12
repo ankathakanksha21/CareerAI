@@ -186,8 +186,8 @@ def test_star_strength_normalised(model, given, expected):
 
 # ---------- interviews, tone, diagnosis ----------
 
-FEEDBACK = {"scores": {"structure": 3, "clarity": 3, "evidence": 3, "uk_tone": 3}, "summary": "s", "strengths": ["a"],
-            "fixes": ["b"], "rewrite": {"question": "q", "better_answer": "a"}, "uk_tone_notes": []}
+FEEDBACK = {"scores": {"structure": 3, "clarity": 3, "evidence": 3, "uk_tone": 3}, "summary": "s",
+            "strengths": [{"point": "a", "you_said": ""}], "fixes": [{"point": "b", "you_said": ""}], "rewrite": {"question": "q", "better_answer": "a"}, "uk_tone_notes": []}
 
 
 def test_interview_scores_clamped(model):
@@ -230,3 +230,75 @@ def test_no_demo_content_in_module():
 
 def test_removed_functions_are_gone():
     assert not hasattr(ai, "outreach") and not hasattr(ai, "peer_notes") and not hasattr(ai, "extract_evidence")
+
+
+# ---------- "You said": quotes are only ever the candidate's own words ----------
+
+CALL = ("Coach: What did you do before your course?\n"
+        "Candidate: I worked at a logistics firm for two years. I built a weekly delays report that fifteen managers used.\n"
+        "Coach: What was the result?\n"
+        "Candidate: Late deliveries fell by about eight percent, and I saved five hours a week with a Python script.")
+
+
+def test_verbatim_keeps_an_exact_quote():
+    assert ai.verbatim("I built a weekly delays report", CALL) == "I built a weekly delays report"
+
+
+def test_verbatim_ignores_case_and_punctuation():
+    assert ai.verbatim("late deliveries fell by about eight percent!", CALL) == "late deliveries fell by about eight percent!"
+
+
+def test_verbatim_replaces_a_paraphrase_with_what_was_said():
+    assert ai.verbatim("built a delays report used by fifteen managers", CALL) == "I built a weekly delays report that fifteen managers used."
+
+
+def test_verbatim_blank_when_nothing_like_it_was_said():
+    assert ai.verbatim("I led a team of twenty engineers in Singapore", CALL) == ""
+    assert ai.verbatim("", CALL) == ""
+
+
+def test_verbatim_never_quotes_the_coach():
+    assert ai.verbatim("What did you do before your course?", CALL) == ""
+
+
+def test_verbatim_does_not_match_inside_other_words():
+    # "he said" must not be found inside "the said"
+    assert ai.verbatim("he said", "Candidate: the said report was late.") == ""
+
+
+def test_verbatim_uses_the_whole_text_when_there_are_no_speaker_labels():
+    pasted = "Two years as a junior analyst. Built a delays report in SQL for fifteen managers."
+    assert ai.verbatim("built a delays report in SQL", pasted) == "built a delays report in SQL"
+
+
+def test_extract_raw_is_what_the_candidate_said(model):
+    model({"items": [
+        {"title": "Report", "raw": "I built a weekly delays report", "uk_version": "Built a weekly delays report used by 15 managers."},
+        {"title": "Paraphrased", "raw": "saved five hours weekly using a Python script", "uk_version": "Automated a task in Python, saving 5 hours a week."},
+        {"title": "Invented", "raw": "I managed a budget of two million pounds", "uk_version": "Did something."},
+    ], "pitch": ""})
+    raws = [i["raw"] for i in ai.extract_achievements(CALL, PROFILE)["items"]]
+    assert raws[0] == "I built a weekly delays report"
+    assert raws[1] == "Late deliveries fell by about eight percent, and I saved five hours a week with a Python script."
+    assert raws[2] == ""
+
+
+INTERVIEW_CALL = ("Interviewer: Tell me about a time you improved a process.\n"
+                  "Candidate: We had a report that took a long time, so I wrote a Python script and it saved five hours a week.")
+
+
+def test_interview_points_carry_checked_quotes(model):
+    model(FEEDBACK | {
+        "strengths": [{"point": "Gives a number.", "you_said": "it saved five hours a week"}, "A bare string strength"],
+        "fixes": [{"point": "Say what you did.", "you_said": "I single-handedly rebuilt the platform"}, {"point": " ", "you_said": "x"}],
+    })
+    out = ai.interview_feedback(INTERVIEW_CALL, JOB, PROFILE, "Behavioural round")
+    assert out["strengths"] == [{"point": "Gives a number.", "you_said": "it saved five hours a week"},
+                                {"point": "A bare string strength", "you_said": ""}]
+    assert out["fixes"] == [{"point": "Say what you did.", "you_said": ""}]
+
+
+def test_interview_requires_at_least_one_fix(model):
+    model(FEEDBACK | {"fixes": []}, FEEDBACK | {"fixes": [{"point": "", "you_said": ""}]})
+    with pytest.raises(ai.AIError):
+        ai.interview_feedback(INTERVIEW_CALL, JOB, PROFILE, "Behavioural round")

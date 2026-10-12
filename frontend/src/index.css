@@ -45,7 +45,7 @@ ul.dots { padding-left: 18px; margin: 4px 0 0; display: grid; gap: 4px; }
 .linkish { background: none; border: 0; padding: 0; color: var(--green); font-weight: 600; cursor: pointer; font-size: inherit; }
 .linkish:hover { text-decoration: underline; text-underline-offset: 3px; }
 
-input[type=text], input[type=number], input[type=password], select, textarea { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff; }
+input[type=text], input[type=number], input[type=password], input[type=email], input[type=date], input[type=month], select, textarea { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--green); box-shadow: var(--focus); }
 textarea { width: 100%; resize: vertical; line-height: 1.5; }
 label.field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
@@ -355,7 +355,37 @@ input[type=checkbox] { accent-color: var(--green); width: 16px; height: 16px; }
   .event { grid-template-columns: 52px 1fr; }
   .event > :last-child { grid-column: 2; }
   .stats4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .topbar .btn.ghost, .ob-top .brand-sub { display: none; }
+  .topbar .brand-sub, .ob-top .brand-sub { display: none; }  /* Sign in must stay reachable on a phone */
+  .topbar { gap: 10px; }
   .ob-top { flex-wrap: wrap; gap: 10px; justify-content: space-between; }
   .stepper { order: 3; width: 100%; margin: 0; justify-content: center; }
 }
+
+/* ---------- accounts, empty states and small controls ---------- */
+.auth-card { max-width: 440px; }
+.auth-card .card { gap: 14px; }
+.field .error { font-weight: 500; font-size: 13px; }
+.empty { text-align: center; padding: 40px 24px; display: grid; gap: 10px; justify-items: center; }
+.empty p { max-width: 46ch; }
+.chip-x { border: 0; background: none; padding: 0; margin-left: 2px; cursor: pointer; color: var(--ink-3); display: inline-flex; }
+.chip-x:hover { color: var(--bad); }
+.chip-btn { cursor: pointer; font: inherit; font-size: 12.5px; }
+.chip-btn:hover { border-color: var(--green); }
+.tickbox { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; margin-top: 2px; }
+.tickbox.on { background: var(--green); border-color: var(--green); color: #fff; }
+.icon-btn { border: 0; background: none; padding: 4px; border-radius: 6px; cursor: pointer; color: var(--ink-3); display: inline-flex; }
+.icon-btn:hover { color: var(--bad); background: var(--bad-tint); }
+.danger-zone { border-color: #f2c9c3; }
+button.me { background: #fff; cursor: pointer; width: 100%; font: inherit; color: inherit; }
+button.me:hover { border-color: var(--green-line); }
+.prose h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+.prose h2 { font-size: 18px; font-weight: 650; margin: 26px 0 6px; }
+.prose p, .prose li { color: var(--ink-2); }
+.land-foot a { color: var(--ink-3); }
+
+/* ---------- live transcript: proof of what was heard ---------- */
+.heard { border: 1px solid var(--green-line); background: var(--green-tint); border-radius: 10px; padding: 12px 14px; display: grid; gap: 10px; }
+.heard-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.heard .transcript { background: #fff; border-radius: 8px; padding: 10px; min-height: 64px; }
+.heard .turn.user { border: 1px solid var(--green-line); font-weight: 500; }
+.heard .turn.user .who { color: var(--green); }

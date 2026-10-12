@@ -1,3 +1,5 @@
+> **Archived.** This describes the retired single-persona demo (October 2026), not the current app. See `docs/ARCHITECTURE.md`.
+
 # UK Career Navigator: 3-hour demo build plan
 
 A demo prototype of a career loop for international students in the UK. Eight features, one fictional user, fake data where it is not the point, live models where it is. The loop:
