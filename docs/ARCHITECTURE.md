@@ -23,7 +23,7 @@ Every step has a document holding its goal, every decision made for it, the desi
 |---|---|---|---|---|
 | 0 | Accounts, saved data, removal of the demo persona | – | Built. Three hand checks left (section 13) | `careerai-step-0-accounts-and-saved-data` |
 | 1 | Deeper onboarding: CV upload, GitHub import, editing achievements, education and work history, story bank | 0 | Designed | `careerai-step-1-deeper-onboarding` |
-| 2 | Real jobs from Reed, fit scoring, sponsor register, visa salary facts | 0 | Built on branch `step-2-real-jobs`. Waiting for a Reed key and the hand checks (section 16) | `careerai-step-2-real-jobs` |
+| 2 | Real jobs from Reed, fit scoring, sponsor register, visa salary facts | 0 | Built on branch `step-2-real-jobs` and run against the real Reed API. The signed-in hand checks are left (section 16) | `careerai-step-2-real-jobs` |
 | 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Designed | `careerai-step-3-full-uk-cv` |
 | 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Designed | `careerai-step-4-tracker-and-habits` |
 | 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Designed | `careerai-step-5-interview-prep` |
@@ -95,6 +95,8 @@ Minimum versions: Node 20.19 or 22.12 (Vite 8 will not run on older), Python 3.1
 | Reed only; Adzuna left out | No allowance or terms risk | Fewer adverts than two sources would give | Adzuna agrees a higher allowance and consents to totals (section 15) |
 | Listings and the register are shared tables with no `user_id` | Many users reuse one search; the register is stored once | The one exception to "every row belongs to a user"; tests must not assume these tables are empty | – |
 | Each Reed search runs twice (direct employers, agencies) | An agency is never mistaken for the employer in the sponsor label | Twice the calls | Reed starts marking the poster in results |
+| A company whose name marks it as a recruiter, job board or trainer is not treated as the employer; an advert that sells a programme is kept apart as "training" | Course adverts do not pose as jobs or as sponsors; figures are not skewed | A real employer with "recruit", "career", "training" or "learning" in its name is treated as a recruiter. Recruiters with none of those words still pass as employers | Users report either kind of miss |
+| Only the first 100 results per search and poster are used | They are the relevant ones; later pages were mostly off-topic | Reed sorts by relevance and has no date sort, so some of the newest adverts in a very large search are missed | Reed adds a date sort |
 | Sponsor status is stored on the shared listing | Worked out once per advert, in three statements however many adverts | Must be recomputed when the register reloads (it is) | – |
 | "Possible match" only when a longer registered name starts with the advert's name | Deterministic, explainable, uses an index | A true match under a very different registered name shows as "not found" (the label says so) | Users report misses |
 | Fit is strict: a requirement counts only with real evidence in a named achievement | No flattering scores; gaps are actionable | A thin profile scores low on most adverts | Hand checks show it is too harsh |
@@ -169,14 +171,14 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 | `applications` | Tracker rows: company, role, family, CV version, source, stage, applied and posted dates, plus link, contact, notes, sponsor licence and follow-up date for step 4 |
 | `journal_entries` | Coach calls and mock interviews: summary, points, actions, scores, and the transcript |
 | `usage_events` | One row per AI action or voice session: daily limits now, streaks later |
-| `job_listings` (shared) | One row per advert: source and its id, title, employer, who posted it (employer or agency), location, salary and whether it is annual, description and whether it is the full text, link, posting date, and what the register says about the employer |
+| `job_listings` (shared) | One row per advert: source and its id, title, employer, who really posted it (employer, agency, or training for an advert that sells a course), location, salary and whether it is annual, description and whether it is the full text, link, posting date, and what the register says about the employer |
 | `job_searches`, `job_search_results` (shared) | The search cache: each search anyone has run, when, and the adverts it last found |
 | `sponsors` (shared) | The register's Skilled Worker entries: registered name, normalised name, town, county, rating. A trading name gets its own row |
 | `reference_meta` (shared) | When the register was last loaded and the date gov.uk published that file |
 | `job_matches` | One user's view of one advert: role family, fit percentage and label, what they show and lack, new, seen, saved or hidden |
 | `schema_migrations` | Which migration files have been applied |
 
-Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`).
+Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`.
 
 Adverts older than 30 days are deleted on each refresh. A saved job is a copy, so it stays.
 
@@ -351,7 +353,9 @@ Database tests run against the real database inside transactions that are rolled
 - The frontend has no automated tests; it is verified by hand.
 - Job adverts come from Reed only. Graduate boards (Prospects, Bright Network, Handshake) have no public API and are not searched.
 - Reed gives a posting date, not a time, so "posted in the last 48 hours" means today, yesterday or the day before.
-- An agency advert does not name the employer, so nothing can be said about sponsorship for it.
+- An agency advert does not name the employer, so nothing can be said about sponsorship for it. On Reed that is most adverts: in five real searches, 28 of 324 recent adverts came from a named employer.
+- Reed sorts results by relevance and offers no date sort. The app takes the first 100 per search from employers and 100 from agencies.
+- A recruiter that Reed lists as a direct employer, and whose name does not say what it is, is shown as an employer that is "not found on the register".
 - Going rates and eligible occupations are linked to on gov.uk, not looked up per job: the app does not know a job's occupation code.
 - The visa figures are updated by hand in `backend/data/visa_rules.json`.
 - The production JavaScript bundle is large (over 500 kB) because of the voice library.
@@ -368,6 +372,16 @@ Database tests run against the real database inside transactions that are rolled
 6. Fit is requirements shown over requirements listed: 80% and over is a direct fit, 60 to 79 near, 40 to 59 a stretch, under 40 "not a match".
 
 If the AI allowance is used up the adverts are still listed, unscored. If Reed is down the stored adverts stay and the page says so.
+
+**Who really placed an advert** (`jobs.poster`). Reed's "direct employer" filter cannot be taken at face value. On 12 October 2026, in five real searches, 136 of 324 recent adverts came from four training and recruitment companies listed as direct employers, many selling a paid course ("No experience required", "our specialised career programme"), and one of those companies is on the sponsor register. So each advert is classed again when it is fetched:
+
+| Class | When | Effect |
+|---|---|---|
+| `employer` | Reed says direct employer and the name does not say otherwise | Looked up on the register; counted in the figures |
+| `agency` | Reed says agency, or the name contains recruit, career, staffing, resourcing or RPO | "Advertised by a recruiter or job board; the employer is not named." Scored and shown as a job |
+| `training` | The name contains training, learning, course or bootcamp; or a recruiter-named company's advert reads like a programme; or the same company was seen selling one in the same fetch | Shown in a closed group, "Training programmes, not jobs". Never scored, never looked up, left out of the figures, and no Save or Track buttons |
+
+A real employer's trainee job is left alone: the wording alone never reclassifies an advert.
 
 **Sponsorship.** `sponsors.py` reduces a company name to what identifies it ("The Acme Group (UK) Ltd." and "ACME" both give `acme`) and compares it with the register:
 
@@ -388,7 +402,7 @@ The register is reloaded by `python scripts/refresh_sponsors.py`, or weekly on V
 
 | Check | Result | Date |
 |---|---|---|
-| Automated backend suite | 511 passed, 0 skipped, against the real database | 12 Oct 2026 |
+| Automated backend suite | 542 passed, 0 skipped, against the real database | 12 Oct 2026 |
 | Frontend | Lints with no errors; builds | 12 Oct 2026 |
 | Real model, one call per AI task (`live_check.py`) | 13 of 13 passed, including job fit: a matching advert credited to real achievements, an unrelated one scored 0% | 12 Oct 2026 |
 | Job fit on the real model, repeated | 8 of 8 runs complete and valid after the parser fix (3 of 12 failed before it) | 12 Oct 2026 |
@@ -396,11 +410,17 @@ The register is reloaded by `python scripts/refresh_sponsors.py`, or weekly on V
 | Real sponsor register | 123,175 Skilled Worker sponsors loaded in 22 seconds from the file gov.uk published that day. Spot checks: Deloitte LLP and Monzo Bank listed; Tesco and Barclays possible matches; a made-up name not found | 12 Oct 2026 |
 | Visa figures | Read from gov.uk the same day; the guide was last changed on 14 Sep 2026 | 12 Oct 2026 |
 | Signed-out pages in the browser | Landing and privacy pages show the new copy with no console errors | 12 Oct 2026 |
+| Reed's real replies (`reed_check.py`) | Every field, the date format and the links are as `reed.py` assumed: 200 of 200 adverts read. Search descriptions are about 450 characters; the full advert runs to 2,000 to 3,500 | 12 Oct 2026 |
+| Real searches, five titles and places | 0 failures; about one second for a search of 200 adverts | 12 Oct 2026 |
+| Real adverts stored and matched to the register, in a transaction then rolled back | 390 adverts stored in 0.3 seconds. Named employers found correctly: FDM Group, Isio, Unipart, Brown & Brown listed; Live Nation, Sagacity, Shift4 possible. One doubtful possible match ("The Hyde Group" to "Hyde Farm Limited"), which the wording asks the user to check | 12 Oct 2026 |
+| Real adverts scored against a sample profile | 7 of 7 scored in 17 seconds after fetching each full advert; fits from 17% to 67% | 12 Oct 2026 |
+| The training rule on real adverts | 136 of 324 classed as training, from five companies; none of the 28 left as employers read like a programme | 12 Oct 2026 |
 
 **Not yet verified:**
 
-- **Anything against the real Reed API.** No key was available. `reed.py` is built to Reed's documented reply and proved only with replaced HTTP. Unknown until `python scripts/reed_check.py` is run: the name and format of the posting date in search results, the order results come in, how short the search descriptions are, and any call limit. If the posting date is missing from search results, no adverts will be listed and the client needs a small change.
+- **A refresh through the app for a real account.** Every part has run on real data separately (search, storing, register matching, full adverts, scoring), but not yet as one request from the Jobs page.
 - **The Jobs page, the role family figures and the offer check on screen**, signed in. Verified by lint, build and the API tests only.
+- **Fit scores on a real profile.** Checked only against a two-achievement sample.
 - **All eight hand checks in the step document.**
 - **The weekly reload on Vercel.** Nothing is deployed. The route is tested; the schedule and the 60-second limit there are not.
 - **Reed's terms of use and call limits.** Not published on its developer page.

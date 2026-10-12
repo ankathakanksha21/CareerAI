@@ -5,21 +5,26 @@ description: Use when building, continuing or reviewing step 2 of the CareerAI r
 
 # Step 2: real jobs
 
-**Status:** Built on branch `step-2-real-jobs` (12 October 2026), not yet merged. **Not finished:** it has never run against the real Reed API (no key was available) and none of the hand checks are done. See "Where it stands" straight below. **Depends on:** step 0 (works better after step 1, which adds skills and work history, but does not require it). **Size:** large, about the same as step 0.
+**Status:** Built on branch `step-2-real-jobs` (12 October 2026) and run against the real Reed API, not yet merged. **Not finished:** none of the signed-in hand checks are done. See "Where it stands" straight below. **Depends on:** step 0 (works better after step 1, which adds skills and work history, but does not require it). **Size:** large, about the same as step 0.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Where it stands (12 October 2026)
 
-All thirteen tasks in `docs/superpowers/plans/2026-10-12-step-2-real-jobs.md` are built and committed except the verification that needs the owner. 511 backend tests pass; the real register is loaded; the fit-scoring task passes on the real model.
+All thirteen tasks in `docs/superpowers/plans/2026-10-12-step-2-real-jobs.md` are built and committed except the hand checks. 542 backend tests pass; the real register is loaded; the Reed key is in `backend/.env`; search, storing, register matching, full adverts and scoring have each run on real Reed data.
+
+**What the real Reed data showed (12 October 2026).**
+- The replies are exactly as `reed.py` assumed. Search results carry `date` as `dd/mm/yyyy` and a description of about 450 characters.
+- Results are ordered by relevance, not date, and no date sort or filter exists (several parameter names were tried). About half of the first 100 are older than 14 days. Later pages were mostly off-topic, so only the first 100 per poster are used.
+- Roughly three in four recent "direct employer" adverts came from training and recruitment companies, many selling a paid course. The owner chose to **separate them**: see `jobs.poster` and `docs/ARCHITECTURE.md` section 15.
+- A real batch mixes whole-pound salaries with rates such as 13.5, which broke storing until fixed.
 
 To finish the step, in this order:
 
-1. The owner adds `REED_API_KEY` to `backend/.env` (free, from reed.co.uk/developers/jobseeker).
-2. Run `python scripts/reed_check.py` from `backend/`. It prints the shape of Reed's real replies. Compare with what `reed.py` assumes: the posting date field in search results (`date` or `datePosted`, as `dd/mm/yyyy` or ISO), the order of results, the length of search descriptions, `salaryType` in the full advert. Fix `reed.parse` and `reed.details` test-first if anything differs, and record what was found here.
-3. If most of the first 100 results of a search are older than 14 days, results are not newest-first: page through more results or tell the owner before changing the design.
-4. With the owner signed in, do the eight hand checks below in the browser, and look closely at the Jobs page layout, which has only been checked by lint and build.
-5. Check how fit scores look on the owner's real profile. The model is strict (a sample analyst profile scored 40% on a matching analyst advert). If good matches land under "Not a match", soften the wording in `ai.score_jobs` and re-run `scripts/live_check.py`.
-6. Update `docs/ARCHITECTURE.md` section 16 and this section, then give the owner the pull request link when they ask.
+1. With the owner signed in, open Jobs and let the first real refresh run. Time it (it must stay well under 60 seconds) and look closely at the page layout, which has only been checked by lint and build.
+2. Do the eight hand checks below in the browser.
+3. Check how fit scores look on the owner's real profile. If good matches land under "Not a match", soften the wording in `ai.score_jobs` and re-run `scripts/live_check.py`.
+4. Look at the "Training programmes, not jobs" group and at the employers left in the main list: adjust the words in `jobs.NOT_THE_EMPLOYER` if a real employer is caught or an obvious recruiter is missed.
+5. Update `docs/ARCHITECTURE.md` section 16 and this section, then give the owner the pull request link when they ask.
 
 Decisions made while building, beyond those in "Changed at build time", are in the plan's table and in `docs/ARCHITECTURE.md` sections 5 and 15. Two that differ from this document's original design: the offer check is `POST /api/visa-facts` (not GET), and sponsor status is stored on the shared listing, not on each match.
 
@@ -54,6 +59,7 @@ The sources were rechecked against their live documentation. Where this section 
 | **Salary fact wording** | gov.uk now says the occupation must also be on the eligible list (in force since 22 July 2025). Agreed text: "Skilled Worker visa: usually at least £41,700 a year. At least £33,400 if you are on a Student or Graduate visa, or under 26. The going rate for the occupation can be higher, and the occupation must be on the eligible list. Source: gov.uk, checked <date>. Not immigration advice." The term "new entrant" is not used; gov.uk describes who qualifies instead | Owner |
 | **One visa line on the Jobs page, by the user's visa type** | Graduate: "On a Graduate visa you can work in most jobs without a sponsor until your visa ends on <their date>. Sponsorship matters if you want to stay after that." Student: "On a Student visa, how much you can work depends on your course and whether it is term time. Check your conditions on gov.uk." Each links to gov.uk. No hour figures | Owner |
 | **The register-reload route is `GET`, not `POST`** | Vercel's scheduled jobs call the address with GET and send `Authorization: Bearer <CRON_SECRET>` | Forced by Vercel |
+| **Training and recruiter adverts are separated** | Reed lists training and recruitment companies as "direct employers". A company whose name marks it as a recruiter, job board or trainer is never treated as the employer. An advert that sells a training programme goes into a closed group, "Training programmes, not jobs", and is not scored, looked up on the register or counted. This narrows the earlier decision "all jobs, each labelled": a course is not a job | Owner, after seeing the real data |
 
 Verified and unchanged: the register is one CSV (columns `Organisation Name`, `Town/City`, `County`, `Type & Rating`, `Route`; 143,198 rows of which 123,175 are Skilled Worker), found through `https://www.gov.uk/api/content/government/publications/register-of-licensed-sponsors-workers`, reusable under the Open Government Licence v3.0. Vercel scheduled jobs are available on every plan; on Hobby at most once a day.
 
