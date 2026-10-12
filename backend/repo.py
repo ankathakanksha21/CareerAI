@@ -280,3 +280,68 @@ def seconds_since_last_usage(conn, user_id, kind: str, action: str) -> float | N
     row = conn.execute("select extract(epoch from now() - max(created_at)) as s from usage_events "
                        "where user_id = %s and kind = %s and action = %s", (user_id, kind, action)).fetchone()
     return float(row["s"]) if row["s"] is not None else None
+
+
+# ---------- the sponsor register (shared public data, no user_id) ----------
+
+SKILLED_WORKER = "Skilled Worker"
+MIN_PREFIX_KEY = 4  # a shorter name is too little to guess a longer registered name from
+_NOT_FOUND = {"status": "not_found", "name": None}
+# name_key begins with the wanted key followed by a space. Written as a range ("!" sorts straight
+# after a space) so the text_pattern_ops index is used even when the key comes from another column.
+_STARTS_WITH = "s.name_key ~>=~ ({key} || ' ') and s.name_key ~<~ ({key} || '!')"
+
+
+def replace_sponsors(conn, rows: list[dict], *, published_on, source_url: str, row_count: int) -> int:
+    """Swap the whole register for `rows` (each with name_key: see sponsors.with_keys)."""
+    conn.execute("delete from sponsors")
+    fields = ("name", "name_key", "town", "county", "route", "rating")
+    for start in range(0, len(rows), 5000):
+        chunk = rows[start:start + 5000]
+        conn.execute(
+            f"insert into sponsors ({', '.join(fields)}) select * from unnest({', '.join(['%s::text[]'] * len(fields))})",
+            [[r[f] for r in chunk] for f in fields])
+    conn.execute(
+        "insert into reference_meta (key, loaded_at, published_on, source_url, row_count) values ('sponsors', now(), %s, %s, %s) "
+        "on conflict (key) do update set loaded_at = now(), published_on = excluded.published_on, "
+        "source_url = excluded.source_url, row_count = excluded.row_count", (published_on, source_url, row_count))
+    return len(rows)
+
+
+def register_meta(conn) -> dict | None:
+    """When the register was last loaded and the date gov.uk published that file."""
+    return conn.execute("select loaded_at, published_on, source_url, row_count from reference_meta where key = 'sponsors'").fetchone()
+
+
+def find_sponsor(conn, key: str) -> dict:
+    """The register entry for a normalised employer name: "listed" when the names are the same,
+    "possible" when a longer registered name starts with it, otherwise "not_found"."""
+    if not key:
+        return dict(_NOT_FOUND)
+    row = conn.execute("select name from sponsors where name_key = %s and route = %s order by name limit 1", (key, SKILLED_WORKER)).fetchone()
+    if row:
+        return {"status": "listed", "name": row["name"]}
+    if len(key) >= MIN_PREFIX_KEY:
+        row = conn.execute(
+            f"select s.name from sponsors s where {_STARTS_WITH.format(key='%s')} and s.route = %s order by length(s.name_key), s.name limit 1",
+            (key, key, SKILLED_WORKER)).fetchone()
+        if row:
+            return {"status": "possible", "name": row["name"]}
+    return dict(_NOT_FOUND)
+
+
+def recheck_listing_sponsors(conn) -> None:
+    """Work out again what the register says about every stored listing that names its employer.
+    Run after the register is reloaded, so adverts already stored reflect the new file."""
+    conn.execute("update job_listings set sponsor_status = 'not_found', sponsor_name = null where posted_by = 'employer'")
+    conn.execute(
+        "update job_listings l set sponsor_status = 'listed', sponsor_name = "
+        "(select s.name from sponsors s where s.name_key = l.employer_key and s.route = %s order by s.name limit 1) "
+        "where l.posted_by = 'employer' and l.employer_key <> '' "
+        "and exists (select 1 from sponsors s where s.name_key = l.employer_key and s.route = %s)", (SKILLED_WORKER, SKILLED_WORKER))
+    starts = _STARTS_WITH.format(key="l.employer_key")
+    conn.execute(
+        "update job_listings l set sponsor_status = 'possible', sponsor_name = "
+        f"(select s.name from sponsors s where {starts} and s.route = %s order by length(s.name_key), s.name limit 1) "
+        "where l.posted_by = 'employer' and l.sponsor_status = 'not_found' and length(l.employer_key) >= %s "
+        f"and exists (select 1 from sponsors s where {starts} and s.route = %s)", (SKILLED_WORKER, MIN_PREFIX_KEY, SKILLED_WORKER))
