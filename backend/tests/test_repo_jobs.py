@@ -307,3 +307,35 @@ def test_application_for_a_saved_job(conn, user_a, user_b):
     made = repo.add_application(conn, user_a, {"company": "Zzqx Holdings Ltd", "role": "Role 1", "source": "Reed", "saved_job_id": job["id"]})
     assert repo.application_for_job(conn, user_a, job["id"])["id"] == made["id"]
     assert repo.application_for_job(conn, user_b, job["id"]) is None
+
+
+# ---------- adverts from training companies ----------
+
+def test_a_training_advert_is_never_looked_up_on_the_register(conn):
+    register(conn, "Zzqx Training Ltd")
+    (listing_id,) = stored(conn, listing(1, employer="Zzqx Training", employer_key="zzqx training", posted_by="training"))
+    assert (row(conn, listing_id)["sponsor_status"], row(conn, listing_id)["sponsor_name"]) == ("agency", None)
+    repo.recheck_listing_sponsors(conn)
+    assert row(conn, listing_id)["sponsor_status"] == "agency"
+
+
+def test_training_adverts_are_left_out_of_the_market_figures(conn, user_a):
+    fam = family(conn, user_a)
+    matched(conn, user_a, listing(1), listing(2, posted_by="training", salary_min=30000, salary_max=50000), family_id=fam)
+    market = repo.family_market(conn, user_a, SINCE)[fam]
+    assert market["jobs"] == 1 and market["named"] == 1 and market["salaries"] == [30000]
+
+
+def test_unscored_matches_say_who_placed_the_advert(conn, user_a):
+    matched(conn, user_a, listing(1, posted_by="training"))
+    assert repo.unscored_matches(conn, user_a, SINCE)[0]["posted_by"] == "training"
+
+
+def test_a_batch_can_mix_whole_pound_salaries_hourly_rates_and_none(conn):
+    """Real Reed batches do: 28000, 13.5 and no salary side by side. Found on the first real run."""
+    ids = stored(conn, listing(1, salary_min=28000, salary_max=32000), listing(2, salary_min=13.5, salary_max=15, salary_annual=False),
+                 listing(3, salary_min=None, salary_max=None, salary_annual=False), listing(4, salary_min=None, salary_max=45000.0))
+    got = [(float(row(conn, i)["salary_min"] or 0), float(row(conn, i)["salary_max"] or 0)) for i in ids]
+    assert got == [(28000, 32000), (13.5, 15), (0, 0), (0, 45000)]
+    repo.set_listing_details(conn, ids[0], {"description": "Full", "description_is_full": True, "salary_min": 13.5, "salary_max": 14, "salary_annual": False})
+    assert float(row(conn, ids[0])["salary_min"]) == 13.5

@@ -135,3 +135,11 @@ def test_match_defaults(conn, user_a):
 def test_profile_hides_senior_roles_by_default(conn, user_a):
     row = conn.execute("insert into profiles (user_id, full_name) values (%s, 'Test Person') returning include_senior", (user_a,)).fetchone()
     assert row["include_senior"] is False
+
+
+def test_a_listing_can_be_a_training_programme_and_nothing_else_new(conn):
+    insert = ("insert into job_listings (source, source_id, title, employer, posted_by, url, posted_on) "
+              "values ('test', %s, 'Role A', 'Zzqx Training', %s, 'https://example.test/1', current_date)")
+    conn.execute(insert, ("t-training", "training"))
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute(insert, ("t-other", "charity"))

@@ -20,6 +20,14 @@ WORKERS = 8
 FIT_BANDS = ((80, "direct"), (60, "near"), (40, "stretch"))  # below the last: not a match
 SHOWN_ON_CARD = 3
 SENIOR = re.compile(r"\b(senior|lead|principal|head|director|manager)\b", re.I)
+# Reed lists many training and recruitment companies as "direct employers". A name with one of
+# these words in it is not the employer of the job advertised...
+NOT_THE_EMPLOYER = re.compile(r"recruit|career|staffing|resourcing|\brpo\b|training|(?<!machine )(?<!deep )learning|\bcourses?\b|bootcamp", re.I)
+# ...a name with one of these sells courses...
+TRAINING_COMPANY = re.compile(r"training|(?<!machine )(?<!deep )learning|\bcourses?\b|bootcamp", re.I)
+# ...and so does a recruiter whose advert reads like this.
+PROGRAMME = re.compile(r"career programme|training programme|no experience (is )?(required|needed|necessary)|job guarantee|"
+                       r"guaranteed job|launch your new career", re.I)
 
 
 def _tidy(text: str) -> str:
@@ -46,6 +54,19 @@ def plan(families: list[dict], locations: list[str]) -> list[dict]:
 
 def is_senior(title: str) -> bool:
     return bool(SENIOR.search(title))
+
+
+def poster(item: dict) -> str:
+    """Who really placed an advert: "employer", "agency" (a recruiter or job board, so the employer
+    is not named) or "training" (it sells a course, not a job). Reed's own flag is the starting
+    point; the company's name, and for a recruiter the advert's wording, can only move an advert
+    away from "employer". A real employer's trainee job is left alone."""
+    name = item["employer"]
+    if TRAINING_COMPANY.search(name):
+        return "training"
+    if NOT_THE_EMPLOYER.search(name):
+        return "training" if PROGRAMME.search(f"{item['title']} {item['description']}") else "agency"
+    return item["posted_by"]
 
 
 def _same_job(item: dict) -> tuple | None:
@@ -83,8 +104,9 @@ def _mentions(text: str, skills: list[str]) -> int:
 
 def shortlist(candidates: list[dict], skills: list[str], include_senior: bool, limit: int) -> list[dict]:
     """The unscored adverts most worth the model's time: those mentioning most of the user's
-    skills, newest first among equals. Senior titles are left out unless the user asked for them."""
-    wanted = [c for c in candidates if include_senior or not is_senior(c["title"])]
+    skills, newest first among equals. Senior titles are left out unless the user asked for them,
+    and a training programme is never scored: it is not a job."""
+    wanted = [c for c in candidates if c["posted_by"] != "training" and (include_senior or not is_senior(c["title"]))]
     by_newest = sorted(wanted, key=lambda c: c["posted_on"], reverse=True)
     return sorted(by_newest, key=lambda c: -_mentions(f"{c['title']} {c['description']}", skills))[:limit]
 
@@ -100,7 +122,8 @@ def _together(work, items) -> list:
 
 def fetch(searches: list[dict]) -> tuple[dict, int]:
     """Run the searches on Reed side by side. Returns {(query, location): listings} for those that
-    worked, each listing with the key its employer is looked up by, and how many searches failed."""
+    worked, each listing with who really placed it and the key its employer is looked up by, and
+    how many searches failed."""
     def one(search):
         try:
             return reed.search_both(search["query"], search["location"])
@@ -108,8 +131,14 @@ def fetch(searches: list[dict]) -> tuple[dict, int]:
             return None
 
     found = dict(zip(((s["query"], s["location"]) for s in searches), _together(one, searches)))
-    done = {key: [item | {"employer_key": sponsors.employer_key(item["employer"])} for item in listings]
+    done = {key: [item | {"employer_key": sponsors.employer_key(item["employer"]), "posted_by": poster(item)} for item in listings]
             for key, listings in found.items() if listings is not None}
+    # a company seen selling a programme sells one in its other adverts too, whatever their short text says
+    sellers = {item["employer"] for listings in done.values() for item in listings if item["posted_by"] == "training"}
+    for listings in done.values():
+        for item in listings:
+            if item["employer"] in sellers:
+                item["posted_by"] = "training"
     return done, len(found) - len(done)
 
 

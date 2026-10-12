@@ -515,3 +515,23 @@ def test_no_key_appears_in_any_jobs_response(client, conn, user_a, site, model, 
                client.post(f"/api/jobs/{m['id']}/save"), client.get("/api/internal/refresh-sponsors"), client.get("/api/config")]
     for r in replies:
         assert "reed-marker-key" not in r.text and "cron-marker-secret" not in r.text
+
+
+# ---------- training programmes advertised as jobs ----------
+
+def test_a_training_programme_is_listed_apart_never_scored_and_never_called_a_sponsor(client, conn, user_a, site, model):
+    (family_id,) = ready(conn, user_a)
+    register(conn, "Zzqx Training Ltd")  # a training company can hold a licence for its own staff
+    site.adverts = [advert(1), advert(2, employer="Zzqx Training", description="Launch your new career. No experience required."),
+                    advert(3, employer="Zzqx Recruit", description="Our career programme gets you job ready.")]
+    assert refresh(client)["scored"] == 1
+    by_id = {m["source_id"]: m for m in jobs_list(client)["matches"]}
+    assert by_id["zzqx-1"]["posted_by"] == "employer" and by_id["zzqx-1"]["scored_at"] is not None
+    for source_id in ("zzqx-2", "zzqx-3"):
+        m = by_id[source_id]
+        assert m["posted_by"] == "training" and m["scored_at"] is None and m["fit_percent"] is None
+        assert (m["sponsor_status"], m["sponsor_name"]) == ("agency", None)
+    assert refresh(client)["scored"] == 0 and len(model["calls"]) == 1  # they are never sent to the model later either
+    state = client.get("/api/state").json()
+    assert state["jobs"] == {"new": 1, "fresh": 1}
+    assert state["market"][family_id]["jobs"] == 1 and state["market"][family_id]["named"] == 1

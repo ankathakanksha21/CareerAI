@@ -129,7 +129,7 @@ def test_dedupe_keeps_adverts_with_no_known_employer_apart():
 
 def waiting(n, title="Data Analyst", description="", posted_on=date(2026, 10, 5)):
     return {"match_id": f"M{n}", "listing_id": f"L{n}", "source_id": str(n), "title": title, "employer": "Company A",
-            "description": description, "description_is_full": False, "posted_on": posted_on}
+            "posted_by": "employer", "description": description, "description_is_full": False, "posted_on": posted_on}
 
 
 def test_shortlist_hides_senior_titles_unless_allowed():
@@ -166,13 +166,14 @@ def test_fetch_returns_what_succeeded_and_counts_what_failed(monkeypatch):
     def search_both(query, location):
         if query == "bi analyst":
             raise jobs.reed.ReedError("down")
-        return [{"source_id": f"{query}-{location}", "employer": "Zzqx Holdings Ltd"}]
+        return [{"source_id": f"{query}-{location}", "employer": "Zzqx Holdings Ltd", "posted_by": "employer", "title": "Role", "description": ""}]
     monkeypatch.setattr(jobs.reed, "search_both", search_both)
     searches = [{"query": "data analyst", "location": "london"}, {"query": "bi analyst", "location": "london"},
                 {"query": "data analyst", "location": "leeds"}]
     got, failed = jobs.fetch(searches)
     assert failed == 1 and set(got) == {("data analyst", "london"), ("data analyst", "leeds")}
-    assert got[("data analyst", "london")] == [{"source_id": "data analyst-london", "employer": "Zzqx Holdings Ltd", "employer_key": "zzqx"}]
+    assert got[("data analyst", "london")] == [{"source_id": "data analyst-london", "employer": "Zzqx Holdings Ltd", "employer_key": "zzqx",
+                                                "posted_by": "employer", "title": "Role", "description": ""}]
 
 
 def test_fetch_with_nothing_to_do_makes_no_calls(monkeypatch):
@@ -257,3 +258,72 @@ def test_market_summarises_each_family():
     raw = {"f1": {"jobs": 4, "named": 3, "listed": 2, "salaries": [30000.0, 40000.0]}, "f2": {"jobs": 1, "named": 0, "listed": 0, "salaries": []}}
     assert jobs.market(raw) == {"f1": {"jobs": 4, "named": 3, "listed": 2, "salary_median": 35000, "salary_n": 2},
                                 "f2": {"jobs": 1, "named": 0, "listed": 0, "salary_median": None, "salary_n": 0}}
+
+
+# ---------- who really placed an advert ----------
+# Reed lists many training and recruitment companies as "direct employers". Seen on 12 October 2026:
+# about three in four recent "employer" adverts came from four such companies.
+
+def placed(employer, posted_by="employer", title="Data Analyst", description="Analyse data and report findings."):
+    return {"employer": employer, "posted_by": posted_by, "title": title, "description": description}
+
+
+@pytest.mark.parametrize("employer", ["Zzqx Stores Ltd", "Zzqx Housing Group", "Zzqx Machine Learning Ltd", "Zzqx Deep Learning", "The Zzqx Academy Trust"])
+def test_a_real_employer_stays_an_employer(employer):
+    assert jobs.poster(placed(employer)) == "employer"
+
+
+@pytest.mark.parametrize("employer", ["Zzqx Recruitment", "Zzqx Recruit", "Zzqx Recruiting Ltd", "ZzqxCareers", "Zzqx Career Hub"])
+def test_a_recruiter_or_job_board_is_not_the_employer(employer):
+    assert jobs.poster(placed(employer)) == "agency"
+
+
+@pytest.mark.parametrize("employer", ["Zzqx Training", "Zzqx Online Learning", "Zzqx Courses", "Zzqx Bootcamp"])
+def test_a_training_company_sells_programmes_not_jobs(employer):
+    assert jobs.poster(placed(employer)) == "training"
+    assert jobs.poster(placed(employer, posted_by="agency")) == "training"
+
+
+@pytest.mark.parametrize("text", ["Our specialised Data Analyst career programme assists you.", "Launch Your New Career- No Experience Required",
+                                  "No experience needed. Training programme with a job guarantee."])
+def test_a_recruiter_selling_a_programme_is_training(text):
+    assert jobs.poster(placed("Zzqx Recruit", description=text)) == "training"
+    assert jobs.poster(placed("Zzqx Recruit", title=text, description="")) == "training"
+
+
+def test_those_phrases_alone_do_not_make_a_real_job_a_course():
+    text = "No experience required. Full training programme provided."
+    assert jobs.poster(placed("Zzqx Stores Ltd", description=text)) == "employer"       # a genuine trainee job
+    assert jobs.poster(placed("Zzqx Partners", posted_by="agency", description=text)) == "agency"
+
+
+def test_an_agency_advert_stays_an_agency_advert():
+    assert jobs.poster(placed("Zzqx Partners", posted_by="agency")) == "agency"
+
+
+def test_fetch_records_who_really_placed_each_advert(monkeypatch):
+    adverts = [placed("Zzqx Stores Ltd"), placed("Zzqx Training"), placed("Zzqx Recruitment")]
+    monkeypatch.setattr(jobs.reed, "search_both", lambda query, location: [dict(a) for a in adverts])
+    got, _ = jobs.fetch([{"query": "data analyst", "location": "london"}])
+    assert [(x["employer"], x["posted_by"]) for x in got[("data analyst", "london")]] == [
+        ("Zzqx Stores Ltd", "employer"), ("Zzqx Training", "training"), ("Zzqx Recruitment", "agency")]
+
+
+def test_shortlist_never_spends_the_model_on_a_training_programme():
+    candidates = [waiting(1) | {"posted_by": "training"}, waiting(2) | {"posted_by": "employer"}, waiting(3) | {"posted_by": "agency"}]
+    assert [c["match_id"] for c in jobs.shortlist(candidates, [], include_senior=True, limit=15)] == ["M2", "M3"]
+
+
+def test_every_advert_from_a_company_seen_selling_a_programme_is_training(monkeypatch):
+    """A recruiter's short search text does not always carry the giveaway phrases."""
+    adverts = [placed("Zzqx Recruit", description="Our career programme gets you job ready."), placed("Zzqx Recruit", title="Data Analyst Trainee"),
+               placed("Qqzz Recruitment", posted_by="agency")]
+    monkeypatch.setattr(jobs.reed, "search_both", lambda query, location: [dict(a) for a in adverts])
+    got, _ = jobs.fetch([{"query": "data analyst", "location": "london"}])
+    assert [x["posted_by"] for x in got[("data analyst", "london")]] == ["training", "training", "agency"]
+
+
+@pytest.mark.parametrize("employer", ["Zzqx RPO", "Zzqx Staffing Ltd", "Zzqx Resourcing"])
+def test_other_names_that_mark_a_recruiter(employer):
+    assert jobs.poster(placed(employer)) == "agency"
+    assert jobs.poster(placed("Zzqx Corporation")) == "employer"  # "rpo" inside a word does not count

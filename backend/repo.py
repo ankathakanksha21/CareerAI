@@ -367,6 +367,12 @@ _LISTING_TYPES = {"salary_min": "numeric", "salary_max": "numeric", "salary_annu
 _PAIRS = "(select * from unnest(%s::text[], %s::text[]))"  # a list of (query, location) pairs
 
 
+def _plain(value):
+    """A salary as a float. One batch holds whole pounds (28000) beside rates (13.5), and a list
+    sent to the database must be of one type."""
+    return float(value) if isinstance(value, int) and not isinstance(value, bool) else value
+
+
 def _pairs(searches) -> list[list[str]]:
     return [[q for q, _ in searches], [loc for _, loc in searches]]
 
@@ -396,13 +402,13 @@ def store_searches(conn, results: dict[tuple[str, str], list[dict]]) -> dict[tup
                               for f in ("description", "description_is_full", "salary_min", "salary_max", "salary_annual"))
         rows = conn.execute(
             f"insert into job_listings ({', '.join(_LISTING)}, sponsor_status) "
-            "select t.*, case when t.posted_by = 'agency' then 'agency' else 'not_found' end "
+            "select t.*, case when t.posted_by = 'employer' then 'not_found' else 'agency' end "  # only a named employer is looked up
             f"from unnest({', '.join(columns)}) as t ({', '.join(_LISTING)}) "
             "on conflict (source, source_id) do update set title = excluded.title, employer = excluded.employer, "
             "employer_key = excluded.employer_key, posted_by = excluded.posted_by, location = excluded.location, url = excluded.url, "
             f"posted_on = excluded.posted_on, sponsor_status = excluded.sponsor_status, sponsor_name = null, fetched_at = now(), {keep_full} "
             "returning id, source, source_id",
-            [[item[f] for item in unique.values()] for f in _LISTING]).fetchall()
+            [[_plain(item[f]) for item in unique.values()] for f in _LISTING]).fetchall()
         ids = {(r["source"], r["source_id"]): str(r["id"]) for r in rows}
         recheck_listing_sponsors(conn, list(ids.values()))
     found = {}
@@ -489,7 +495,7 @@ def get_match(conn, user_id, match_id) -> dict | None:
 def unscored_matches(conn, user_id, since: date) -> list[dict]:
     """Matches the model has not judged yet, with the advert text to judge them on."""
     return _rows(conn.execute(
-        "select m.id as match_id, m.listing_id, l.source_id, l.title, l.employer, l.description, l.description_is_full, l.posted_on "
+        "select m.id as match_id, m.listing_id, l.source_id, l.title, l.employer, l.posted_by, l.description, l.description_is_full, l.posted_on "
         f"{_LIVE} and m.scored_at is null and m.status <> 'hidden' order by l.posted_on desc, m.id", (user_id, since)))
 
 
@@ -541,13 +547,15 @@ def job_counts(conn, user_id, since: date, fresh_since: date) -> dict:
 
 def family_market(conn, user_id, since: date) -> dict[str, dict]:
     """For each targeted role family: live adverts matched, how many name their employer, how many
-    of those employers are on the register, and the mid-point of every annual salary advertised."""
+    of those employers are on the register, and the mid-point of every annual salary advertised.
+    Training programmes are not jobs and are left out."""
     rows = conn.execute(
         "select m.role_family_id, count(*) as jobs, count(*) filter (where l.posted_by = 'employer') as named, "
         "count(*) filter (where l.sponsor_status = 'listed') as listed, "
         "coalesce(array_agg(((coalesce(l.salary_min, l.salary_max) + coalesce(l.salary_max, l.salary_min)) / 2)::float8) "
         "filter (where l.salary_annual and coalesce(l.salary_min, l.salary_max) is not null), '{}') as salaries "
-        f"{_LIVE} and f.id is not null and m.status <> 'hidden' group by m.role_family_id", (user_id, since)).fetchall()
+        f"{_LIVE} and f.id is not null and m.status <> 'hidden' and l.posted_by <> 'training' group by m.role_family_id",
+        (user_id, since)).fetchall()
     return {str(r["role_family_id"]): {k: r[k] for k in ("jobs", "named", "listed", "salaries")} for r in rows}
 
 

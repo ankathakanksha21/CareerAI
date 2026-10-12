@@ -4,11 +4,12 @@ const FULL_DATE = { day: 'numeric', month: 'short', year: 'numeric' }
 const Link = ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
 
 // What the gov.uk register says about an advert's employer. Facts only: the user checks before applying
-export function SponsorLine({ status, name, links }) {
+export function SponsorLine({ status, name, links, postedBy }) {
   const register = links && <Link href={links.register}>Check the register</Link>
+  if (postedBy === 'training') return <p className="small muted">Advertised by a training company or a recruiter selling a programme. This is a course, not a job.</p>
   if (status === 'listed') return <p className="small">On the sponsor register as <span className="strong">{name}</span> (Skilled Worker).</p>
   if (status === 'possible') return <p className="small">Possible match on the register: <span className="strong">{name}</span>. Check before applying. {register}</p>
-  if (status === 'agency') return <p className="small muted">Advertised by a recruitment agency; the employer is not named.</p>
+  if (status === 'agency') return <p className="small muted">Advertised by a recruiter or job board; the employer is not named.</p>
   return <p className="small muted">Not found on the register. Employers sometimes appear under a different registered name. {register}</p>
 }
 

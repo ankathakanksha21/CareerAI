@@ -38,6 +38,7 @@ function JobCard({ m, visa, newDays, tracked, pending, on }) {
   const busy = pending === m.id
   const posted = -daysUntil(m.posted_on) // days ago
   const annual = m.salary_annual && (m.salary_min ?? m.salary_max)
+  const course = m.posted_by === 'training' // sells a course: nothing to tailor a CV for or track
   return (
     <article className="card jobcard">
       <div className="row" style={{ alignItems: 'baseline' }}>
@@ -53,18 +54,22 @@ function JobCard({ m, visa, newDays, tracked, pending, on }) {
       </p>
       {!m.scored_at && m.snippet && <p className="small">{m.snippet}{m.snippet.length >= 300 ? '...' : ''}</p>}
       <Fit m={m} />
-      <SponsorLine status={m.sponsor_status} name={m.sponsor_name} links={visa.links} />
-      {annual && (
+      <SponsorLine status={m.sponsor_status} name={m.sponsor_name} links={visa.links} postedBy={m.posted_by} />
+      {annual && !course && (
         <details className="small">
           <summary>Salary and the Skilled Worker visa</summary>
           <SalaryFacts visa={visa} advertised={{ min: m.salary_min ?? m.salary_max, max: m.salary_max ?? m.salary_min }} />
         </details>
       )}
       <div className="row job-actions">
-        <button className="btn ghost small" disabled={busy || m.status === 'saved'} onClick={() => on.save(m)}>{m.status === 'saved' ? 'Saved' : 'Save job'}</button>
-        <button className="btn ghost small" disabled={busy} onClick={() => on.tailor(m)}>Tailor CV</button>
-        <button className="btn ghost small" disabled={busy} onClick={() => on.practise(m)}>Practise interview</button>
-        <button className="btn ghost small" disabled={busy || tracked} onClick={() => on.track(m)}>{tracked ? 'In Applications' : 'Add to tracker'}</button>
+        {!course && (
+          <>
+            <button className="btn ghost small" disabled={busy || m.status === 'saved'} onClick={() => on.save(m)}>{m.status === 'saved' ? 'Saved' : 'Save job'}</button>
+            <button className="btn ghost small" disabled={busy} onClick={() => on.tailor(m)}>Tailor CV</button>
+            <button className="btn ghost small" disabled={busy} onClick={() => on.practise(m)}>Practise interview</button>
+            <button className="btn ghost small" disabled={busy || tracked} onClick={() => on.track(m)}>{tracked ? 'In Applications' : 'Add to tracker'}</button>
+          </>
+        )}
         <span className="spacer" />
         <button className="linkish small" disabled={busy} onClick={() => on.hide(m)}>Not for me</button>
       </div>
@@ -184,8 +189,10 @@ export default function Jobs({ s, refresh, go, notify }) {
     && (!filters.location || m.search_location === filters.location)
     && (!filters.sponsors || m.sponsor_status === 'listed' || m.sponsor_status === 'possible')
     && (data.include_senior || !m.senior)
-  const shown = data.matches.filter(wanted)
-  const seniorHidden = data.include_senior ? 0 : data.matches.filter((m) => m.senior).length
+  const courses = data.matches.filter((m) => m.posted_by === 'training' && wanted(m)) // adverts that sell a course, kept apart
+  const real = data.matches.filter((m) => m.posted_by !== 'training')
+  const shown = real.filter(wanted)
+  const seniorHidden = data.include_senior ? 0 : real.filter((m) => m.senior).length
   const matches = shown.filter((m) => m.fit_percent != null && m.fit_percent >= MIN_MATCH)
   const unchecked = shown.filter((m) => !m.scored_at)
   const notMatch = shown.filter((m) => m.scored_at && (m.fit_percent == null || m.fit_percent < MIN_MATCH))
@@ -230,12 +237,12 @@ export default function Jobs({ s, refresh, go, notify }) {
 
       {data.matches.length > 0 && (
         <p className="small muted" style={{ marginTop: 14 }}>
-          {plural(matches.length, 'matching job')}{shown.length !== data.matches.length || matches.length !== shown.length ? ` of ${data.matches.length} found` : ''}, newest first.
+          {plural(matches.length, 'matching job')}{matches.length !== real.length ? ` of ${real.length} found` : ''}, newest first.
           {seniorHidden > 0 && ` ${plural(seniorHidden, 'senior role')} hidden.`}
         </p>
       )}
       <div className="stack" style={{ marginTop: 10 }}>{matches.map(card)}</div>
-      {data.matches.length > 0 && matches.length === 0 && unchecked.length === 0 && !working && (
+      {real.length > 0 && matches.length === 0 && unchecked.length === 0 && !working && (
         <p className="muted" style={{ marginTop: 10 }}>None of these adverts is a match with these filters. Look under "Not a match" below, or change the filters.</p>
       )}
 
@@ -256,6 +263,16 @@ export default function Jobs({ s, refresh, go, notify }) {
           <summary className="strong">Not a match ({notMatch.length})</summary>
           <p className="small muted" style={{ margin: '6px 0 10px' }}>Your profile shows less than {MIN_MATCH}% of what these adverts ask for.</p>
           <div className="stack">{notMatch.map(card)}</div>
+        </details>
+      )}
+
+      {courses.length > 0 && (
+        <details className="section">
+          <summary className="strong">Training programmes, not jobs ({courses.length})</summary>
+          <p className="small muted" style={{ margin: '6px 0 10px' }}>
+            These adverts sell a training course or career programme rather than a job. They are not scored or counted. Check any cost before signing up.
+          </p>
+          <div className="stack">{courses.map(card)}</div>
         </details>
       )}
     </>
