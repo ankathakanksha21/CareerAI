@@ -13,7 +13,7 @@ const COLUMNS = [
   { key: 'rejected', label: 'Rejected', stages: ['rejected', 'rejected_after_interview'] },
 ]
 const RESPONDED = new Set(['screening', 'interview', 'rejected_after_interview', 'offer'])
-const KIND = { cv: 'CV and tailoring', story: 'Storytelling', network: 'Network', timing: 'Timing' }
+const KIND = { cv: 'CV and tailoring', story: 'Storytelling', network: 'Network', timing: 'Timing', sponsor: 'Sponsorship' }
 const WEEKLY_GOAL = 5
 const FAST_DAYS = 2
 
@@ -112,6 +112,12 @@ function Board({ s, refresh, notify }) {
                 </div>
                 {fam[a.role_family_id] && <div className="foot"><span className="chip">{fam[a.role_family_id]}</span></div>}
                 <div className="foot">{cvs[a.cv_version_id] ? `${cvs[a.cv_version_id]} CV, ` : ''}via {a.source}</div>
+                {(a.job_url || a.sponsor_licence != null) && (
+                  <div className="foot">
+                    {a.sponsor_licence != null && <span className={`chip ${a.sponsor_licence ? 'good' : ''}`}>{a.sponsor_licence ? 'On the sponsor register' : 'Not found on the register'}</span>}
+                    {a.job_url && <a className="small" href={a.job_url} target="_blank" rel="noopener noreferrer">View advert</a>}
+                  </div>
+                )}
                 <div className="foot">
                   <span>{fmtDate(a.applied_on)}</span>
                   <span className="spacer" />
@@ -195,7 +201,12 @@ export default function Applications({ s, refresh, go, notify }) {
       {adding && <AddApplication s={s} refresh={refresh} notify={notify} close={() => setAdding(false)} />}
 
       {empty ? (
-        !adding && <Empty title="Log your first application" body="Add each application as you send it. Once there are a few, the tracker shows which roles, CVs and sources get replies." action="Add application" onAction={() => setAdding(true)} />
+        !adding && (
+          <>
+            <Empty title="Log your first application" body="Add each application as you send it. Once there are a few, the tracker shows which roles, CVs and sources get replies." action="Add application" onAction={() => setAdding(true)} />
+            <p className="small muted" style={{ textAlign: 'center', marginTop: 10 }}>Looking for something to apply to? <button className="linkish" onClick={() => go('jobs')}>See matching jobs</button></p>
+          </>
+        )
       ) : (
         <>
           <WeeklyProgress s={s} />

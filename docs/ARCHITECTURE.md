@@ -23,7 +23,7 @@ Every step has a document holding its goal, every decision made for it, the desi
 |---|---|---|---|---|
 | 0 | Accounts, saved data, removal of the demo persona | – | Built. Three hand checks left (section 13) | `careerai-step-0-accounts-and-saved-data` |
 | 1 | Deeper onboarding: CV upload, GitHub import, editing achievements, education and work history, story bank | 0 | Designed | `careerai-step-1-deeper-onboarding` |
-| 2 | Real jobs from Adzuna and Reed, fit scoring, sponsor register, visa salary facts | 0 | Designed | `careerai-step-2-real-jobs` |
+| 2 | Real jobs from Reed, fit scoring, sponsor register, visa salary facts | 0 | Built on branch `step-2-real-jobs` and run against the real Reed API. The signed-in hand checks are left (section 16) | `careerai-step-2-real-jobs` |
 | 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Designed | `careerai-step-3-full-uk-cv` |
 | 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Designed | `careerai-step-4-tracker-and-habits` |
 | 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Designed | `careerai-step-5-interview-prep` |
@@ -47,7 +47,9 @@ Browser (React + Vite)
  │                                 ├─ verifies the token against Supabase's public keys
  │                                 ├─ Postgres on Supabase (transaction pooler)   ← all user data
  │                                 ├─ AWS Bedrock, Mantle endpoint                ← the language model
- │                                 └─ ElevenLabs API                              ← mints voice session tokens
+ │                                 ├─ ElevenLabs API                              ← mints voice session tokens
+ │                                 ├─ Reed API                                    ← job adverts (titles and locations sent, nothing personal)
+ │                                 └─ gov.uk                                      ← the register of licensed sponsors, weekly
  └─ WebRTC audio ──────────────► ElevenLabs agents (onboarding coach, mock interviewer)
 ```
 
@@ -65,6 +67,8 @@ Browser (React + Vite)
 | Database access | `psycopg` 3, plain SQL, no ORM | Few dependencies, fast cold starts, every query visible in one file |
 | Language model | AWS Bedrock through the Mantle endpoint; model set by `BEDROCK_MODEL_ID` | One key; swapping models is a settings change. Currently `qwen.qwen3-235b-a22b-2507` |
 | Voice | ElevenLabs Agents over WebRTC, WebSocket as automatic fallback | Real-time speech with a transcript stream |
+| Job adverts | Reed's official API, through a shared six-hour cache | Free, legal, has full descriptions and a direct-employer filter. Adzuna is left out for now (section 15) |
+| Sponsor data | The gov.uk register of licensed sponsors, stored in Postgres and reloaded weekly | The authoritative list; Open Government Licence |
 | Hosting | Vercel: one Python function serving the API and the built frontend | Already set up |
 | Tests | `pytest` | Backend logic, data isolation and routes |
 
@@ -88,6 +92,18 @@ Minimum versions: Node 20.19 or 22.12 (Vite 8 will not run on older), Python 3.1
 | One Supabase project for development and live | Simple | Test accounts sit beside real ones | Before a public launch |
 | Email confirmation off | Sign-up works without an email provider | Unverified emails; password reset depends on Supabase's limited mailer | Before a public launch |
 | Environment variables override `backend/.env` | Standard behaviour; tests can set values | A stray machine-level variable could override the file | – |
+| Reed only; Adzuna left out | No allowance or terms risk | Fewer adverts than two sources would give | Adzuna agrees a higher allowance and consents to totals (section 15) |
+| Listings and the register are shared tables with no `user_id` | Many users reuse one search; the register is stored once | The one exception to "every row belongs to a user"; tests must not assume these tables are empty | – |
+| Each Reed search runs twice (direct employers, agencies) | An agency is never mistaken for the employer in the sponsor label | Twice the calls | Reed starts marking the poster in results |
+| A company whose name marks it as a recruiter, job board or trainer is not treated as the employer; an advert that sells a programme is kept apart as "training" | Course adverts do not pose as jobs or as sponsors; figures are not skewed | A real employer with "recruit", "career", "training" or "learning" in its name is treated as a recruiter. Recruiters with none of those words still pass as employers | Users report either kind of miss |
+| Only the first 100 results per search and poster are used | They are the relevant ones; later pages were mostly off-topic | Reed sorts by relevance and has no date sort, so some of the newest adverts in a very large search are missed | Reed adds a date sort |
+| Sponsor status is stored on the shared listing | Worked out once per advert, in three statements however many adverts | Must be recomputed when the register reloads (it is) | – |
+| "Possible match" only when a longer registered name starts with the advert's name | Deterministic, explainable, uses an index | A true match under a very different registered name shows as "not found" (the label says so) | Users report misses |
+| Fit is strict: a requirement counts only with real evidence in a named achievement | No flattering scores; gaps are actionable | A thin profile scores low on most adverts | Hand checks show it is too harsh |
+| Scoring runs as three model calls side by side, one AI action | About 13 seconds for 15 adverts instead of 40 | A failed call loses its five adverts until the next check | – |
+| The offer check is a POST | A salary and employer never sit in an address or a server log | Not cacheable | – |
+| Jobs is in the menu only when a Reed key is set | The menu never shows something that cannot work | A missing key hides the feature rather than explaining it | – |
+| Reading the jobs list never changes data; "seen" is its own call | Safe under React strict mode and retries | One extra route | – |
 
 Smaller behaviours worth knowing:
 
@@ -95,8 +111,11 @@ Smaller behaviours worth knowing:
 - The referral finding stays silent when the user has no job-board applications, because it compares against them.
 - The "you apply too slowly" finding needs at least four applications that have a posted date.
 - A pasted job is still saved, without an AI summary, if the AI fails or the daily limit is reached.
-- Role family suggestions carry no salary or sponsorship figures. In the demo those were model guesses; they return in step 2 computed from real listings.
-- Step 0 gives no visa advice. It shows only the user's own visa end date and a countdown.
+- Role family suggestions carry no salary or sponsorship figures from the model. A targeted family shows live figures computed from real adverts instead.
+- The app gives no visa advice. It shows the user's own visa dates, the figures gov.uk publishes with their source and the date checked, and what the register says. It never says whether a job can be sponsored.
+- A salary counts as annual only when Reed says so, or when the search figure is £10,000 or more. A day or hourly rate is never compared with a visa figure.
+- A job the user saved or dismissed does not come back when the employer posts it again under a new advert.
+- An application made from a listing records whether the employer was on the register: yes, no, or unknown for a possible match or an agency advert.
 
 ## 6. Code map
 
@@ -105,17 +124,24 @@ backend/
   main.py          routes only: who is calling, validate input, call modules, return JSON
   auth.py          access token → User. FastAPI dependency current_user
   db.py            connection helper for the pooled Postgres connection
-  repo.py          ALL SQL. Every function takes (conn, user_id, ...)
+  repo.py          ALL SQL. Every function takes (conn, user_id, ...), except those for the shared job and sponsor tables
+  jobs.py          which searches to run, de-duplication, shortlist, fit maths, parallel calls to Reed and the model
+  reed.py          Reed client: search, one advert in full, HTML to text. Everything Reed-specific
+  sponsors.py      the gov.uk register: find, download, check, load; employer name matching
+  visa.py          salary facts from data/visa_rules.json
   limits.py        per-user daily caps
   analytics.py     tracker stats, diagnosis rules, getting-started checklist. Pure functions
   ai.py            one function per AI task: prompt, output shaping, quote checking
   llm.py           one call path to Bedrock, fallback model, JSON parsing
   voice.py         ElevenLabs token minting and transcript fetch (owner only)
   content.py       loads data/content.json, the static guidance copy
+  data/visa_rules.json   the visa figures, their gov.uk sources and the date checked. The only place they are written
   config.py        settings from the environment, then backend/.env
   migrate.py       applies migrations/*.sql not yet recorded in schema_migrations
   setup_agents.py  creates or updates the two ElevenLabs agents and writes their ids to .env
   scripts/live_check.py   one real call per AI task (uses credits)
+  scripts/refresh_sponsors.py   load today's sponsor register
+  scripts/reed_check.py   one real Reed search and advert; prints the reply's shape, never the key
   tests/           pytest suite
 frontend/src/
   App.jsx          session gate and app shell
@@ -123,15 +149,16 @@ frontend/src/
   api.js           fetch wrapper: bearer token, one refresh-and-retry on 401
   ui.jsx           shared pieces: menu, FamilyCard, ErrorRetry, Empty, date helpers
   VoiceAgent.jsx   one ElevenLabs call with the live transcript panel
-  components/      DetailsForm, BackgroundInput (voice or paste), Jobs (picker and paste-a-job)
-  pages/           Landing, Auth, Privacy, Onboarding, Home, Profile, Pathways, Resume,
+  components/      DetailsForm, BackgroundInput (voice or paste), Jobs (picker and paste-a-job),
+                   Visa (sponsor line, salary facts, sources line)
+  pages/           Landing, Auth, Privacy, Onboarding, Home, Profile, Pathways, Jobs, Resume,
                    Interview, Applications, Journal, Account
 app.py             Vercel entry point: the API plus the built frontend
 ```
 
 ## 7. Data model
 
-All tables are in the `public` schema. Every row has `user_id` referencing `auth.users` with `on delete cascade`, so deleting a login removes all of that person's data. Row-level security is on with no policies, and the browser-facing roles (`anon`, `authenticated`) have no privileges.
+All tables are in the `public` schema. Every row of a per-user table has `user_id` referencing `auth.users` with `on delete cascade`, so deleting a login removes all of that person's data. Five tables added in step 2 hold public data shared by everyone and have no `user_id`; they are marked below. Row-level security is on with no policies, and the browser-facing roles (`anon`, `authenticated`) have no privileges.
 
 | Table | Holds |
 |---|---|
@@ -144,15 +171,22 @@ All tables are in the `public` schema. Every row has `user_id` referencing `auth
 | `applications` | Tracker rows: company, role, family, CV version, source, stage, applied and posted dates, plus link, contact, notes, sponsor licence and follow-up date for step 4 |
 | `journal_entries` | Coach calls and mock interviews: summary, points, actions, scores, and the transcript |
 | `usage_events` | One row per AI action or voice session: daily limits now, streaks later |
+| `job_listings` (shared) | One row per advert: source and its id, title, employer, who really posted it (employer, agency, or training for an advert that sells a course), location, salary and whether it is annual, description and whether it is the full text, link, posting date, and what the register says about the employer |
+| `job_searches`, `job_search_results` (shared) | The search cache: each search anyone has run, when, and the adverts it last found |
+| `sponsors` (shared) | The register's Skilled Worker entries: registered name, normalised name, town, county, rating. A trading name gets its own row |
+| `reference_meta` (shared) | When the register was last loaded and the date gov.uk published that file |
+| `job_matches` | One user's view of one advert: role family, fit percentage and label, what they show and lack, new, seen, saved or hidden |
 | `schema_migrations` | Which migration files have been applied |
 
-Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`.
+Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`.
+
+Adverts older than 30 days are deleted on each refresh. A saved job is a copy, so it stays.
 
 A reference from one row to another (for example an application's CV version) is stored only if the target belongs to the same user; otherwise it is saved as null.
 
 ## 8. API
 
-`GET /api/config` is public and returns only values safe to expose. Every other route needs a valid token (401 without one) and touches only the caller's rows. Ids are UUIDs: a malformed id answers 422, an unknown or foreign one 404.
+`GET /api/config` is public and returns only values safe to expose. Every other route needs a valid token (401 without one) and touches only the caller's rows; the one exception is the register reload, which needs the scheduler's secret instead. Ids are UUIDs: a malformed id answers 422, an unknown or foreign one 404.
 
 | Route | Purpose |
 |---|---|
@@ -161,7 +195,14 @@ A reference from one row to another (for example an application's CV version) is
 | `DELETE /api/account` | Delete the login and all data |
 | `DELETE /api/achievements/{id}` | Remove an achievement |
 | `POST /api/families/{id}/target` | Tick or untick a role family |
-| `POST /api/jobs`, `DELETE /api/jobs/{id}` | Add a pasted job (with an AI summary), remove it |
+| `POST /api/jobs`, `DELETE /api/jobs/{id}` | Add a pasted job (with an AI summary), remove a saved job |
+| `GET /api/jobs` | The user's matched adverts, whether a search is due, the register's date and the visa figures. Changes nothing |
+| `POST /api/jobs/refresh` | Run the searches that are due, match the adverts, score up to 15. One AI action when anything is scored |
+| `POST /api/jobs/seen` | Mark new matches as seen |
+| `PUT /api/jobs/preferences` | "Include senior roles" |
+| `POST /api/jobs/{match_id}/save`, `/hide`, `/track` | Copy the advert into saved jobs; dismiss it; save it and log an application with its link, posting date and sponsor status |
+| `POST /api/visa-facts` | The offer check: a salary beside the published figures, and a register lookup |
+| `GET /api/internal/refresh-sponsors` | Reload the register. Not for users: needs `Authorization: Bearer <CRON_SECRET>` |
 | `POST`, `PATCH`, `DELETE /api/applications[/{id}]` | Tracker |
 | `GET /api/journal/{id}/transcript` | What was said in that session |
 | `POST /api/ai/achievements` | Transcript or pasted text → achievements and pitch |
@@ -182,6 +223,8 @@ Error responses always carry a plain `detail` message the UI shows as-is: 422 in
 - **Real result or an error.** A task returns the model's own output or raises. One automatic retry on malformed output or a network error. Nothing is saved from a failed call.
 - **Fallback model.** If the main model is refused (403 or 404) and `BEDROCK_FALLBACK_MODEL_ID` is set, the request is tried once there.
 - **Reasoning text.** The current model can emit a `<think>` block; it is removed before parsing.
+- **Stray characters.** The model sometimes adds an extra bracket or quote after a complete answer (3 of 12 real calls on 12 October 2026). The parser reads the first complete JSON value and ignores what follows.
+- **Job fit.** The model lists what each advert asks for and names the achievement that shows each requirement. A requirement counts only if that achievement is really one of the user's. Only achievements are sent, nothing else about the person.
 - **No invention.** The base prompt forbids inventing employers, numbers or achievements. On top of that, every quote shown as "You said" is checked against the user's own lines of the transcript (`ai.verbatim`): kept if they said exactly that, replaced by their closest sentence if the model paraphrased, dropped otherwise.
 - **Privacy in logs.** Failures log the task name and the error type only, never prompts or replies.
 - **No database connection is held during a model call.** Each AI route reads and counts usage in one short transaction, calls the model, then writes in a second.
@@ -207,7 +250,11 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 | Who can see what | Every query filters by the caller's user id. Automated tests prove account A cannot read, change or delete account B's rows, including transcripts |
 | Direct database access from browsers | Blocked: deny-all row-level security and no privileges for browser roles |
 | Secrets | Only in `backend/.env` (git-ignored) and Vercel project settings |
-| Cost abuse | Daily limits per user: `DAILY_AI_LIMIT` (40) and `DAILY_VOICE_LIMIT` (3), midnight to midnight UK time |
+| Cost abuse | Daily limits per user: `DAILY_AI_LIMIT` (40) and `DAILY_VOICE_LIMIT` (3), midnight to midnight UK time. A jobs refresh that scores anything is one AI action; Reed calls are free and bounded by the shared cache and 20 searches per refresh |
+| Shared tables | Hold only public adverts and the public register. A user's fit, saved and dismissed jobs live in `job_matches`, filtered by user id like everything else |
+| What Reed is told | Job titles and locations from the user's target roles. Never a name, an email or anything from their profile |
+| The scheduled reload | Refused unless the request carries the secret; refused always when no secret is set. Compared in constant time |
+| Links from outside | An advert's link is used only if it is on reed.co.uk over https; anything else is replaced by Reed's standard address |
 | Right to erasure | "Delete my account" removes the login; cascading deletes remove every row |
 | Transparency | A privacy notice page lists what is collected, why, and who processes it. Sign-up requires agreeing to it |
 | Data location | Database and login in London. The language model runs in the United States; ElevenLabs processes audio outside the UK. The privacy notice says so |
@@ -218,7 +265,9 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 2. Turn email confirmation back on, with a proper email provider connected to Supabase.
 3. Use a separate Supabase project for live data.
 4. Rotate every key that has ever been shared outside `backend/.env`.
-5. Add "not immigration advice" wording wherever visa rules appear (from step 2).
+5. ~~Add "not immigration advice" wording wherever visa rules appear.~~ Done in step 2.
+6. Read Reed's terms of use (they are not published on its developer page) and ask Reed about call limits.
+7. Re-read the gov.uk pages in `backend/data/visa_rules.json` and update the figures and the date. Nothing reminds you; the date on screen shows how old they are.
 
 ## 12. Running, testing and deploying
 
@@ -232,6 +281,7 @@ backend\.venv\Scripts\python -m pip install -r backend/requirements-dev.txt
 cd backend
 .venv\Scripts\python migrate.py          # create or update the tables
 .venv\Scripts\python setup_agents.py     # create or update the voice agents
+.venv\Scripts\python scripts/refresh_sponsors.py   # load the sponsor register (about 20 seconds)
 cd ..\frontend
 npm ci
 ```
@@ -262,10 +312,16 @@ cd backend && .venv\Scripts\python -m pytest tests
 | `test_llm`, `test_ai` | Fallback model, `<think>` stripping, retry, output normalisation, quote checking |
 | `test_routes_*` | Every route needs a token; validation; isolation between two users through the API; limits; nothing saved when the AI fails |
 | `test_voice`, `test_setup_agents`, `test_content`, `test_config` | Transcript ownership, agent variables, guidance content, settings |
+| `test_sponsors` | Name normalising, the possible-match rule, Skilled Worker only, a bad register file leaving the stored one in place |
+| `test_reed` | Request shape, parsing, salary and date rules, links, HTML to text, every failure as one error type, the key in no error or log |
+| `test_jobs`, `test_repo_jobs` | Search plan, reposts, senior titles, shortlist, fit boundaries; the cache window; two users sharing a listing but not their matches |
+| `test_routes_jobs` | Refresh end to end with Reed and the model replaced: cache, failures, limits, save, hide, track, the scheduler's secret, no key in any response |
+| `test_visa` | Facts always carry source and date; no verdict; the figures appear nowhere but the rules file |
+| `test_fixtures` | The test helpers never commit to the shared database |
 
-Database tests run against the real database inside transactions that are rolled back, so they leave nothing behind.
+Database tests run against the real database inside transactions that are rolled back, so they leave nothing behind. Because the real register and real adverts are in that database, tests use names that cannot occur in real data and never count whole tables. Run the suite on its own: a second database-heavy job at the same time has caused dropped connections.
 
-**Deploy to Vercel.** Not yet done for this version. Add every variable from `backend/.env` to the Vercel project (use `BEDROCK_REGION`, not `AWS_REGION`, which Vercel reserves), add the Vercel address to Supabase's Site URL and Redirect URLs, then deploy. `vercel.json` builds the frontend, runs `app.py` as one function in London (`lhr1`), and leaves tests and scripts out of the bundle.
+**Deploy to Vercel.** Not yet done for this version. `vercel.json` schedules the register reload for 05:00 UTC every Monday; it works only if `CRON_SECRET` is set in the Vercel project. Add every variable from `backend/.env` to the Vercel project (use `BEDROCK_REGION`, not `AWS_REGION`, which Vercel reserves), add the Vercel address to Supabase's Site URL and Redirect URLs, then deploy. `vercel.json` builds the frontend, runs `app.py` as one function in London (`lhr1`), and leaves tests and scripts out of the bundle.
 
 ## 13. Verification record for step 0
 
@@ -288,7 +344,6 @@ Database tests run against the real database inside transactions that are rolled
 
 ## 14. Known limitations
 
-- Jobs must be pasted; there are no job listings, sponsor checks or visa rules yet (step 2).
 - The tailored CV is a profile paragraph, selected bullets and a cover letter, not a full downloadable CV (step 3).
 - Achievements can be deleted but not edited (step 1).
 - No streaks, milestones or weekly plan yet (step 4); the home page shows a getting-started checklist and tracker findings.
@@ -296,4 +351,77 @@ Database tests run against the real database inside transactions that are rolled
 - The user's speech appears in the live transcript per finished sentence, not word by word.
 - Reply rates count recent applications that may not have had time to get a reply.
 - The frontend has no automated tests; it is verified by hand.
+- Job adverts come from Reed only. Graduate boards (Prospects, Bright Network, Handshake) have no public API and are not searched.
+- Reed gives a posting date, not a time, so "posted in the last 48 hours" means today, yesterday or the day before.
+- An agency advert does not name the employer, so nothing can be said about sponsorship for it. On Reed that is most adverts: in five real searches, 28 of 324 recent adverts came from a named employer.
+- Reed sorts results by relevance and offers no date sort. The app takes the first 100 per search from employers and 100 from agencies.
+- A recruiter that Reed lists as a direct employer, and whose name does not say what it is, is shown as an employer that is "not found on the register".
+- Going rates and eligible occupations are linked to on gov.uk, not looked up per job: the app does not know a job's occupation code.
+- The visa figures are updated by hand in `backend/data/visa_rules.json`.
 - The production JavaScript bundle is large (over 500 kB) because of the voice library.
+
+## 15. Jobs, sponsorship and visa facts (step 2)
+
+**What a refresh does.** `POST /api/jobs/refresh`, called when the Jobs page opens with a search due, or from "Check for new jobs":
+
+1. Reads the user's targeted role families and locations and builds the searches: up to three UK job titles per family in each location.
+2. Skips any search somebody ran in the last six hours. Runs up to 20 of the rest on Reed, side by side, each as two calls (direct employers, agencies).
+3. Stores the adverts, works out what the register says about each named employer, and deletes adverts over 30 days old.
+4. Gives the user a private match for each advert posted in the last 14 days, merging reposts of the same job.
+5. Picks the 15 unscored adverts that mention most of the user's skills (senior titles left out unless they asked for them), fetches each one's full text, and asks the model what each asks for and which achievement shows it.
+6. Fit is requirements shown over requirements listed: 80% and over is a direct fit, 60 to 79 near, 40 to 59 a stretch, under 40 "not a match".
+
+If the AI allowance is used up the adverts are still listed, unscored. If Reed is down the stored adverts stay and the page says so.
+
+**Who really placed an advert** (`jobs.poster`). Reed's "direct employer" filter cannot be taken at face value. On 12 October 2026, in five real searches, 136 of 324 recent adverts came from four training and recruitment companies listed as direct employers, many selling a paid course ("No experience required", "our specialised career programme"), and one of those companies is on the sponsor register. So each advert is classed again when it is fetched:
+
+| Class | When | Effect |
+|---|---|---|
+| `employer` | Reed says direct employer and the name does not say otherwise | Looked up on the register; counted in the figures |
+| `agency` | Reed says agency, or the name contains recruit, career, staffing, resourcing or RPO | "Advertised by a recruiter or job board; the employer is not named." Scored and shown as a job |
+| `training` | The name contains training, learning, course or bootcamp; or a recruiter-named company's advert reads like a programme; or the same company was seen selling one in the same fetch | Shown in a closed group, "Training programmes, not jobs". Never scored, never looked up, left out of the figures, and no Save or Track buttons |
+
+A real employer's trainee job is left alone: the wording alone never reclassifies an advert.
+
+**Sponsorship.** `sponsors.py` reduces a company name to what identifies it ("The Acme Group (UK) Ltd." and "ACME" both give `acme`) and compares it with the register:
+
+| Result | Meaning | Shown as |
+|---|---|---|
+| `listed` | The names are the same after normalising | "On the sponsor register as <name> (Skilled Worker)." |
+| `possible` | A longer registered name starts with the advert's name | "Possible match on the register: <name>. Check before applying." |
+| `not_found` | Neither | "Not found on the register. Employers sometimes appear under a different registered name." |
+| `agency` | A recruitment agency placed the advert | "Advertised by a recruitment agency; the employer is not named." |
+
+The register is reloaded by `python scripts/refresh_sponsors.py`, or weekly on Vercel. A file that is missing, empty, too short or laid out differently is rejected and the stored copy is left as it was.
+
+**Visa facts.** `backend/data/visa_rules.json` holds the two Skilled Worker salary figures, the gov.uk pages they came from and the date they were read (12 October 2026: £41,700 standard; £33,400 for those on a Student or Graduate visa or under 26). The wording on screen was agreed with the project owner and gives no verdict. A test fails if either figure is typed anywhere else in the code.
+
+**Why Adzuna was left out.** Checked on 12 October 2026: the default allowance is 25 calls a minute, 250 a day, 1,000 a week and 2,500 a month, which a per-title search design uses up with a handful of users. Its terms allow showing adverts if each carries an "Adzuna" label linking to its site, but totals such as vacancy counts and average salaries need written consent. To add it: write to Adzuna first; then add a client beside `reed.py` and a second entry where `jobs.fetch` chooses its source.
+
+## 16. Verification record for step 2
+
+| Check | Result | Date |
+|---|---|---|
+| Automated backend suite | 542 passed, 0 skipped, against the real database | 12 Oct 2026 |
+| Frontend | Lints with no errors; builds | 12 Oct 2026 |
+| Real model, one call per AI task (`live_check.py`) | 13 of 13 passed, including job fit: a matching advert credited to real achievements, an unrelated one scored 0% | 12 Oct 2026 |
+| Job fit on the real model, repeated | 8 of 8 runs complete and valid after the parser fix (3 of 12 failed before it) | 12 Oct 2026 |
+| Scoring time for a full refresh | 15 adverts in 13 seconds (three calls side by side) | 12 Oct 2026 |
+| Real sponsor register | 123,175 Skilled Worker sponsors loaded in 22 seconds from the file gov.uk published that day. Spot checks: Deloitte LLP and Monzo Bank listed; Tesco and Barclays possible matches; a made-up name not found | 12 Oct 2026 |
+| Visa figures | Read from gov.uk the same day; the guide was last changed on 14 Sep 2026 | 12 Oct 2026 |
+| Signed-out pages in the browser | Landing and privacy pages show the new copy with no console errors | 12 Oct 2026 |
+| Reed's real replies (`reed_check.py`) | Every field, the date format and the links are as `reed.py` assumed: 200 of 200 adverts read. Search descriptions are about 450 characters; the full advert runs to 2,000 to 3,500 | 12 Oct 2026 |
+| Real searches, five titles and places | 0 failures; about one second for a search of 200 adverts | 12 Oct 2026 |
+| Real adverts stored and matched to the register, in a transaction then rolled back | 390 adverts stored in 0.3 seconds. Named employers found correctly: FDM Group, Isio, Unipart, Brown & Brown listed; Live Nation, Sagacity, Shift4 possible. One doubtful possible match ("The Hyde Group" to "Hyde Farm Limited"), which the wording asks the user to check | 12 Oct 2026 |
+| Real adverts scored against a sample profile | 7 of 7 scored in 17 seconds after fetching each full advert; fits from 17% to 67% | 12 Oct 2026 |
+| The training rule on real adverts | 136 of 324 classed as training, from five companies; none of the 28 left as employers read like a programme | 12 Oct 2026 |
+
+**Not yet verified:**
+
+- **A refresh through the app for a real account.** Every part has run on real data separately (search, storing, register matching, full adverts, scoring), but not yet as one request from the Jobs page.
+- **The Jobs page, the role family figures and the offer check on screen**, signed in. Verified by lint, build and the API tests only.
+- **Fit scores on a real profile.** Checked only against a two-achievement sample.
+- **All eight hand checks in the step document.**
+- **The weekly reload on Vercel.** Nothing is deployed. The route is tested; the schedule and the 60-second limit there are not.
+- **Reed's terms of use and call limits.** Not published on its developer page.
+

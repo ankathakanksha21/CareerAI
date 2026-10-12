@@ -1,6 +1,6 @@
 """Vercel entrypoint: the FastAPI backend from backend/ plus the built React app from
 frontend/dist, served from one deployment. Locally, run the backend with uvicorn from
-backend/ and the frontend with Vite instead (see PLAN.md section 10)."""
+backend/ and the frontend with Vite instead (see docs/ARCHITECTURE.md section 12)."""
 import sys
 from pathlib import Path
 

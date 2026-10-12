@@ -23,14 +23,14 @@ def test_every_route_but_config_needs_a_token():
         if not path.startswith("/api") or path == "/api/config":
             continue
         url = path.replace("{conversation_id}", "conv_1")
-        for name in ("id", "app_id", "job_id", "family_id", "achievement_id", "entry_id"):
+        for name in ("id", "app_id", "job_id", "family_id", "achievement_id", "entry_id", "match_id"):
             url = url.replace("{" + name + "}", str(uuid.uuid4()))
         assert "{" not in url, f"unfilled path parameter in {path}"
         for method in route.methods - {"HEAD", "OPTIONS"}:
             r = anonymous.request(method, url, json={})
             assert r.status_code == 401, f"{method} {path} answered {r.status_code} without a token"
             checked += 1
-    assert checked >= 9
+    assert checked >= 28
 
 
 def test_config_is_public_and_has_no_secret(monkeypatch):
@@ -55,7 +55,8 @@ def test_state_for_new_user(client):
     assert s["usage"] == {"ai": {"used": 0, "limit": 40}, "voice": {"used": 0, "limit": 3}}
     assert s["stats"]["findings"] == [] and s["stats"]["funnel"]["applied"] == 0
     assert "Company site" in s["options"]["sources"] and "applied" in s["options"]["stages"]
-    assert set(s["config"]) == {"llm", "voice"}
+    assert set(s["config"]) == {"llm", "voice", "jobs"}
+    assert s["jobs"] == {"new": 0, "fresh": 0} and s["market"] == {}
 
 
 def test_content_in_state(client):

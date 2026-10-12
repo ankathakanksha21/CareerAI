@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import ai  # noqa: E402
+import jobs  # noqa: E402
 
 PROFILE = {"full_name": "Sample Candidate", "course": "MSc Data Science", "university": "a UK university",
            "visa_type": "student", "visa_end_date": date(2027, 1, 31)}
@@ -39,6 +40,22 @@ INTERVIEW = (
 STATS = {"funnel": {"applied": 6, "responses": 1, "interviews": 0, "offers": 0, "response_rate": 0.17},
          "by_family": [], "by_source": [], "timing": {"avg_days": 4.0}}
 
+OTHER_DESCRIPTION = (
+    "We are looking for a Junior Marketing Executive. You will plan social media campaigns, write copy for email newsletters "
+    "and manage relationships with design agencies. Experience with Canva and a marketing qualification are desirable."
+)
+ADVERTS = [{"n": 1, "title": "Data Analyst", "employer": "a UK retailer", "description": DESCRIPTION},
+           {"n": 2, "title": "Junior Marketing Executive", "employer": "a UK charity", "description": OTHER_DESCRIPTION}]
+# a full batch at a realistic advert length, to see how long one scoring call takes
+FULL_BATCH = [{"n": n, "title": "Data Analyst", "employer": f"employer {n}", "description": (DESCRIPTION + " ") * 8} for n in range(1, 9)]
+TITLES = [a["title"] for a in ACHIEVEMENTS]
+
+
+def _percent(requirements) -> int:
+    scored = jobs.fit(requirements, TITLES)
+    return scored["percent"] if scored else -1
+
+
 CHECKS = [
     ("achievements", lambda: ai.extract_achievements(BACKGROUND, PROFILE), lambda r: len(r["items"]) >= 1),
     # "You said" quotes must survive the check against the text, or the proof-of-hearing feature shows nothing
@@ -53,6 +70,10 @@ CHECKS = [
     ("tone decode", lambda: ai.tone("Not bad at all.", "decode"), lambda r: bool(r["meaning"])),
     ("tone rewrite", lambda: ai.tone("I am the best candidate you will ever meet.", "rewrite"), lambda r: bool(r["rewrite"])),
     ("diagnosis", lambda: ai.explain_diagnosis([], STATS, PROFILE), lambda r: bool(r["headline"])),
+    # the matching advert must be credited to a real achievement, and score above the unrelated one
+    ("job fit", lambda: ai.score_jobs(ADVERTS, ACHIEVEMENTS),
+     lambda r: set(r) == {1, 2} and all(r.values()) and any(x["shown_by"] in TITLES for x in r[1]) and _percent(r[1]) > _percent(r[2])),
+    ("job fit, 8 adverts", lambda: ai.score_jobs(FULL_BATCH, ACHIEVEMENTS), lambda r: len(r) == 8 and all(r.values())),
 ]
 
 

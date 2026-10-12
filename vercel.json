@@ -9,5 +9,11 @@
   },
   "regions": [
     "lhr1"
+  ],
+  "crons": [
+    {
+      "path": "/api/internal/refresh-sponsors",
+      "schedule": "0 5 * * 1"
+    }
   ]
 }

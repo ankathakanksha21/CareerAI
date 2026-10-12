@@ -143,7 +143,7 @@ def test_timing_excludes_apps_without_posted_date():
 def test_timing_rule_fires_with_four_timed_apps():
     apps = [posted(1, stage="screening"), posted(1, stage="screening"), posted(10), posted(10)]
     f = finding(analytics.compute(apps, [], [], []), "timing")
-    assert f["link"] == {"page": "pathways", "label": "Where to look"}
+    assert f["link"] == {"page": "jobs", "label": "See new jobs"}
     assert f["evidence"] == "Average 5.5 days after posting. Within 48 hours: 2 of 2 replied. Later: 0 of 2."
 
 
@@ -169,7 +169,8 @@ def test_findings_are_sorted_most_severe_first():
 def test_next_steps_empty_state():
     steps = analytics.next_steps(EMPTY_STATE)
     assert [s["id"] for s in steps] == ["profile", "roles", "job", "cv", "interview", "application"]
-    assert [s["page"] for s in steps] == ["profile", "pathways", "resume", "resume", "interview", "applications"]
+    assert [s["page"] for s in steps] == ["profile", "pathways", "jobs", "resume", "interview", "applications"]
+    assert steps[2]["text"] == "Save a job you want" and "paste an advert" in steps[2]["why"]
     assert not any(s["done"] for s in steps)
     assert steps[0]["text"] == "Build your profile"
     assert steps[0]["why"] == "Your CVs, stories and interview practice are all built from it."
@@ -195,3 +196,53 @@ def test_next_steps_all_done():
     state = {"achievements": [1], "role_families": [{"targeted": True}], "saved_jobs": [1], "cv_versions": [1],
              "journal": [{"type": "interview"}], "applications": [1]}
     assert all(s["done"] for s in analytics.next_steps(state))
+
+
+# ---------- few sponsoring employers in a target role ----------
+
+def targeted(*ids):
+    return [f | {"targeted": f["id"] in ids} for f in FAMILIES]
+
+
+def adverts(named, listed, jobs=None):
+    return {"jobs": jobs or named, "named": named, "listed": listed, "salary_median": None, "salary_n": 0}
+
+
+def test_sponsor_finding_fires_at_ten_named_adverts_under_twenty_percent():
+    stats = analytics.compute([], targeted(F), [], [], market={F: adverts(named=10, listed=1, jobs=14)})
+    f = finding(stats, f"sponsor-{F}")
+    assert f["type"] == "sponsor" and f["title"] == "Few Data Analyst roles come from licensed sponsors"
+    assert f["evidence"] == "1 of 10 current adverts that name their employer are from employers on the sponsor register."
+    assert f["link"] == {"page": "jobs", "label": "Open Jobs"} and "Sponsors only" in f["action"]
+
+
+def test_sponsor_finding_is_silent_with_nine_named_adverts():
+    assert analytics.compute([], targeted(F), [], [], market={F: adverts(named=9, listed=0)})["findings"] == []
+
+
+def test_sponsor_finding_is_silent_at_twenty_percent():
+    assert analytics.compute([], targeted(F), [], [], market={F: adverts(named=10, listed=2)})["findings"] == []
+
+
+def test_sponsor_finding_is_only_for_targeted_families():
+    market = {F: adverts(named=20, listed=0), G: adverts(named=20, listed=0)}
+    stats = analytics.compute([], targeted(G), [], [], market=market)
+    assert [f["id"] for f in stats["findings"]] == [f"sponsor-{G}"]
+
+
+def test_no_market_figures_means_no_sponsor_finding():
+    assert analytics.compute([], targeted(F), [], [])["findings"] == []
+    assert analytics.compute([], targeted(F), [], [], market={})["findings"] == []
+
+
+def test_a_cv_finding_still_outranks_a_sponsor_finding():
+    apps = [app(role_family_id=F) for _ in range(4)]
+    stats = analytics.compute(apps, targeted(F), [], [], market={F: adverts(named=10, listed=0)})
+    assert [f["type"] for f in stats["findings"]] == ["cv", "sponsor"]
+
+
+def test_reed_is_a_source_and_counts_as_a_job_board():
+    assert "Reed" in analytics.SOURCES and "Reed" in analytics.JOB_BOARDS
+    apps = [app(source="Referral", stage="interview") for _ in range(2)] + [app(source="Reed") for _ in range(10)]
+    network = finding(analytics.compute(apps, FAMILIES, [], []), "network")
+    assert network and "Job boards: 0 of 10" in network["evidence"]

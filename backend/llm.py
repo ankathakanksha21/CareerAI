@@ -83,12 +83,12 @@ def strip_reasoning(text: str) -> str:
 
 
 def complete_json(system: str, user: str, max_tokens: int = 1500):
-    """Ask for JSON only and parse the first JSON object or array in the reply."""
+    """Ask for JSON only and parse the first JSON object or array in the reply. Whatever follows
+    it is ignored: the model sometimes adds a stray bracket or quote after a complete answer."""
     text = complete(system + "\n\nReply with valid JSON only. No prose, no markdown fences.", user, max_tokens)
     text = re.sub(r"^```(?:json)?|```$", "", strip_reasoning(text), flags=re.M).strip()
     starts = [i for i in (text.find("{"), text.find("[")) if i != -1]
     if not starts:
         raise ValueError("No JSON in model reply")
-    start = min(starts)
-    end = max(text.rfind("}"), text.rfind("]"))
-    return json.loads(text[start : end + 1])
+    value, _ = json.JSONDecoder().raw_decode(text[min(starts):])
+    return value

@@ -3,16 +3,18 @@ Pure functions over the user's own rows. Each finding points back to the page th
 from collections import defaultdict
 
 STAGES = ("applied", "no_response", "rejected", "screening", "interview", "rejected_after_interview", "offer")
-SOURCES = ("Company site", "Referral", "LinkedIn", "Indeed", "Graduate job board",
+SOURCES = ("Company site", "Referral", "LinkedIn", "Indeed", "Reed", "Graduate job board",
            "University careers service", "Recruiter", "Other")
 RESPONDED = {"screening", "interview", "rejected_after_interview", "offer"}
 INTERVIEWED = {"interview", "rejected_after_interview", "offer"}
-JOB_BOARDS = {"LinkedIn", "Indeed", "Graduate job board"}
+JOB_BOARDS = {"LinkedIn", "Indeed", "Reed", "Graduate job board"}
 
 MIN_APPS_FOR_REPLY_RULE = 4
 LOW_REPLY_RATE = 0.15
 MIN_TIMED_APPS = 4
 FAST_DAYS = 2  # applied within 48 hours of posting
+MIN_NAMED_ADVERTS = 10    # adverts naming their employer needed before judging a role's sponsors
+LOW_SPONSOR_SHARE = 0.2
 
 
 def plural(n, word):
@@ -50,7 +52,8 @@ def _days_after_posting(a):
     return (a["applied_on"] - a["posted_on"]).days
 
 
-def compute(applications, families, cv_versions, stories):
+def compute(applications, families, cv_versions, stories, market=None):
+    """`market` is the live advert figures per targeted role family (see jobs.market), when there are any."""
     fam_names = {f["id"]: f["name"] for f in families}
     cv_names = {c["id"]: c["name"] for c in cv_versions}
     by_family = group(applications, "role_family_id", fam_names, "No role family")
@@ -67,7 +70,8 @@ def compute(applications, families, cv_versions, stories):
         "by_cv": by_cv,
         "by_source": by_source,
         "timing": timing,
-        "findings": diagnose(applications, cv_versions, stories, by_family, by_source, timing, fam_names, cv_names),
+        "findings": diagnose(applications, cv_versions, stories, by_family, by_source, timing, fam_names, cv_names)
+                    + sponsor_findings(families, market or {}),
     }
 
 
@@ -139,16 +143,36 @@ def diagnose(apps, cv_versions, stories, by_family, by_source, timing, fam_names
             "title": "You apply too long after roles are posted",
             "evidence": f"Average {timing['avg_days']} days after posting. Within 48 hours: {timing['fast']['responses']} of {timing['fast']['applied']} replied. Later: {timing['slow']['responses']} of {timing['slow']['applied']}.",
             "action": "Check new roles daily and apply within 48 hours of posting.",
-            "link": {"page": "pathways", "label": "Where to look"},
+            "link": {"page": "jobs", "label": "See new jobs"},
         })
 
     return sorted(findings, key=lambda f: -f["severity"])
 
 
+def sponsor_findings(families, market):
+    """5. A target role where few advertising employers hold a sponsor licence: a direction problem.
+    Counts only adverts that name their employer; an agency advert says nothing either way."""
+    findings = []
+    for family in families:
+        figures = market.get(family["id"])
+        if not family.get("targeted") or not figures or figures["named"] < MIN_NAMED_ADVERTS:
+            continue
+        if figures["listed"] / figures["named"] >= LOW_SPONSOR_SHARE:
+            continue
+        findings.append({
+            "id": f"sponsor-{family['id']}", "type": "sponsor", "severity": 2,
+            "title": f"Few {family['name']} roles come from licensed sponsors",
+            "evidence": f"{figures['listed']} of {figures['named']} current adverts that name their employer are from employers on the sponsor register.",
+            "action": "Turn on Sponsors only in Jobs, or look at a neighbouring role where more employers sponsor.",
+            "link": {"page": "jobs", "label": "Open Jobs"},
+        })
+    return findings
+
+
 NEXT_STEPS = (
     ("profile", "Build your profile", "Your CVs, stories and interview practice are all built from it.", "profile"),
     ("roles", "Pick your target roles", "Your targets decide what the app prepares you for.", "pathways"),
-    ("job", "Add a job you want", "Paste a job description so your CV and practice fit a real role.", "resume"),
+    ("job", "Save a job you want", "Pick one from Jobs, or paste an advert, so your CV and practice fit a real role.", "jobs"),
     ("cv", "Tailor a CV for it", "UK employers shortlist on evidence that matches the job description.", "resume"),
     ("interview", "Practise an interview", "Most UK interviews expect STAR answers, said out loud.", "interview"),
     ("application", "Log your first application", "The tracker can only tell you what to fix once it has your applications.", "applications"),

@@ -47,23 +47,32 @@ def user_b(conn) -> str:
 # ---------- API fixtures ----------
 
 @pytest.fixture
-def client(conn, user_a, monkeypatch):
-    """The API as user_a, with every route's database work running inside this test's
-    rolled-back transaction instead of committing."""
+def own_transaction(conn, monkeypatch):
+    """Make db.transaction() run inside this test's rolled-back transaction instead of committing."""
     from contextlib import contextmanager
 
-    from fastapi.testclient import TestClient
-
     import db
-    import main
-    from auth import User, current_user
 
     @contextmanager
     def in_test_transaction():
-        with conn.transaction():  # a savepoint: a failing route rolls back only its own work
+        with conn.transaction():  # a savepoint: a failing unit of work rolls back only itself
             yield conn
 
+    # conn.transaction() is a savepoint only inside an open transaction; on an idle connection
+    # it would begin one and COMMIT it. Open the test's transaction now so that can never happen.
+    conn.execute("select 1")
     monkeypatch.setattr(db, "transaction", in_test_transaction)
+
+
+@pytest.fixture
+def client(conn, user_a, monkeypatch, own_transaction):
+    """The API as user_a, with every route's database work running inside this test's
+    rolled-back transaction instead of committing."""
+    from fastapi.testclient import TestClient
+
+    import main
+    from auth import User, current_user
+
     monkeypatch.setenv("DAILY_AI_LIMIT", "40")
     monkeypatch.setenv("DAILY_VOICE_LIMIT", "3")
     main.app.dependency_overrides[current_user] = lambda: User(user_a, "a@example.test", "Test Person")

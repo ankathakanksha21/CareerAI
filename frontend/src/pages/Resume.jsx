@@ -43,7 +43,12 @@ export default function Resume({ s, focus, refresh, go, notify }) {
         <PageHead title="Resume" lede="A UK-standard CV and cover letter for each job, built from your profile." />
         {adding || s.saved_jobs.length > 0
           ? <AddJob onAdded={onAdded} onCancel={s.saved_jobs.length > 0 ? () => setAdding(false) : null} />
-          : <Empty title="Add a job you want to apply for" body="Paste the job advert. Your CV and cover letter are tailored to its exact wording." action="Add a job" onAction={() => setAdding(true)} />}
+          : (
+            <>
+              <Empty title="Add a job you want to apply for" body="Paste the job advert. Your CV and cover letter are tailored to its exact wording." action="Add a job" onAction={() => setAdding(true)} />
+              <p className="small muted" style={{ textAlign: 'center', marginTop: 10 }}>Or pick a real advert: <button className="linkish" onClick={() => go('jobs')}>See matching jobs</button></p>
+            </>
+          )}
       </>
     )
   }
