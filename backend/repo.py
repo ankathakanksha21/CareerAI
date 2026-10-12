@@ -330,18 +330,213 @@ def find_sponsor(conn, key: str) -> dict:
     return dict(_NOT_FOUND)
 
 
-def recheck_listing_sponsors(conn) -> None:
-    """Work out again what the register says about every stored listing that names its employer.
-    Run after the register is reloaded, so adverts already stored reflect the new file."""
-    conn.execute("update job_listings set sponsor_status = 'not_found', sponsor_name = null where posted_by = 'employer'")
+def recheck_listing_sponsors(conn, listing_ids: list[str] | None = None) -> None:
+    """Work out what the register says about stored listings that name their employer: all of
+    them (after the register is reloaded) or just the ones given (when adverts are stored)."""
+    only = "" if listing_ids is None else " and l.id = any(%s::uuid[])"
+    ids = [] if listing_ids is None else [listing_ids]
+    conn.execute(f"update job_listings l set sponsor_status = 'not_found', sponsor_name = null where l.posted_by = 'employer'{only}", ids)
     conn.execute(
         "update job_listings l set sponsor_status = 'listed', sponsor_name = "
         "(select s.name from sponsors s where s.name_key = l.employer_key and s.route = %s order by s.name limit 1) "
         "where l.posted_by = 'employer' and l.employer_key <> '' "
-        "and exists (select 1 from sponsors s where s.name_key = l.employer_key and s.route = %s)", (SKILLED_WORKER, SKILLED_WORKER))
+        f"and exists (select 1 from sponsors s where s.name_key = l.employer_key and s.route = %s){only}",
+        [SKILLED_WORKER, SKILLED_WORKER, *ids])
     starts = _STARTS_WITH.format(key="l.employer_key")
     conn.execute(
         "update job_listings l set sponsor_status = 'possible', sponsor_name = "
         f"(select s.name from sponsors s where {starts} and s.route = %s order by length(s.name_key), s.name limit 1) "
         "where l.posted_by = 'employer' and l.sponsor_status = 'not_found' and length(l.employer_key) >= %s "
-        f"and exists (select 1 from sponsors s where {starts} and s.route = %s)", (SKILLED_WORKER, MIN_PREFIX_KEY, SKILLED_WORKER))
+        f"and exists (select 1 from sponsors s where {starts} and s.route = %s){only}",
+        [SKILLED_WORKER, MIN_PREFIX_KEY, SKILLED_WORKER, *ids])
+
+
+# ---------- job listings and the search cache (shared public data, no user_id) ----------
+
+JOB_SOURCE = "reed"
+_LISTING = ("source", "source_id", "title", "employer", "employer_key", "posted_by", "location", "salary_min", "salary_max",
+            "salary_annual", "description", "description_is_full", "url", "posted_on")
+_LISTING_TYPES = {"salary_min": "numeric", "salary_max": "numeric", "salary_annual": "boolean", "description_is_full": "boolean",
+                  "posted_on": "date"}
+_PAIRS = "(select * from unnest(%s::text[], %s::text[]))"  # a list of (query, location) pairs
+
+
+def _pairs(searches) -> list[list[str]]:
+    return [[q for q, _ in searches], [loc for _, loc in searches]]
+
+
+def searches_due(conn, searches: list[tuple[str, str]], max_age_hours: int) -> set[tuple[str, str]]:
+    """The (query, location) searches nobody has run within max_age_hours."""
+    if not searches:
+        return set()
+    fresh = conn.execute(
+        "select query, location from job_searches where source = %s and fetched_at > now() - make_interval(hours => %s) "
+        f"and (query, location) in {_PAIRS}", [JOB_SOURCE, max_age_hours, *_pairs(searches)]).fetchall()
+    return set(searches) - {(r["query"], r["location"]) for r in fresh}
+
+
+def store_searches(conn, results: dict[tuple[str, str], list[dict]]) -> dict[tuple[str, str], list[str]]:
+    """Store what each search found and mark it as run now. A listing seen before is updated in
+    place; a search keeps only its latest results. Returns each search's listing ids, in order."""
+    unique = {}
+    for listings in results.values():
+        for item in listings:
+            unique.setdefault((item["source"], item["source_id"]), item)  # the same advert twice: the first wins
+    ids = {}
+    if unique:
+        columns = [f"%s::{_LISTING_TYPES.get(f, 'text')}[]" for f in _LISTING]
+        # the short text a search carries never replaces a full advert already stored, nor its salary
+        keep_full = ", ".join(f"{f} = case when job_listings.description_is_full then job_listings.{f} else excluded.{f} end"
+                              for f in ("description", "description_is_full", "salary_min", "salary_max", "salary_annual"))
+        rows = conn.execute(
+            f"insert into job_listings ({', '.join(_LISTING)}, sponsor_status) "
+            "select t.*, case when t.posted_by = 'agency' then 'agency' else 'not_found' end "
+            f"from unnest({', '.join(columns)}) as t ({', '.join(_LISTING)}) "
+            "on conflict (source, source_id) do update set title = excluded.title, employer = excluded.employer, "
+            "employer_key = excluded.employer_key, posted_by = excluded.posted_by, location = excluded.location, url = excluded.url, "
+            f"posted_on = excluded.posted_on, sponsor_status = excluded.sponsor_status, sponsor_name = null, fetched_at = now(), {keep_full} "
+            "returning id, source, source_id",
+            [[item[f] for item in unique.values()] for f in _LISTING]).fetchall()
+        ids = {(r["source"], r["source_id"]): str(r["id"]) for r in rows}
+        recheck_listing_sponsors(conn, list(ids.values()))
+    found = {}
+    for (query, location), listings in results.items():
+        search_id = conn.execute(
+            "insert into job_searches (source, query, location) values (%s, %s, %s) "
+            "on conflict (source, query, location) do update set fetched_at = now() returning id", (JOB_SOURCE, query, location)).fetchone()["id"]
+        found[(query, location)] = list(dict.fromkeys(ids[(item["source"], item["source_id"])] for item in listings))
+        conn.execute("delete from job_search_results where search_id = %s", (search_id,))
+        conn.execute("insert into job_search_results (search_id, listing_id) select %s, unnest(%s::uuid[])", (search_id, found[(query, location)]))
+    return found
+
+
+def purge_old_listings(conn, days: int = 30) -> None:
+    """Drop adverts posted more than `days` ago, and searches not run since. A saved job is a copy, so it stays."""
+    conn.execute("delete from job_listings where posted_on < (now() at time zone 'Europe/London')::date - %s", (days,))
+    conn.execute("delete from job_searches where fetched_at < now() - make_interval(days => %s)", (days,))
+
+
+def listings_for_searches(conn, searches: list[tuple[str, str]], since: date) -> list[dict]:
+    """The adverts those searches last found that were posted on or after `since`, each with the search that found it."""
+    if not searches:
+        return []
+    return _rows(conn.execute(
+        "select l.id, l.title, l.employer_key, l.location, l.posted_on, s.query, s.location as search_location "
+        "from job_searches s join job_search_results r on r.search_id = s.id join job_listings l on l.id = r.listing_id "
+        f"where s.source = %s and (s.query, s.location) in {_PAIRS} and l.posted_on >= %s order by l.posted_on desc, l.id",
+        [JOB_SOURCE, *_pairs(searches), since]))
+
+
+def set_listing_details(conn, listing_id, details: dict) -> None:
+    """Replace a listing's short search text with the full advert (see reed.details)."""
+    fields = [f for f in ("description", "description_is_full", "salary_min", "salary_max", "salary_annual", "posted_on") if f in details]
+    conn.execute(f"update job_listings set {', '.join(f'{f} = %s' for f in fields)} where id = %s", [*(details[f] for f in fields), listing_id])
+
+
+# ---------- job matches: one user's view of a listing ----------
+
+# a match counts only while its advert is recent and its role family, if it still exists, is targeted
+_LIVE = ("from job_matches m join job_listings l on l.id = m.listing_id left join role_families f on f.id = m.role_family_id "
+         "where m.user_id = %s and l.posted_on >= %s and (f.id is null or f.targeted)")
+_MATCH = ("m.id, m.listing_id, m.role_family_id, m.search_location, m.fit_percent, m.fit_label, m.shown, m.gaps, m.fit_from_summary, "
+          "m.status, m.first_seen_at, m.scored_at, l.source, l.source_id, l.title, l.employer, l.posted_by, l.location, "
+          "l.salary_min::float8 as salary_min, l.salary_max::float8 as salary_max, l.salary_annual, l.description_is_full, l.url, "
+          "l.posted_on, l.sponsor_status, l.sponsor_name")
+MIN_MATCH_PERCENT = 40  # below this an advert is "not a match"
+
+
+def add_matches(conn, user_id, items: list[dict]) -> int:
+    """Give the user a match for each listing they do not already have one for; returns how many
+    were new. An existing match is left exactly as it is, so a hidden job stays hidden."""
+    if not items:
+        return 0
+    return conn.execute(
+        "insert into job_matches (user_id, listing_id, role_family_id, search_location) "
+        "select %s, t.listing_id, (select rf.id from role_families rf where rf.id = t.family_id and rf.user_id = %s), t.place "
+        "from unnest(%s::uuid[], %s::uuid[], %s::text[]) as t (listing_id, family_id, place) "
+        "on conflict (user_id, listing_id) do nothing",
+        (user_id, user_id, [i["listing_id"] for i in items], [i.get("role_family_id") for i in items],
+         [i.get("search_location") or "" for i in items])).rowcount
+
+
+def list_matches(conn, user_id, since: date) -> list[dict]:
+    """The user's matches that are not hidden, newest advert first, with what the Jobs page shows."""
+    return _rows(conn.execute(
+        f"select {_MATCH}, left(l.description, 300) as snippet {_LIVE} and m.status <> 'hidden' "
+        "order by l.posted_on desc, m.fit_percent desc nulls last, l.title, m.id", (user_id, since)))
+
+
+def get_match(conn, user_id, match_id) -> dict | None:
+    """One of the user's matches with the whole advert, or None if it is not theirs."""
+    return _row(conn.execute(
+        f"select {_MATCH}, l.description, l.employer_key from job_matches m join job_listings l on l.id = m.listing_id "
+        "where m.id = %s and m.user_id = %s", (match_id, user_id)).fetchone())
+
+
+def unscored_matches(conn, user_id, since: date) -> list[dict]:
+    """Matches the model has not judged yet, with the advert text to judge them on."""
+    return _rows(conn.execute(
+        "select m.id as match_id, m.listing_id, l.source_id, l.title, l.employer, l.description, l.description_is_full, l.posted_on "
+        f"{_LIVE} and m.scored_at is null and m.status <> 'hidden' order by l.posted_on desc, m.id", (user_id, since)))
+
+
+def save_scores(conn, user_id, scores: list[dict]) -> None:
+    """Record the fit for each {"match_id", "fit" (see jobs.fit) or None, "from_summary"}. A match
+    judged with nothing to go on gets no score but is marked as looked at, so it is not asked again."""
+    for s in scores:
+        fit = s["fit"] or {}
+        conn.execute(
+            "update job_matches set fit_percent = %s, fit_label = %s, shown = %s, gaps = %s, fit_from_summary = %s, scored_at = now() "
+            "where id = %s and user_id = %s",
+            (fit.get("percent"), fit.get("label"), Jsonb(fit.get("shown") or []), Jsonb(fit.get("gaps") or []),
+             bool(s.get("from_summary")), s["match_id"], user_id))
+
+
+def mark_matches_seen(conn, user_id) -> int:
+    return conn.execute("update job_matches set status = 'seen' where user_id = %s and status = 'new'", (user_id,)).rowcount
+
+
+def hide_match(conn, user_id, match_id) -> bool:
+    return conn.execute("update job_matches set status = 'hidden' where id = %s and user_id = %s", (match_id, user_id)).rowcount == 1
+
+
+def save_listing_as_job(conn, user_id, match_id) -> dict | None:
+    """Copy a matched advert into the user's saved jobs, once. The copy outlives the listing."""
+    match = get_match(conn, user_id, match_id)
+    if not match:
+        return None
+    job = conn.execute("select * from saved_jobs where user_id = %s and listing_id = %s order by created_at limit 1",
+                       (user_id, match["listing_id"])).fetchone()
+    if not job:
+        job = conn.execute(
+            "insert into saved_jobs (user_id, title, company, location, url, description, summary, role_family_id, source, listing_id, posted_on) "
+            "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
+            (user_id, match["title"], match["employer"], match["location"] or None, match["url"], match["description"],
+             match["description"][:300], _own(conn, user_id, "role_families", match["role_family_id"]), match["source"],
+             match["listing_id"], match["posted_on"])).fetchone()
+    conn.execute("update job_matches set status = 'saved' where id = %s and user_id = %s", (match_id, user_id))
+    return _row(job)
+
+
+def job_counts(conn, user_id, since: date, fresh_since: date) -> dict:
+    """How many matching jobs the user has not seen yet ("new"), and how many of those were
+    posted on or after fresh_since ("fresh"). Only jobs scored as at least a stretch count."""
+    return conn.execute(
+        "select count(*) as new, count(*) filter (where l.posted_on >= %s) as fresh "
+        f"{_LIVE} and m.status = 'new' and m.fit_percent >= %s", (fresh_since, user_id, since, MIN_MATCH_PERCENT)).fetchone()
+
+
+def family_market(conn, user_id, since: date) -> dict[str, dict]:
+    """For each targeted role family: live adverts matched, how many name their employer, how many
+    of those employers are on the register, and the mid-point of every annual salary advertised."""
+    rows = conn.execute(
+        "select m.role_family_id, count(*) as jobs, count(*) filter (where l.posted_by = 'employer') as named, "
+        "count(*) filter (where l.sponsor_status = 'listed') as listed, "
+        "coalesce(array_agg(((coalesce(l.salary_min, l.salary_max) + coalesce(l.salary_max, l.salary_min)) / 2)::float8) "
+        "filter (where l.salary_annual and coalesce(l.salary_min, l.salary_max) is not null), '{}') as salaries "
+        f"{_LIVE} and f.id is not null and m.status <> 'hidden' group by m.role_family_id", (user_id, since)).fetchall()
+    return {str(r["role_family_id"]): {k: r[k] for k in ("jobs", "named", "listed", "salaries")} for r in rows}
+
+
+def set_include_senior(conn, user_id, value: bool) -> None:
+    conn.execute("update profiles set include_senior = %s, updated_at = now() where user_id = %s", (value, user_id))
