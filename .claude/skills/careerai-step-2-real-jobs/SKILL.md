@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 2 of the CareerAI r
 
 # Step 2: real jobs
 
-**Status:** Not started. **Depends on:** step 0 (works better after step 1, which adds skills and work history, but does not require it). **Size:** large, about the same as step 0.
+**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 0 (works better after step 1, which adds skills and work history, but does not require it). **Size:** large, about the same as step 0.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -24,10 +24,10 @@ Today a user must find jobs elsewhere and paste them in. That stays; this step a
 | Which jobs to show | All jobs, each labelled for sponsorship, with a "Sponsors only" filter | Owner, 12 Oct 2026 |
 | New jobs | In the app only: refresh when the page is opened, a "New since your last visit" marker and a count on the menu. No email | Owner, 12 Oct 2026 |
 | Visa wording | Facts with sources and the date checked, and "not immigration advice". No verdict labels | Owner, 12 Oct 2026 |
-| Fit labels | Direct fit (80% or more of what the job asks for is evidenced), Near fit (60 to 79%), Stretch (40 to 59%). Below 40% is tucked away under "Not a match" | Recommended, from the owner's "direct, 70% overlap, stretch" |
-| Where it lives | A new menu item, "Jobs", between Career pathways and Resume | Recommended, owner to confirm on review |
-| Seniority | Titles containing senior, lead, principal, head, director or manager are left out unless the user turns on "Include senior roles" | Recommended |
-| Freshness | Jobs posted in the last 14 days. "Posted in the last 48 hours" is highlighted | Recommended, from the owner's "apply within 48 hours" |
+| Fit labels | Direct fit (80% or more of what the job asks for is evidenced), Near fit (60 to 79%), Stretch (40 to 59%). Below 40% is tucked away under "Not a match" | Recommended; approved 12 Oct 2026. From the owner's "direct, 70% overlap, stretch" |
+| Where it lives | A new menu item, "Jobs", between Career pathways and Resume | Recommended; approved 12 Oct 2026 |
+| Seniority | Titles containing senior, lead, principal, head, director or manager are left out unless the user turns on "Include senior roles" | Recommended; approved 12 Oct 2026 |
+| Freshness | Jobs posted in the last 14 days. "Posted in the last 48 hours" is highlighted | Recommended; approved 12 Oct 2026. From the owner's "apply within 48 hours" |
 
 ## In scope
 
