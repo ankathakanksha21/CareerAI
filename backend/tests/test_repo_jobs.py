@@ -289,3 +289,21 @@ def test_include_senior_setting(conn, user_a):
     assert repo.get_or_create_profile(conn, user_a, "Test Person")["include_senior"] is False
     repo.set_include_senior(conn, user_a, True)
     assert repo.get_or_create_profile(conn, user_a, "Test Person")["include_senior"] is True
+
+
+def test_matched_listings_include_hidden_ones_and_only_the_users_own(conn, user_a, user_b):
+    one, two = matched(conn, user_a, listing(1), listing(2))
+    repo.hide_match(conn, user_a, two)
+    mine = repo.matched_listings(conn, user_a)
+    assert sorted(x["title"] for x in mine) == ["Role 1", "Role 2"]
+    assert {"id", "title", "employer_key", "location", "posted_on"} <= set(mine[0])
+    assert repo.matched_listings(conn, user_b) == []
+
+
+def test_application_for_a_saved_job(conn, user_a, user_b):
+    (match_id,) = matched(conn, user_a, listing(1))
+    job = repo.save_listing_as_job(conn, user_a, match_id)
+    assert repo.application_for_job(conn, user_a, job["id"]) is None
+    made = repo.add_application(conn, user_a, {"company": "Zzqx Holdings Ltd", "role": "Role 1", "source": "Reed", "saved_job_id": job["id"]})
+    assert repo.application_for_job(conn, user_a, job["id"])["id"] == made["id"]
+    assert repo.application_for_job(conn, user_b, job["id"]) is None

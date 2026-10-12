@@ -48,12 +48,21 @@ def is_senior(title: str) -> bool:
     return bool(SENIOR.search(title))
 
 
-def dedupe(listings: list[dict]) -> list[dict]:
+def _same_job(item: dict) -> tuple | None:
+    """What makes two adverts the same job. None when the employer is unknown: those are never merged."""
+    return (_tidy(item["title"]), item["employer_key"], _tidy(item["location"])) if item["employer_key"] else None
+
+
+def dedupe(listings: list[dict], keep: list[dict] = ()) -> list[dict]:
     """One advert per title, employer and town: employers repost the same job under a new id.
-    The most recently posted is kept. Adverts with no known employer are never merged."""
+    The most recently posted is kept, except that an advert the user already has (`keep`) always
+    wins, so a job they saved or dismissed does not come back when it is posted again."""
+    taken = {_same_job(item): item["id"] for item in keep if _same_job(item)}
     kept = {}
     for n, item in enumerate(listings):
-        key = (_tidy(item["title"]), item["employer_key"], _tidy(item["location"])) if item["employer_key"] else n
+        key = _same_job(item) or n
+        if taken.get(key, item["id"]) != item["id"]:
+            continue
         if key not in kept or item["posted_on"] > kept[key]["posted_on"]:
             kept[key] = item
     return list(kept.values())

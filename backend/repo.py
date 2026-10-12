@@ -217,6 +217,12 @@ def update_application(conn, user_id, app_id, fields: dict) -> dict | None:
                              (*values.values(), app_id, user_id)).fetchone())
 
 
+def application_for_job(conn, user_id, saved_job_id) -> dict | None:
+    """The user's application for one of their saved jobs, if they have logged one."""
+    return _row(conn.execute("select * from applications where user_id = %s and saved_job_id = %s order by created_at limit 1",
+                             (user_id, saved_job_id)).fetchone())
+
+
 def delete_application(conn, user_id, app_id) -> bool:
     return conn.execute("delete from applications where id = %s and user_id = %s", (app_id, user_id)).rowcount == 1
 
@@ -457,6 +463,13 @@ def add_matches(conn, user_id, items: list[dict]) -> int:
         "on conflict (user_id, listing_id) do nothing",
         (user_id, user_id, [i["listing_id"] for i in items], [i.get("role_family_id") for i in items],
          [i.get("search_location") or "" for i in items])).rowcount
+
+
+def matched_listings(conn, user_id) -> list[dict]:
+    """Every advert the user already has a match for, hidden ones included, with what identifies the job."""
+    return _rows(conn.execute(
+        "select l.id, l.title, l.employer_key, l.location, l.posted_on from job_matches m join job_listings l on l.id = m.listing_id "
+        "where m.user_id = %s", (user_id,)))
 
 
 def list_matches(conn, user_id, since: date) -> list[dict]:

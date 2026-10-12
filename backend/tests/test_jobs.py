@@ -114,6 +114,13 @@ def test_dedupe_keeps_adverts_that_differ_in_title_employer_or_town():
     assert [x["id"] for x in jobs.dedupe(listings)] == ["L1", "L2", "L3", "L4"]
 
 
+def test_dedupe_never_brings_back_a_repost_of_a_job_the_user_already_has():
+    """A job the user has matched, saved or dismissed must not reappear when the employer posts it again."""
+    already = [found(1)]
+    kept = jobs.dedupe([found(1), found(5), found(6, title="BI Analyst")], keep=already)
+    assert [x["id"] for x in kept] == ["L1", "L6"]
+
+
 def test_dedupe_keeps_adverts_with_no_known_employer_apart():
     assert len(jobs.dedupe([found(1, employer_key=""), found(2, employer_key="")])) == 2
 

@@ -1,14 +1,15 @@
 """UK Career Navigator API. Routes only: check who is calling, validate the input, call the
 modules, return JSON. Every route except /api/config needs a signed-in user and touches
 only that user's rows."""
+import hmac
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
 import psycopg
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
@@ -16,11 +17,15 @@ import ai
 import analytics
 import content
 import db
+import jobs
 import limits
+import reed
 import repo
+import sponsors
+import visa
 import voice
 from auth import User, current_user
-from config import env, llm_configured, supabase_url, voice_configured
+from config import cron_secret, env, jobs_configured, llm_configured, supabase_url, voice_configured
 from llm import LLMNotConfigured
 
 logging.basicConfig(level=logging.INFO)
@@ -67,6 +72,12 @@ def _found(row):
     return row
 
 
+def _job_dates() -> tuple[date, date]:
+    """The oldest posting date still shown, and the oldest that counts as just posted."""
+    today = date.today()
+    return today - timedelta(days=jobs.FRESH_DAYS), today - timedelta(days=jobs.NEW_DAYS)
+
+
 # ---------- config and state ----------
 
 @app.get("/api/config")
@@ -78,19 +89,24 @@ def get_config():
 
 @app.get("/api/state")
 def get_state(user: CurrentUser):
+    since, fresh_since = _job_dates()
     with db.transaction() as conn:
         profile = repo.get_or_create_profile(conn, user.id, user.name)
         state = repo.load_state(conn, user.id)
         usage = limits.usage(conn, user.id)
+        job_counts = repo.job_counts(conn, user.id, since, fresh_since)
+        market = jobs.market(repo.family_market(conn, user.id, since))
     return state | {
         "profile": profile | {"email": user.email},
         "details_complete": repo.details_complete(profile),
-        "stats": analytics.compute(state["applications"], state["role_families"], state["cv_versions"], state["stories"]),
+        "stats": analytics.compute(state["applications"], state["role_families"], state["cv_versions"], state["stories"], market),
         "next_steps": analytics.next_steps(state),
         "content": content.load(),
         "usage": usage,
+        "jobs": job_counts,   # matching adverts not yet seen, and how many of those were just posted
+        "market": market,     # live figures for each targeted role family
         "options": {"sources": analytics.SOURCES, "stages": analytics.STAGES},
-        "config": {"llm": llm_configured(),
+        "config": {"llm": llm_configured(), "jobs": jobs_configured(),
                    "voice": {"onboarding": voice_configured("onboarding"), "interviewer": voice_configured("interviewer")}},
     }
 
@@ -175,6 +191,7 @@ class ApplicationIn(BaseModel):
     job_url: Text(500, 0) | None = None
     contact: Text(200, 0) | None = None
     notes: Text(4000, 0) | None = None
+    sponsor_licence: bool | None = None  # what the sponsor register said about the employer, if known
     follow_up_on: date | None = None
 
     @model_validator(mode="after")
@@ -197,6 +214,7 @@ class ApplicationPatch(BaseModel):
     job_url: Text(500, 0) | None = None
     contact: Text(200, 0) | None = None
     notes: Text(4000, 0) | None = None
+    sponsor_licence: bool | None = None  # what the sponsor register said about the employer, if known
     follow_up_on: date | None = None
 
 
@@ -227,6 +245,192 @@ def delete_application(app_id: UUID, user: CurrentUser):
     with db.transaction() as conn:
         _found(repo.delete_application(conn, user.id, str(app_id)))
     return Response(status_code=204)
+
+
+# ---------- jobs: real adverts matched to the user ----------
+# /api/jobs/{job_id} (DELETE, above) names one of the user's saved jobs. The routes below that
+# take {match_id} name the user's match with a live advert.
+
+REED_DOWN = "We could not reach Reed. Try again shortly."
+SOME_SEARCHES_FAILED = "Some searches could not be completed. Check again shortly."
+NOT_SCORED_LIMIT = "You have reached today's AI limit, so new jobs were not scored. It resets at midnight."
+SOME_NOT_SCORED = "Some jobs could not be scored. Check again to score them."
+SPONSOR_LICENCE = {"listed": True, "not_found": False}  # a possible match or an agency advert is unknown
+
+
+def _register(conn) -> dict | None:
+    """How current the stored sponsor register is, for the line under every sponsorship fact."""
+    meta = repo.register_meta(conn)
+    return {"published_on": meta["published_on"], "loaded_at": meta["loaded_at"]} if meta else None
+
+
+def _pairs(searches: list[dict]) -> list[tuple[str, str]]:
+    return [(s["query"], s["location"]) for s in searches]
+
+
+@app.get("/api/jobs")
+def list_matched_jobs(user: CurrentUser):
+    """The user's matched adverts and what the page needs around them. Changes nothing."""
+    since, _ = _job_dates()
+    with db.transaction() as conn:
+        profile = repo.get_or_create_profile(conn, user.id, user.name)
+        searches = jobs.plan(repo.list_families(conn, user.id), profile["locations"])
+        due = repo.searches_due(conn, _pairs(searches), jobs.CACHE_HOURS)
+        matches = repo.list_matches(conn, user.id, since)
+        register = _register(conn)
+    return {"matches": [m | {"senior": jobs.is_senior(m["title"])} for m in matches], "due": bool(due), "searches": len(searches),
+            "register": register, "visa": visa.rules(), "include_senior": profile["include_senior"], "configured": jobs_configured(),
+            "fresh_days": jobs.FRESH_DAYS, "new_days": jobs.NEW_DAYS, "score_per_refresh": jobs.SCORE_PER_REFRESH}
+
+
+@app.post("/api/jobs/refresh")
+def refresh_jobs(user: CurrentUser):
+    """Fetch the user's searches that are due, match the adverts found, and score the most promising
+    unscored ones. Reed and the model are called with no database connection open."""
+    since, _ = _job_dates()
+    with db.transaction() as conn:
+        profile = repo.get_or_create_profile(conn, user.id, user.name)
+        achievements = repo.list_achievements(conn, user.id)
+        searches = jobs.plan(repo.list_families(conn, user.id), profile["locations"])
+        due = repo.searches_due(conn, _pairs(searches), jobs.CACHE_HOURS)
+    if not searches:
+        raise HTTPException(400, "Pick your target roles first.")
+    if not achievements:
+        raise HTTPException(400, "Build your profile first.")
+    to_run = [s for s in searches if (s["query"], s["location"]) in due]
+    if to_run and not jobs_configured():
+        raise HTTPException(503, "Job search is not set up on the server.")
+    batch = to_run[:jobs.SEARCHES_PER_REFRESH]
+
+    found, failed = jobs.fetch(batch)
+    notices = [REED_DOWN] if batch and failed == len(batch) else [SOME_SEARCHES_FAILED] if failed else []
+
+    family_of = {(s["query"], s["location"]): s["family_id"] for s in searches}
+    with db.transaction() as conn:
+        repo.store_searches(conn, found)
+        repo.purge_old_listings(conn)
+        listings = jobs.dedupe(repo.listings_for_searches(conn, list(family_of), since), keep=repo.matched_listings(conn, user.id))
+        new = repo.add_matches(conn, user.id, [
+            {"listing_id": item["id"], "role_family_id": family_of[(item["query"], item["search_location"])],
+             "search_location": item["search_location"]} for item in listings])
+        shortlist = jobs.shortlist(repo.unscored_matches(conn, user.id, since), jobs.skills_of(achievements),
+                                   profile["include_senior"], jobs.SCORE_PER_REFRESH)
+        scoring = bool(shortlist) and limits.allowed(conn, user.id, "ai")
+        if scoring:
+            repo.record_usage(conn, user.id, "ai", "jobs")
+    if shortlist and not scoring:  # the adverts are still listed, just not judged
+        notices.append(NOT_SCORED_LIMIT)
+
+    scored = 0
+    if scoring:
+        details = jobs.fetch_details(shortlist)
+        failure = None
+        try:
+            rows, missed = jobs.score([c | details.get(c["listing_id"], {}) for c in shortlist], achievements)
+        except ai.AIError as e:
+            rows, missed, failure = [], 0, e
+        with db.transaction() as conn:
+            for listing_id, full in details.items():  # adverts are public facts, kept whatever the model did
+                repo.set_listing_details(conn, listing_id, full)
+            repo.save_scores(conn, user.id, rows)
+        if failure:
+            raise failure
+        scored = len(rows)
+        if missed:
+            notices.append(SOME_NOT_SCORED)
+    return {"searched": len(found), "remaining": len(to_run) - len(batch), "new": new, "scored": scored, "notice": " ".join(notices) or None}
+
+
+@app.post("/api/jobs/seen", status_code=204)
+def jobs_seen(user: CurrentUser):
+    """The user has looked at their new matches. Separate from the list so that reading it changes nothing."""
+    with db.transaction() as conn:
+        repo.mark_matches_seen(conn, user.id)
+    return Response(status_code=204)
+
+
+class JobPreferences(BaseModel):
+    include_senior: bool
+
+
+@app.put("/api/jobs/preferences")
+def put_job_preferences(body: JobPreferences, user: CurrentUser):
+    with db.transaction() as conn:
+        repo.get_or_create_profile(conn, user.id, user.name)
+        repo.set_include_senior(conn, user.id, body.include_senior)
+    return {"include_senior": body.include_senior}
+
+
+def _save_match(user: User, match_id: str) -> tuple[dict, dict]:
+    """Copy a matched advert into the user's saved jobs, fetching the full text first if only the
+    short search text is stored. Returns the saved job and the match."""
+    with db.transaction() as conn:
+        match = _found(repo.get_match(conn, user.id, match_id))
+    full = None
+    if not match["description_is_full"]:
+        try:
+            full = reed.details(match["source_id"])
+        except reed.ReedError:
+            raise HTTPException(502, "We could not fetch the full advert from Reed. Try again.")
+    with db.transaction() as conn:
+        if full:
+            repo.set_listing_details(conn, match["listing_id"], full)
+        return _found(repo.save_listing_as_job(conn, user.id, match_id)), match
+
+
+@app.post("/api/jobs/{match_id}/save")
+def save_matched_job(match_id: UUID, user: CurrentUser):
+    return _save_match(user, str(match_id))[0]
+
+
+@app.post("/api/jobs/{match_id}/hide", status_code=204)
+def hide_matched_job(match_id: UUID, user: CurrentUser):
+    with db.transaction() as conn:
+        _found(repo.hide_match(conn, user.id, str(match_id)))
+    return Response(status_code=204)
+
+
+@app.post("/api/jobs/{match_id}/track", status_code=201)
+def track_matched_job(match_id: UUID, user: CurrentUser, response: Response):
+    """Save the advert and log an application for it, carrying its link, posting date and what
+    the register says about the employer. Doing it twice gives the same application."""
+    job, match = _save_match(user, str(match_id))
+    with db.transaction() as conn:
+        existing = repo.application_for_job(conn, user.id, job["id"])
+        if existing:
+            response.status_code = 200
+            return existing
+        return repo.add_application(conn, user.id, {
+            "company": job["company"], "role": job["title"], "saved_job_id": job["id"], "role_family_id": job["role_family_id"],
+            "source": "Reed", "job_url": job["url"], "posted_on": min(job["posted_on"], date.today()),
+            "sponsor_licence": SPONSOR_LICENCE.get(match["sponsor_status"])})
+
+
+@app.get("/api/visa-facts")
+def visa_facts(user: CurrentUser, salary: Annotated[int | None, Query(ge=0, le=10_000_000)] = None,
+               employer: Annotated[str | None, Query(max_length=160)] = None):
+    """The offer check: a salary beside the published Skilled Worker figures, and what the register
+    says about an employer. Facts with their sources, never a verdict."""
+    name = (employer or "").strip()
+    with db.transaction() as conn:
+        sponsor = sponsors.status(conn, name) if name else None
+        register = _register(conn)
+    return visa.salary_facts(salary, salary, bool(salary)) | {"sponsor": sponsor, "register": register}
+
+
+@app.get("/api/internal/refresh-sponsors")
+def refresh_sponsor_register(authorization: Annotated[str | None, Header()] = None):
+    """Reload the sponsor register from gov.uk. For the weekly scheduled job, which sends the
+    shared secret; nobody is signed in. Vercel's scheduler calls with GET."""
+    secret = cron_secret()
+    if not secret or not hmac.compare_digest((authorization or "").encode(), f"Bearer {secret}".encode()):
+        raise HTTPException(401, "Not allowed.")
+    try:
+        done = sponsors.refresh()
+    except sponsors.RegisterError as e:
+        log.error("sponsor register reload failed: %s", e)
+        raise HTTPException(502, "The sponsor register could not be reloaded. The stored copy is unchanged.")
+    return done
 
 
 # ---------- AI ----------
