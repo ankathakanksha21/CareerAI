@@ -112,7 +112,7 @@ export default function App() {
       <aside className="side">
         <Brand onClick={() => go('home')} />
         <nav className="nav-group" aria-label="Your search">
-          {NAV.map(({ key, label, icon: Icon }) => (
+          {NAV.filter((item) => item.key !== 'jobs' || s.config.jobs).map(({ key, label, icon: Icon }) => (
             <button key={key} className={`nav-item ${page === key ? 'active' : ''}`} onClick={() => go(key)} aria-current={page === key ? 'page' : undefined}>
               <Icon size={18} strokeWidth={1.9} />
               {label}

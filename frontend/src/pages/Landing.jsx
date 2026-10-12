@@ -2,15 +2,15 @@ import { BriefcaseBusiness, Compass, FileText, Mic } from 'lucide-react'
 import { Brand } from '../ui'
 
 const FEATURES = [
-  { icon: FileText, title: 'UK-standard CV and cover letter', body: 'Your experience rewritten in the words UK recruiters scan for, then tailored to each job you paste in.' },
+  { icon: FileText, title: 'UK-standard CV and cover letter', body: 'Your experience rewritten in the words UK recruiters scan for, then tailored to each job you choose.' },
   { icon: Mic, title: 'Interview practice', body: 'Voice mock interviews for HR screens, behavioural rounds and job-specific questions, with feedback on your answers.' },
   { icon: BriefcaseBusiness, title: 'Application tracker', body: 'A board for every application, and a plain answer to what is not working.' },
-  { icon: Compass, title: 'Career pathways', body: 'Role families that fit your background, with UK job titles and the gaps to close.' },
+  { icon: Compass, title: 'Career pathways and jobs', body: 'Role families that fit your background, then current adverts for them, each compared with your profile and checked against the gov.uk sponsor register.' },
 ]
 
 // The same six steps a new account sees, shown as an example
 const PREVIEW = [
-  ['Build your profile', true], ['Pick your target roles', true], ['Add a job you want', false],
+  ['Build your profile', true], ['Pick your target roles', true], ['Save a job you want', false],
   ['Tailor a CV for it', false], ['Practise an interview', false], ['Log your first application', false],
 ]
 
