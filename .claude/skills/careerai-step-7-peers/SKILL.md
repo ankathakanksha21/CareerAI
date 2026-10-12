@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 7 of the CareerAI r
 
 # Step 7: peers
 
-**Status:** Not started. **Depends on:** step 4 (weekly goals and streak). **Size:** medium, with the highest privacy risk of any step.
+**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 4 (weekly goals and streak). **Size:** medium, with the highest privacy risk of any step.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -24,14 +24,14 @@ The owner's notes: isolation is a real barrier for international students; a sma
 | What peers see | First name, university, course, target roles, and this week's progress (targets met, streak). Nothing until the user switches Peers on | Owner, 12 Oct 2026 |
 | Never shown | Surname, email, visa type or dates, applications, employers, CVs, achievements, journal, transcripts | Owner, 12 Oct 2026 |
 | Talking | No chat. A one-tap nudge, one short check-in line a week, and an optional contact link shared inside the group | Owner, 12 Oct 2026 |
-| Matching | Done by the app, not chosen from a list: same broad field first, then same city or university. Both people accept before a group forms | Recommended, owner to confirm on review |
-| Visa status is not used for matching | Matching on it would reveal it | Recommended |
-| No fake peers | With too few users there may be no match. The app says "You are on the list" and waits. It never shows invented people | Recommended, follows the project's real-data rule |
-| Nudges have fixed wording | No free text, so nothing to moderate. At most one nudge to each member per day | Recommended |
-| Check-in line | Free text, 140 characters, one per week, with Report on every line | Recommended |
-| Contact link | One link per user, LinkedIn or WhatsApp only, visible only to current members of their group | Recommended |
-| Safety | Leave at any time; block a member; report; confirm being 18 or over and accept a short code of conduct when switching Peers on | Recommended, owner to confirm on review |
-| Moderation | Reports are stored for the owner to review. There is no admin screen in this step; a script lists open reports | Recommended, owner to confirm on review |
+| Matching | Done by the app, not chosen from a list: same broad field first, then same city or university. Both people accept before a group forms | Recommended; approved 12 Oct 2026 |
+| Visa status is not used for matching | Matching on it would reveal it | Recommended; approved 12 Oct 2026 |
+| No fake peers | With too few users there may be no match. The app says "You are on the list" and waits. It never shows invented people | Recommended; approved 12 Oct 2026 |
+| Nudges have fixed wording | No free text, so nothing to moderate. At most one nudge to each member per day | Recommended; approved 12 Oct 2026 |
+| Check-in line | Free text, 140 characters, one per week, with Report on every line | Recommended; approved 12 Oct 2026 |
+| Contact link | One link per user, LinkedIn or WhatsApp only, visible only to current members of their group | Recommended; approved 12 Oct 2026 |
+| Safety | Leave at any time; block a member; report; confirm being 18 or over and accept a short code of conduct when switching Peers on | Recommended; approved 12 Oct 2026 |
+| Moderation | Reports are stored for the owner to review. There is no admin screen in this step; a script lists open reports | Recommended; approved 12 Oct 2026 |
 
 ## In scope
 

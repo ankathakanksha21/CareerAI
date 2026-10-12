@@ -8,6 +8,8 @@ A career agent for international students (Student visa) and recent graduates (G
 
 The product is built in numbered steps, 0 to 7. Each step has its own document in `.claude/skills/careerai-step-N-*/SKILL.md` holding every decision already made for it. To build one, load that step's skill and follow `careerai-building-a-step`, which is the method every step uses.
 
+**Agreed build order:** 0 (done), then 2, 1, 3, 4, 5, 6, 7. Step 3 needs step 1; steps 6 and 7 need step 4. One step per session.
+
 ## Rules that apply to every change
 
 - **Only real data.** No seeded people, companies, jobs or history. No canned AI answers: an AI task returns the model's real result or an error with Retry.
@@ -30,7 +32,8 @@ The product is built in numbered steps, 0 to 7. Each step has its own document i
 ## Git
 
 - Commit as the repository's configured identity (`ankathakanksha21`). Small commits, each with the full test suite passing.
-- Push only when the owner asks, and to the remote named `ankathakanksha21` (their own repository). Never push to `origin`. Never merge into `main` while a step is half-built.
+- One branch per step, named `step-N-<short-name>`, created from `main`. When a step is finished the owner merges it into `main` through a pull request. Never merge into `main` yourself.
+- Push only when the owner asks, and to the remote named `ankathakanksha21` (their own repository). Never push to `origin`.
 
 ## Commands
 

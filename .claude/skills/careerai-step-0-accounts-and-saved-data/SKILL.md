@@ -39,6 +39,10 @@ description: Use when a question or task concerns step 0 of the CareerAI roadmap
 
 Also not yet verified by hand: the password-reset email flow, and a Vercel deployment of this version.
 
+## Before the next step starts
+
+Step 0 was built on the branch `live-features`. It must be merged into `main` (the owner does this through a pull request on GitHub) so that the next step can branch from a `main` that contains it.
+
 ## Before any public launch
 
 Listed in `docs/ARCHITECTURE.md` section 11: review the privacy notice and set `CONTACT_EMAIL`, turn email confirmation back on with an email provider, use a separate Supabase project for live data, rotate every key that has been shared.

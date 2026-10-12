@@ -16,7 +16,8 @@ Each stage ends with something the owner can see. Do not start a stage before th
 ### 1. Orient (no code)
 
 - Read `CLAUDE.md`, `docs/ARCHITECTURE.md` and the step's skill.
-- Check earlier steps are marked done in ARCHITECTURE section 2. If one is not, stop and tell the owner.
+- Check the steps this one depends on are marked done in ARCHITECTURE section 2 and merged into `main`. If one is not, stop and tell the owner.
+- Work on a branch named `step-N-<short-name>` created from an up-to-date `main`. One step, one branch. If you find yourself on `main` or on another step's branch, stop and ask.
 - Run the full backend suite and `npm run build`. Both must pass before you change anything. If they do not, fix that first and say so.
 - Check every setting the step needs is in `backend/.env` (names only, never values). If a key is missing, give the owner the exact steps to get it and wait.
 
@@ -58,6 +59,7 @@ Every step must include these tests, whatever else it adds:
 - Update `docs/ARCHITECTURE.md`: roadmap status, new decisions and trade-offs, data model, API, the verification record with dates, known limitations.
 - Update the step's skill: status, and any decision that changed.
 - Update the privacy page if the step collects or sends new personal data.
+- When the owner asks, push the branch to the `ankathakanksha21` remote and give them the link to open a pull request into `main`. The owner merges it; you never merge into `main` yourself.
 - Final message to the owner: what was built, what was verified and how, what was **not** verified, every judgement call you made and what it costs if wrong, and what they need to do.
 
 ## When to stop and ask the owner
