@@ -29,6 +29,16 @@ def voice_configured(agent: str) -> bool:
     return bool(env("ELEVENLABS_API_KEY") and env(key))
 
 
+def jobs_configured() -> bool:
+    """Job search needs a Reed API key."""
+    return bool(env("REED_API_KEY"))
+
+
+def cron_secret() -> str:
+    """Shared with the scheduler that reloads the sponsor register. Empty means nobody may call it."""
+    return env("CRON_SECRET")
+
+
 def supabase_url() -> str:
     return env("SUPABASE_URL").rstrip("/")
 

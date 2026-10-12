@@ -7,7 +7,7 @@ import config
 def no_env_file(monkeypatch, tmp_path):
     """Point config at a missing .env so only monkeypatched variables are visible."""
     monkeypatch.setattr(config, "ENV_PATH", tmp_path / "none")
-    for name in ("SUPABASE_URL", "DAILY_AI_LIMIT", "DAILY_VOICE_LIMIT"):
+    for name in ("SUPABASE_URL", "DAILY_AI_LIMIT", "DAILY_VOICE_LIMIT", "REED_API_KEY", "CRON_SECRET"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -39,3 +39,17 @@ def test_environment_wins_over_env_file(monkeypatch, tmp_path):
     monkeypatch.setenv("DAILY_AI_LIMIT", "9")
     assert config.daily_limit("ai") == 9
     assert config.supabase_url() == "https://file.supabase.co"
+
+
+def test_jobs_configured_needs_the_reed_key(monkeypatch):
+    assert config.jobs_configured() is False
+    monkeypatch.setenv("REED_API_KEY", "your-reed-api-key")  # the placeholder from .env.example
+    assert config.jobs_configured() is False
+    monkeypatch.setenv("REED_API_KEY", "abc123")
+    assert config.jobs_configured() is True
+
+
+def test_cron_secret(monkeypatch):
+    assert config.cron_secret() == ""
+    monkeypatch.setenv("CRON_SECRET", " s3cret ")
+    assert config.cron_secret() == "s3cret"
