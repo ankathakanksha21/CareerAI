@@ -385,3 +385,206 @@ def test_score_jobs_sends_nothing_about_the_person_but_their_achievements(model)
     ai.score_jobs(BATCH, ACHIEVEMENTS)
     prompt = calls[0]["system"] + calls[0]["user"]
     assert "Test Person" not in prompt and "visa" not in prompt.lower() and "University A" not in prompt
+
+
+# ---------- step 1: months, missing numbers, quotes from text that is not speech ----------
+
+CV = """Zarvin Quillfeather
+Systems Engineer, Zzqx Holdings Ltd, Pune, India
+Jul 2023 - Aug 2025
+Built a weekly delivery delays report in
+SQL and Excel used by 15 depot
+managers; late deliveries fell by about
+8%.
+Wrote a Python script that merged three spreadsheets.
+Coach: Under-15 football team, weekends
+BTech Computer Science, University of Zzqx, India, 2019 - 2023, CGPA 8.4/10
+Skills: Python, SQL, Excel, Power BI
+Languages: English (fluent), Hindi (native)"""
+
+
+@pytest.mark.parametrize("given, expected", [
+    ("2023-07", date(2023, 7, 1)), (" 2025-12 ", date(2025, 12, 1)), ("2023-7", None), ("2021", None), ("Summer 2022", None),
+    ("present", None), ("", None), (None, None), ("2023-13", None), ("2023-00", None), ("07/2023", None), ("1023-07", None), (202307, None)])
+def test_month_is_a_real_month_or_nothing(given, expected):
+    assert ai.month(given) == expected
+
+
+@pytest.mark.parametrize("achievement, expected", [
+    ({"uk_version": "Built a report for depot managers", "outcome": "Add a number: how many managers used it"}, True),
+    ({"uk_version": "Built a report for depot managers", "outcome": "Managers used it weekly"}, True),
+    ({"uk_version": "Built a report for 15 depot managers", "outcome": ""}, False),
+    ({"uk_version": "Built a report for depot managers", "outcome": "About 8% fewer late deliveries"}, False),
+    ({"uk_version": "Built a report for 15 depot managers", "outcome": "add a number: the fall in late deliveries"}, True),
+])
+def test_needs_number(achievement, expected):
+    assert ai.needs_number(achievement) is expected
+
+
+def test_a_cv_line_that_looks_like_a_speaker_label_does_not_hide_the_rest():
+    quote = "Wrote a Python script that merged three spreadsheets"
+    assert ai.verbatim(quote, CV) == ""                    # read as a call transcript, only "Candidate:" lines count
+    assert ai.verbatim(quote, CV, speech=False) == quote   # read as a document, every line is the user's
+
+
+def test_a_quote_wrapped_across_lines_is_still_found_exactly():
+    quote = "Built a weekly delivery delays report in SQL and Excel used by 15 depot managers"
+    assert ai.verbatim(quote, CV, speech=False) == quote
+
+
+def test_a_paraphrase_of_a_wrapped_sentence_comes_back_as_the_whole_sentence():
+    assert ai.verbatim("built weekly delays report for fifteen depot managers using SQL", CV, speech=False) == \
+        "Built a weekly delivery delays report in SQL and Excel used by 15 depot managers; late deliveries fell by about 8%."
+
+
+def test_nothing_like_it_in_the_document():
+    assert ai.verbatim("Led a team of forty engineers across three continents", CV, speech=False) == ""
+
+
+# ---------- step 1: extraction knows the source, what is saved already, and where things happened ----------
+
+def item(**kw):
+    return {"title": "Delays report", "raw": "Built a weekly delivery delays report", "uk_version": "Built a weekly delays report for 15 managers",
+            "skills": ["SQL"], "outcome": "8% fewer late deliveries", "scale": "15 managers", "context_note": "", "where": "Zzqx Holdings Ltd"} | kw
+
+
+def test_extract_says_where_each_achievement_happened(model):
+    model({"items": [item(where="  Zzqx Holdings Ltd "), item(title="Script", uk_version="Wrote a script", where="")], "pitch": "I am."})
+    items = ai.extract_achievements(CV, PROFILE, "cv")["items"]
+    assert [i["where"] for i in items] == ["Zzqx Holdings Ltd", ""]
+
+
+@pytest.mark.parametrize("source, label, count", [("voice", "Background transcript:", "3 to 6 items"), ("paste", "Pasted text:", "Up to 8 items"),
+                                                  ("cv", "CV text:", "Up to 8 items")])
+def test_extract_prompt_fits_the_source(model, source, label, count):
+    calls = model({"items": [item()], "pitch": ""})
+    ai.extract_achievements(CV, PROFILE, source)
+    assert label in calls[0]["user"] and count in calls[0]["user"]
+    assert ("out of order" in calls[0]["system"]) is (source == "cv")
+
+
+def test_extract_is_told_what_is_already_saved_and_drops_a_repeat(model):
+    saved = [{"title": "Delays report", "uk_version": "Built a weekly delays report for 15 managers."}]
+    calls = model({"items": [item(uk_version="built a weekly delays report, for 15 managers"), item(title="Script", uk_version="Wrote a merge script")], "pitch": ""})
+    items = ai.extract_achievements(CV, PROFILE, "cv", saved)["items"]
+    assert "Built a weekly delays report for 15 managers." in calls[0]["user"] and "Do not return those again" in calls[0]["system"]
+    assert [i["title"] for i in items] == ["Script"]
+
+
+def test_extract_without_saved_achievements_does_not_mention_them(model):
+    calls = model({"items": [item()], "pitch": ""})
+    ai.extract_achievements(CV, PROFILE, "cv")
+    assert "Already in the profile" not in calls[0]["user"] and "Do not return those again" not in calls[0]["system"]
+
+
+def test_extract_drops_the_same_achievement_returned_twice(model):
+    model({"items": [item(), item(title="The same again")], "pitch": ""})
+    assert len(ai.extract_achievements(CV, PROFILE, "cv")["items"]) == 1
+
+
+def test_extract_keeps_no_more_than_the_source_allows(model):
+    many = [item(title=f"T{n}", uk_version=f"Did thing number {n}") for n in range(12)]
+    model({"items": many, "pitch": ""}, {"items": many, "pitch": ""})
+    assert len(ai.extract_achievements(CV, PROFILE, "cv")["items"]) == 8
+    assert len(ai.extract_achievements(CV, PROFILE, "voice")["items"]) == 6
+
+
+def test_a_cv_quote_is_checked_against_the_cv_as_a_document(model):
+    model({"items": [item(raw="Wrote a Python script that merged three spreadsheets"),
+                     item(title="Invented", uk_version="Led forty engineers", raw="Led a team of forty engineers across three continents")], "pitch": ""})
+    items = ai.extract_achievements(CV, PROFILE, "cv")["items"]
+    assert items[0]["raw"] == "Wrote a Python script that merged three spreadsheets"
+    assert items[1]["raw"] == ""
+
+
+# ---------- step 1: CV facts ----------
+
+def job(**kw):
+    return {"employer": "Zzqx Holdings Ltd", "job_title": "Systems Engineer", "location": "Pune", "country": "India",
+            "start": "2023-07", "end": "2025-08", "employer_context": "IT services"} | kw
+
+
+def course(**kw):
+    return {"institution": "University of Zzqx", "qualification": "BTech", "subject": "Computer Science",
+            "start": "2019", "end": "2023", "grade": "CGPA 8.4/10", "country": "India"} | kw
+
+
+def facts(model, **reply):
+    model({"work_history": [], "education": [], "skills": [], "languages": []} | reply)
+    return ai.extract_facts(CV, PROFILE, "cv")
+
+
+def test_facts_come_back_in_the_shape_of_the_tables(model):
+    found = facts(model, work_history=[job()], education=[course()], skills=["Python", " SQL "],
+                  languages=[{"language": "English", "level": "fluent"}, {"language": "Hindi", "level": "Native speaker"}])
+    assert found["work_history"] == [{"employer": "Zzqx Holdings Ltd", "job_title": "Systems Engineer", "location": "Pune", "country": "India",
+                                      "start_month": date(2023, 7, 1), "end_month": date(2025, 8, 1), "is_current": False, "employer_context": "IT services"}]
+    assert found["education"] == [{"institution": "University of Zzqx", "qualification": "BTech", "subject": "Computer Science",
+                                   "start_month": None, "end_month": None, "grade": "CGPA 8.4/10", "country": "India"}]
+    assert found["skills"] == ["Python", "SQL"]
+    assert found["languages"] == [{"language": "English", "level": "Fluent"}, {"language": "Hindi", "level": "Native"}]
+
+
+@pytest.mark.parametrize("word", ["present", "Present", "current", "now", "ongoing", "to date"])
+def test_a_job_still_held_is_current_with_no_end(model, word):
+    found = facts(model, work_history=[job(end=word)])["work_history"][0]
+    assert found["is_current"] is True and found["end_month"] is None
+
+
+@pytest.mark.parametrize("start, end", [("2021", "Summer 2022"), ("", "2023"), ("present", "")])
+def test_a_date_that_is_not_a_month_is_left_empty_never_guessed(model, start, end):
+    found = facts(model, work_history=[job(start=start, end=end)])["work_history"][0]
+    assert found["start_month"] is None and found["end_month"] is None and found["is_current"] is False
+
+
+def test_an_end_before_the_start_is_dropped(model):
+    found = facts(model, work_history=[job(start="2025-08", end="2023-07")], education=[course(start="2023-05", end="2019-07")])
+    assert found["work_history"][0]["start_month"] == date(2025, 8, 1) and found["work_history"][0]["end_month"] is None
+    assert found["education"][0]["end_month"] is None
+
+
+def test_an_employer_or_institution_that_is_not_in_the_text_is_dropped(model):
+    found = facts(model, work_history=[job(employer="Tata Consultancy Services"), job(employer="Zzqx Holdings Limited"), job(employer="")],
+                  education=[course(institution="Indian Institute of Technology Bombay"), course(institution="Zzqx University")])
+    assert [w["employer"] for w in found["work_history"]] == ["Zzqx Holdings Limited"]   # half its words are in the text
+    assert [e["institution"] for e in found["education"]] == ["Zzqx University"]
+
+
+def test_the_same_job_or_course_twice_is_kept_once(model):
+    found = facts(model, work_history=[job(), job(employer="zzqx holdings ltd."), job(job_title="Intern", start="2022-01", end="2022-06")],
+                  education=[course(), course(grade="")])
+    assert [w["job_title"] for w in found["work_history"]] == ["Systems Engineer", "Intern"]
+    assert len(found["education"]) == 1
+
+
+def test_skills_and_languages_are_only_those_the_text_names(model):
+    found = facts(model, skills=["Python", "python", "Kubernetes", "Power BI", "", "x" * 80],
+                  languages=[{"language": "Hindi", "level": "mother tongue"}, {"language": "French", "level": "Basic"},
+                             {"language": "English", "level": "C1"}, {"language": "hindi", "level": "Basic"}])
+    assert found["skills"] == ["Python", "Power BI"]
+    assert found["languages"] == [{"language": "Hindi", "level": "Native"}, {"language": "English", "level": ""}]
+
+
+def test_no_more_than_forty_skills(model):
+    text = " ".join(f"tool{n}" for n in range(60))
+    model({"work_history": [], "education": [], "skills": [f"tool{n}" for n in range(60)], "languages": []})
+    assert len(ai.extract_facts(text, PROFILE, "paste")["skills"]) == 40
+
+
+def test_facts_with_nothing_found_are_four_empty_lists_not_an_error(model):
+    assert facts(model) == {"work_history": [], "education": [], "skills": [], "languages": []}
+    model({})
+    assert ai.extract_facts(CV, PROFILE, "cv") == {"work_history": [], "education": [], "skills": [], "languages": []}
+
+
+def test_facts_fail_when_the_model_does(model):
+    model(ValueError("bad json"), ValueError("bad json"))
+    with pytest.raises(ai.AIError):
+        ai.extract_facts(CV, PROFILE, "cv")
+
+
+def test_facts_prompt_forbids_guessing_and_names_the_levels(model):
+    calls = model({})
+    ai.extract_facts(CV, PROFILE, "cv")
+    assert "never guess a month" in calls[0]["system"] and all(level in calls[0]["system"] for level in ai.LANGUAGE_LEVELS)
+    assert "CV text:" in calls[0]["user"] and CV in calls[0]["user"]
