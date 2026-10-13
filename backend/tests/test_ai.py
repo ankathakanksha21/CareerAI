@@ -415,7 +415,9 @@ def test_month_is_a_real_month_or_nothing(given, expected):
     ({"uk_version": "Built a report for depot managers", "outcome": "Managers used it weekly"}, True),
     ({"uk_version": "Built a report for 15 depot managers", "outcome": ""}, False),
     ({"uk_version": "Built a report for depot managers", "outcome": "About 8% fewer late deliveries"}, False),
-    ({"uk_version": "Built a report for 15 depot managers", "outcome": "add a number: the fall in late deliveries"}, True),
+    # the model sometimes leaves its "add a number" marker beside a bullet that already has one: the bullet decides
+    ({"uk_version": "Automated a merge in Python, saving about 5 hours a week", "outcome": "Add a number: hours saved per week"}, False),
+    ({"uk_version": "Built a report for depot managers", "outcome": "add a number: the fall in late deliveries from 2024"}, True),
 ])
 def test_needs_number(achievement, expected):
     assert ai.needs_number(achievement) is expected
@@ -749,3 +751,24 @@ def test_star_still_normalises_through_the_shared_helper(model):
     model(told(0, title="", strength="NEEDS A NUMBER"))
     story = ai.star({"title": "Delays report", "uk_version": "Built X"})
     assert story["title"] == "Delays report" and story["strength"] == "needs a number" and "n" not in story
+
+
+# ---------- step 1: the prompt's own placeholder must never reach the user ----------
+
+PLACEHOLDER = "Add a number: <what to measure>"
+
+
+def test_extract_does_not_pass_on_the_prompts_placeholder(model):
+    model({"items": [item(outcome=PLACEHOLDER), item(title="Script", uk_version="Wrote a script", outcome="Add a number: hours saved a week")], "pitch": ""})
+    outcomes = [i["outcome"] for i in ai.extract_achievements(CV, PROFILE, "cv")["items"]]
+    assert outcomes == ["Add a number", "Add a number: hours saved a week"]
+
+
+def test_github_does_not_pass_on_the_prompts_placeholder(model):
+    model({"items": [project(1, outcome=" add a number: <What To Measure> ")]})
+    assert ai.github_achievements(REPOS)[1]["outcome"] == "Add a number"
+
+
+def test_improve_does_not_pass_on_the_prompts_placeholder(model):
+    model({"uk_version": "Built a weekly delivery delays report for depot managers", "outcome": PLACEHOLDER, "scale": ""})
+    assert ai.improve(WEAK, "")["outcome"] == "Add a number"

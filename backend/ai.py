@@ -190,11 +190,24 @@ def month(value) -> date | None:
     return date(int(m[1]), int(m[2]), 1) if m and 1950 <= int(m[1]) <= 2100 else None
 
 
+NO_NUMBER = "Add a number"  # how the model marks a result with no figure, followed by what to measure
+_PLACEHOLDER = re.compile(r"add a number\s*:?\s*<[^>]*>", re.I)
+
+
+def _outcome(text: str) -> str:
+    """A result as the model gave it, unless it copied the prompt's own "<what to measure>"
+    placeholder: then only the marker is kept."""
+    text = text.strip()
+    return NO_NUMBER if _PLACEHOLDER.fullmatch(text) else text
+
+
 def needs_number(achievement: dict) -> bool:
-    """True when an achievement has no figure yet: the extraction marked it so, or neither the
-    bullet nor the result holds a digit."""
-    outcome = achievement.get("outcome") or ""
-    return outcome.strip().lower().startswith("add a number") or not re.search(r"\d", f"{achievement.get('uk_version') or ''} {outcome}")
+    """True when an achievement has no figure yet: neither its bullet nor its result holds a digit.
+    A result that is only the extraction's "Add a number: ..." marker says what to measure and is
+    not a figure; and the marker beside a bullet that already has a number is ignored."""
+    outcome = (achievement.get("outcome") or "").strip()
+    result = "" if outcome.lower().startswith("add a number") else outcome
+    return not re.search(r"\d", f"{achievement.get('uk_version') or ''} {result}")
 
 
 def _who(profile: dict) -> str:
@@ -243,7 +256,7 @@ def extract_achievements(text: str, profile: dict, source: str = "voice", existi
         seen.add(_key(bullet))
         # "raw" is shown to the user as their own words, so it must be found in what they said or wrote
         items.append(item | {"uk_version": bullet, "title": item["title"].strip() or bullet[:60], "where": item["where"].strip(),
-                             "raw": verbatim(item["raw"] or bullet, text, speech=source != "cv")})
+                             "outcome": _outcome(item["outcome"]), "raw": verbatim(item["raw"] or bullet, text, speech=source != "cv")})
     return {"items": items[:MAX_ITEMS[source]], "pitch": data["pitch"].strip()}
 
 
@@ -536,7 +549,8 @@ def github_achievements(repos: list) -> dict:
         "Turn a candidate's own public code repositories into project achievements written for UK employers. "
         "One item per repository, from its name, description, main language and README only: never add a feature, tool, user or number they do not state. "
         "uk_version is a single UK CV bullet: action verb first, what was built and with what, and a result or scale only if the README gives one. "
-        "If it gives no number, do not make one up: set outcome to 'Add a number: <what to measure>'. "
+        "If it gives no number, do not make one up: set outcome to the words 'Add a number: ' followed by what the candidate should measure, "
+        "in your own words (for example how many people use it, or how much faster it runs). "
         "raw is an exact quote copied from that repository's README or description, under 25 words. "
         "skills are the languages, libraries and tools it names. context_note is one tip on presenting a personal project to a UK employer. "
         "Leave out a repository whose README and description say too little to tell what was built."
@@ -557,7 +571,7 @@ def github_achievements(repos: list) -> dict:
             continue
         own_words = f"{repo.get('description') or ''}\n{repo.get('readme') or ''}"
         found[item["n"]] = {"title": item["title"].strip() or repo["name"], "raw": verbatim(item["raw"], own_words, speech=False),
-                            "uk_version": bullet, "skills": item["skills"], "outcome": item["outcome"].strip(),
+                            "uk_version": bullet, "skills": item["skills"], "outcome": _outcome(item["outcome"]),
                             "scale": item["scale"].strip(), "context_note": item["context_note"].strip()}
     if not found:
         raise AIError("github")
@@ -594,7 +608,7 @@ def improve(achievement: dict, note: str) -> dict:
     allowed = _numbers(f"{_j(facts)} {note}", spelled=True)
     data = _run("improve", system, user, {"uk_version": "", "outcome": "", "scale": ""}, 500, required=("uk_version",),
                 check=lambda d: _numbers(f"{d['uk_version']} {d['outcome']} {d['scale']}") <= allowed)
-    return {k: data[k].strip() for k in ("uk_version", "outcome", "scale")}
+    return {"uk_version": data["uk_version"].strip(), "outcome": _outcome(data["outcome"]), "scale": data["scale"].strip()}
 
 
 # 12. Several achievements to STAR stories in one call

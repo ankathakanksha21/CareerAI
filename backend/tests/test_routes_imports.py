@@ -277,9 +277,14 @@ def gh(monkeypatch, no_env_file):
     return install
 
 
+def repos_of(client, username="zzqx-sample"):
+    # a POST: the name a user types travels in the body, so it never sits in an address or an access log
+    return client.post("/api/github/repos", json={"username": username})
+
+
 def test_listing_repositories(client, gh):
     gh(repos=(REPO, OTHER | {"fork": True}))
-    body = client.get("/api/github/zzqx-sample/repos").json()
+    body = repos_of(client).json()
     assert body == {"username": "zzqx-sample", "repos": [{"name": "delay-report", "description": "Weekly delivery delays report", "language": "Python",
                                                          "stars": 3, "pushed_on": "2026-08-21", "url": "https://github.com/zzqx-sample/delay-report",
                                                          "imported": False}]}
@@ -293,7 +298,7 @@ def test_listing_repositories(client, gh):
 def test_github_failures_have_plain_messages(client, gh, stub, reply, status, message):
     gh(fail=lambda request: reply)
     calls = stub("github_achievements", {1: PROJECT})
-    r = client.get("/api/github/zzqx-sample/repos")
+    r = repos_of(client)
     assert r.status_code == status and r.json()["detail"] == message
     r = client.post("/api/ai/achievements/github", json={"username": "zzqx-sample", "repos": ["delay-report"]})
     assert r.status_code == status and r.json()["detail"] == message
@@ -303,7 +308,7 @@ def test_github_failures_have_plain_messages(client, gh, stub, reply, status, me
 @pytest.mark.parametrize("username", ["-leading", "two words", "x" * 40, "a_b"])
 def test_a_username_github_would_never_allow_is_refused(client, gh, username):
     seen = gh()
-    assert client.get(f"/api/github/{username}/repos").status_code == 422
+    assert repos_of(client, username).status_code == 422
     assert client.post("/api/ai/achievements/github", json={"username": username, "repos": ["delay-report"]}).status_code == 422
     assert seen == []
 
@@ -348,7 +353,7 @@ def test_a_repository_already_imported_is_skipped(client, gh, stub):
     gh()
     stub("github_achievements", {1: PROJECT})
     client.post("/api/ai/achievements/github", json={"username": "zzqx-sample", "repos": ["delay-report"]})
-    assert [r["imported"] for r in client.get("/api/github/zzqx-sample/repos").json()["repos"]] == [True, False]
+    assert [r["imported"] for r in repos_of(client).json()["repos"]] == [True, False]
 
     calls = stub("github_achievements", {1: PROJECT | {"title": "Mess feedback"}})
     client.post("/api/ai/achievements/github", json={"username": "zzqx-sample", "repos": ["delay-report", "mess-feedback"]})
@@ -395,9 +400,19 @@ def test_github_import_at_the_daily_limit(client, gh, stub, monkeypatch):
 def test_the_github_token_is_in_no_response(client, gh, monkeypatch):
     gh(fail=lambda request: httpx.Response(500, text=f"echo {request.headers.get('authorization')}"))
     monkeypatch.setenv("GITHUB_TOKEN", TOKEN)
-    for r in (client.get("/api/github/zzqx-sample/repos"),
+    for r in (repos_of(client),
               client.post("/api/ai/achievements/github", json={"username": "zzqx-sample", "repos": ["delay-report"]})):
         assert r.status_code == 502 and TOKEN not in r.text
+
+
+def test_the_username_a_user_types_is_not_written_to_the_server_log(client, gh, stub, caplog):
+    import logging
+    gh()
+    stub("github_achievements", {1: PROJECT})
+    with caplog.at_level(logging.INFO):
+        repos_of(client)
+        client.post("/api/ai/achievements/github", json={"username": "zzqx-sample", "repos": ["delay-report"]})
+    assert "zzqx-sample" not in caplog.text
 
 
 def test_github_projects_are_private_to_their_owner(client, gh, stub, user_b, as_user):
@@ -406,7 +421,7 @@ def test_github_projects_are_private_to_their_owner(client, gh, stub, user_b, as
     client.post("/api/ai/achievements/github", json={"username": "zzqx-sample", "repos": ["delay-report"]})
     as_user(user_b)
     assert state(client)["achievements"] == [] and state(client)["profile"]["github_username"] is None
-    assert [r["imported"] for r in client.get("/api/github/zzqx-sample/repos").json()["repos"]] == [False, False]
+    assert [r["imported"] for r in repos_of(client).json()["repos"]] == [False, False]
 
 
 # ---------- improve with AI ----------

@@ -9,7 +9,7 @@ from uuid import UUID
 
 import httpx
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Path, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -34,6 +34,9 @@ from llm import LLMNotConfigured
 from parallel import together
 
 logging.basicConfig(level=logging.INFO)
+# httpx logs the address of every outside call it makes. Those addresses can hold what a user typed
+# (a GitHub username) or who they are (the account being deleted), so only its warnings are kept
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("main")
 app = FastAPI(title="UK Career Navigator")
 
@@ -812,13 +815,18 @@ ALREADY_IMPORTED = "Those repositories are already in your profile."
 NOTHING_TO_READ = "Those repositories have no README or description to read."
 
 
-@app.get("/api/github/{username}/repos")
-def github_repos(username: Annotated[str, Path(pattern=f"^{github.USERNAME}$")], user: CurrentUser):
-    """A GitHub user's public repositories that are their own work, each marked if already imported."""
-    found = github.repos(username)
+class GitHubName(BaseModel):
+    username: Annotated[str, GitHubUser]
+
+
+@app.post("/api/github/repos")
+def github_repos(body: GitHubName, user: CurrentUser):
+    """A GitHub user's public repositories that are their own work, each marked if already imported.
+    The username travels in the request body, so it never appears in an address or an access log."""
+    found = github.repos(body.username)
     with db.transaction() as conn:
         imported = repo.imported_urls(conn, user.id)
-    return {"username": username, "repos": [r | {"imported": r["url"] in imported} for r in found]}
+    return {"username": body.username, "repos": [r | {"imported": r["url"] in imported} for r in found]}
 
 
 class GitHubImport(BaseModel):
