@@ -1,6 +1,6 @@
 # UK Career Navigator: scope, architecture and handover
 
-Last updated: 12 October 2026. This is the living document for the project. It is updated at the end of every build step.
+Last updated: 13 October 2026. This is the living document for the project. It is updated at the end of every build step.
 
 ## 1. What this is
 
@@ -22,8 +22,8 @@ Every step has a document holding its goal, every decision made for it, the desi
 | Step | What | Depends on | Status | Document |
 |---|---|---|---|---|
 | 0 | Accounts, saved data, removal of the demo persona | – | Built. Three hand checks left (section 13) | `careerai-step-0-accounts-and-saved-data` |
-| 1 | Deeper onboarding: CV upload, GitHub import, editing achievements, education and work history, story bank | 0 | Designed | `careerai-step-1-deeper-onboarding` |
-| 2 | Real jobs from Reed, fit scoring, sponsor register, visa salary facts | 0 | Built on branch `step-2-real-jobs` and run against the real Reed API. The signed-in hand checks are left (section 16) | `careerai-step-2-real-jobs` |
+| 1 | Deeper onboarding: CV upload, GitHub import, editing achievements, education and work history, story bank | 0 | Built on branch `step-1-deeper-onboarding`. The owner's hand checks with a real CV and account are left (section 18) | `careerai-step-1-deeper-onboarding` |
+| 2 | Real jobs from Reed, fit scoring, sponsor register, visa salary facts | 0 | Built and merged into `main`. Some hand checks are left (section 16) | `careerai-step-2-real-jobs` |
 | 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Designed | `careerai-step-3-full-uk-cv` |
 | 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Designed | `careerai-step-4-tracker-and-habits` |
 | 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Designed | `careerai-step-5-interview-prep` |
@@ -49,6 +49,7 @@ Browser (React + Vite)
  │                                 ├─ AWS Bedrock, Mantle endpoint                ← the language model
  │                                 ├─ ElevenLabs API                              ← mints voice session tokens
  │                                 ├─ Reed API                                    ← job adverts (titles and locations sent, nothing personal)
+ │                                 ├─ GitHub API                                  ← public repositories and READMEs, by a username the user types
  │                                 └─ gov.uk                                      ← the register of licensed sponsors, weekly
  └─ WebRTC audio ──────────────► ElevenLabs agents (onboarding coach, mock interviewer)
 ```
@@ -69,6 +70,8 @@ Browser (React + Vite)
 | Voice | ElevenLabs Agents over WebRTC, WebSocket as automatic fallback | Real-time speech with a transcript stream |
 | Job adverts | Reed's official API, through a shared six-hour cache | Free, legal, has full descriptions and a direct-employer filter. Adzuna is left out for now (section 15) |
 | Sponsor data | The gov.uk register of licensed sponsors, stored in Postgres and reloaded weekly | The authoritative list; Open Government Licence |
+| CV files | `pypdf` for PDF, the standard library for Word (.docx), both in memory | One small dependency. A Word file is a zip of XML, and reading it directly reaches the tables and text boxes CV templates are built from |
+| GitHub projects | GitHub's public REST API, no login | Nothing to connect; public data only |
 | Hosting | Vercel: one Python function serving the API and the built frontend | Already set up |
 | Tests | `pytest` | Backend logic, data isolation and routes |
 
@@ -104,6 +107,15 @@ Minimum versions: Node 20.19 or 22.12 (Vite 8 will not run on older), Python 3.1
 | The offer check is a POST | A salary and employer never sit in an address or a server log | Not cacheable | – |
 | Jobs is in the menu only when a Reed key is set | The menu never shows something that cannot work | A missing key hides the feature rather than explaining it | – |
 | Reading the jobs list never changes data; "seen" is its own call | Safe under React strict mode and retries | One extra route | – |
+| An uploaded CV travels as the raw request body and is read in memory | The file is never written anywhere, which a form upload cannot promise (it spools to a temporary file) | A 4 MB limit, set by Vercel's 4.5 MB cap on a request | Files need to be bigger |
+| One import is two model calls side by side: achievements, and CV facts | About 14 seconds instead of 30 | If only the facts call fails the achievements are kept and the page says so | The model gets fast enough for one call |
+| Found jobs, courses, skills and languages are proposals, saved only when the user confirms them | Nothing the AI read is on a profile unchecked | Proposals live in the browser: leaving the page loses them, and the same CV must be uploaded again | Users lose proposals often |
+| A found job or course that repeats a saved one fills in its blanks | The current course is in every CV; no duplicates, and its start month and grade arrive without typing | A wrong match would add a date to the wrong entry; the user sees what is added and can untick it | – |
+| The current course is a real education row made from "Your details" | Step 3 reads one list | Its university, name and end month can only be changed in "Your details" | – |
+| The quote on an achievement cannot be edited | "From your CV" is never shown beside words the CV did not have | A user who dislikes a quote must delete the achievement | – |
+| Names the model returns are checked against the text; a rewrite may not carry a number that is in neither the achievement nor the user's note | Deterministic checks behind "never invent employers or numbers" | A name the model tidied heavily can be dropped; an unusual wording of a number can need a retry | Hand checks show either is too strict |
+| GitHub projects are imported by username, with no login | Nothing to connect | Nothing proves the account is the user's own | Abuse is seen |
+| A typed GitHub username travels in a request body, and `httpx` request logging is off | It never sits in an address or a server log | The listing is a POST | – |
 
 Smaller behaviours worth knowing:
 
@@ -116,6 +128,11 @@ Smaller behaviours worth knowing:
 - A salary counts as annual only when Reed says so, or when the search figure is £10,000 or more. A day or hourly rate is never compared with a visa figure.
 - A job the user saved or dismissed does not come back when the employer posts it again under a new advert.
 - An application made from a listing records whether the employer was on the register: yes, no, or unknown for a possible match or an agency advert.
+- A job or course may have no dates: the AI leaves a date empty rather than guess a month, and the page then shows "Add dates".
+- An achievement is linked to one job or one course, never both. Deleting the job or course keeps the achievement and clears the link.
+- "Add a number" is shown when neither the bullet nor its result holds a digit.
+- A repository already imported is skipped, and one with no README and no description is never sent to the model.
+- The pitch is rewritten only by an import that saved new achievements.
 
 ## 6. Code map
 
@@ -126,6 +143,11 @@ backend/
   db.py            connection helper for the pooled Postgres connection
   repo.py          ALL SQL. Every function takes (conn, user_id, ...), except those for the shared job and sponsor tables
   jobs.py          which searches to run, de-duplication, shortlist, fit maths, parallel calls to Reed and the model
+  cvfile.py        a PDF or Word CV to plain text, in memory, with every refusal and its message
+  github.py        GitHub client: a user's public repositories, one README. Everything GitHub-specific
+  intake.py        one import: both extraction calls side by side, where each achievement happened, what to propose
+  stories.py       the story bank: which achievements get a story, written in batches
+  parallel.py      together(): several outside calls at once
   reed.py          Reed client: search, one advert in full, HTML to text. Everything Reed-specific
   sponsors.py      the gov.uk register: find, download, check, load; employer name matching
   visa.py          salary facts from data/visa_rules.json
@@ -142,6 +164,7 @@ backend/
   scripts/live_check.py   one real call per AI task (uses credits)
   scripts/refresh_sponsors.py   load today's sponsor register
   scripts/reed_check.py   one real Reed search and advert; prints the reply's shape, never the key
+  scripts/cv_check.py     what one CV file reads as: size, whether it was cut, its first lines. Local only
   tests/           pytest suite
 frontend/src/
   App.jsx          session gate and app shell
@@ -149,7 +172,9 @@ frontend/src/
   api.js           fetch wrapper: bearer token, one refresh-and-retry on 401
   ui.jsx           shared pieces: menu, FamilyCard, ErrorRetry, Empty, date helpers
   VoiceAgent.jsx   one ElevenLabs call with the live transcript panel
-  components/      DetailsForm, BackgroundInput (voice or paste), Jobs (picker and paste-a-job),
+  components/      DetailsForm, BackgroundInput (coach, CV file, pasted text or GitHub), GitHubImport,
+                   FoundFacts ("We also found": tick and confirm), History (work history, education, skills),
+                   AchievementCard (edit, link, improve), Jobs (picker and paste-a-job),
                    Visa (sponsor line, salary facts, sources line)
   pages/           Landing, Auth, Privacy, Onboarding, Home, Profile, Pathways, Jobs, Resume,
                    Interview, Applications, Journal, Account
@@ -162,14 +187,16 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 
 | Table | Holds |
 |---|---|
-| `profiles` | One row per user: name, university, course, graduation month, visa type, visa end date, preferred locations, pitch |
-| `achievements` | What they said (`raw`), the UK CV bullet (`uk_version`), skills, outcome, scale, context note, source (voice or paste) |
+| `profiles` | One row per user: name, university, course, graduation month, visa type, visa end date, preferred locations, pitch, skills, spoken languages with a level, GitHub username |
+| `achievements` | Their own words (`raw`), the UK CV bullet (`uk_version`), skills, outcome, scale, context note, source (voice, paste, cv or github), the job or course it happened in, and for a GitHub project its repository link |
+| `work_history` | Jobs, internships and placements: employer, job title, location, country, start and end month, whether it is current, one line on what the employer does, where the entry came from |
+| `education` | Courses: institution, qualification, subject, start and end month, grade, country. The current course is made from "Your details" and marked `from_details` |
 | `role_families` | AI-suggested families: fit, estimated overlap, UK titles, requirements shown or missing, targeted or not. Unique per user by name, ignoring case |
 | `saved_jobs` | Jobs the user pasted: title, company, description, AI summary, keywords, matched role family |
 | `cv_versions` | Each tailored CV and cover letter in full, named "<title>, <company> vN" |
 | `stories` | STAR stories, linked to their achievement |
 | `applications` | Tracker rows: company, role, family, CV version, source, stage, applied and posted dates, plus link, contact, notes, sponsor licence and follow-up date for step 4 |
-| `journal_entries` | Coach calls and mock interviews: summary, points, actions, scores, and the transcript |
+| `journal_entries` | Coach calls, mock interviews and imports (a CV upload, a GitHub import): summary, points, actions, scores, and the transcript or the text that was read |
 | `usage_events` | One row per AI action or voice session: daily limits now, streaks later |
 | `job_listings` (shared) | One row per advert: source and its id, title, employer, who really posted it (employer, agency, or training for an advert that sells a course), location, salary and whether it is annual, description and whether it is the full text, link, posting date, and what the register says about the employer |
 | `job_searches`, `job_search_results` (shared) | The search cache: each search anyone has run, when, and the adverts it last found |
@@ -178,7 +205,7 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 | `job_matches` | One user's view of one advert: role family, fit percentage and label, what they show and lack, new, seen, saved or hidden |
 | `schema_migrations` | Which migration files have been applied |
 
-Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`.
+Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`).
 
 Adverts older than 30 days are deleted on each refresh. A saved job is a copy, so it stays.
 
@@ -193,7 +220,12 @@ A reference from one row to another (for example an application's CV version) is
 | `GET /api/state` | Everything the pages need for the signed-in user, plus stats, next steps, guidance content and today's usage |
 | `PUT /api/profile` | Save "Your details" |
 | `DELETE /api/account` | Delete the login and all data |
-| `DELETE /api/achievements/{id}` | Remove an achievement |
+| `PATCH`, `DELETE /api/achievements/{id}` | Edit any field but the quote, including the job or course it happened in; remove an achievement |
+| `POST`, `PATCH`, `DELETE /api/work-history[/{id}]`, `/api/education[/{id}]` | Jobs and courses |
+| `PUT /api/profile/skills` | Replace skills and spoken languages |
+| `POST /api/profile/facts` | Save the jobs, courses, skills and languages the user ticked after an import, all or nothing, and link the new achievements |
+| `PATCH`, `DELETE /api/stories/{id}` | Edit or remove a STAR story |
+| `POST /api/github/repos` | A GitHub user's own public repositories, each marked if already imported. The username travels in the body |
 | `POST /api/families/{id}/target` | Tick or untick a role family |
 | `POST /api/jobs`, `DELETE /api/jobs/{id}` | Add a pasted job (with an AI summary), remove a saved job |
 | `GET /api/jobs` | The user's matched adverts, whether a search is due, the register's date and the visa figures. Changes nothing |
@@ -205,7 +237,11 @@ A reference from one row to another (for example an application's CV version) is
 | `GET /api/internal/refresh-sponsors` | Reload the register. Not for users: needs `Authorization: Bearer <CRON_SECRET>` |
 | `POST`, `PATCH`, `DELETE /api/applications[/{id}]` | Tracker |
 | `GET /api/journal/{id}/transcript` | What was said in that session |
-| `POST /api/ai/achievements` | Transcript or pasted text → achievements and pitch |
+| `POST /api/ai/achievements` | Transcript or pasted text → achievements and pitch, plus proposed jobs, courses, skills and languages |
+| `POST /api/ai/achievements/upload` | A PDF or Word CV as the raw body → the same. The file is read and dropped |
+| `POST /api/ai/achievements/github` | Up to 5 repositories → project achievements, each with its link |
+| `POST /api/ai/achievements/{id}/improve` | A one-line note → the bullet, result and scale rewritten and saved; the answer carries what they replaced |
+| `POST /api/ai/stories/bank` | STAR stories for the strongest achievements without one, up to 8 stories in all |
 | `POST /api/ai/families` | Achievements → role families |
 | `POST /api/ai/tailor` | Saved job → tailored CV and cover letter, saved as a version |
 | `POST /api/ai/star` | Achievement → STAR story |
@@ -215,7 +251,7 @@ A reference from one row to another (for example an application's CV version) is
 | `GET /api/voice/token` | Start a voice session (counts against the daily limit) |
 | `GET /api/voice/transcript/{conversation_id}` | Fallback transcript, only for the session's owner |
 
-Error responses always carry a plain `detail` message the UI shows as-is: 422 invalid input, 429 daily limit ("You've reached today's limit. It resets at midnight."), 502 AI or voice failure, 503 service not configured or database unreachable.
+Error responses always carry a plain `detail` message the UI shows as-is: 413 a file over 4 MB, 422 invalid input or a file that cannot be read, 429 daily limit ("You've reached today's limit. It resets at midnight."), 502 AI or voice failure, 503 service not configured or database unreachable.
 
 ## 9. AI layer
 
@@ -226,7 +262,10 @@ Error responses always carry a plain `detail` message the UI shows as-is: 422 in
 - **Stray characters.** The model sometimes adds an extra bracket or quote after a complete answer (3 of 12 real calls on 12 October 2026). The parser reads the first complete JSON value and ignores what follows.
 - **Job fit.** The model lists what each advert asks for and names the achievement that shows each requirement. A requirement counts only if that achievement is really one of the user's. Only achievements are sent, nothing else about the person.
 - **No invention.** The base prompt forbids inventing employers, numbers or achievements. On top of that, every quote shown as "You said" is checked against the user's own lines of the transcript (`ai.verbatim`): kept if they said exactly that, replaced by their closest sentence if the model paraphrased, dropped otherwise.
-- **Privacy in logs.** Failures log the task name and the error type only, never prompts or replies.
+- **Quotes by source.** A quote is checked against the text it claims to come from: the user's own lines of a call, the whole of a CV (where a line beginning "Coach:" is still theirs, and a sentence wrapped across PDF lines is read as one), or that repository's own README and description. The label says which: "You said", "You wrote", "From your CV", "From your repository".
+- **Checks in code behind the prompt.** An employer, institution, skill or language is kept only if the text names it. A date is kept only if it is a real month. A rewritten bullet may not carry a number that is in neither the achievement nor the user's note. The same achievement is not saved twice.
+- **Several calls for one action.** An import asks for achievements and for CV facts at the same time; the story bank writes in batches of four. Each counts as one AI action.
+- **Privacy in logs.** Failures log the task name and the error type only, never prompts or replies. `httpx` request lines are off, because an address can hold what a user typed.
 - **No database connection is held during a model call.** Each AI route reads and counts usage in one short transaction, calls the model, then writes in a second.
 
 To check the prompts against the real model: `python scripts/live_check.py` from `backend/` (uses credits).
@@ -253,6 +292,8 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 | Cost abuse | Daily limits per user: `DAILY_AI_LIMIT` (40) and `DAILY_VOICE_LIMIT` (3), midnight to midnight UK time. A jobs refresh that scores anything is one AI action; Reed calls are free and bounded by the shared cache and 20 searches per refresh |
 | Shared tables | Hold only public adverts and the public register. A user's fit, saved and dismissed jobs live in `job_matches`, filtered by user id like everything else |
 | What Reed is told | Job titles and locations from the user's target roles. Never a name, an email or anything from their profile |
+| Uploaded files | Read as the raw request body, in memory, at most 4 MB, and dropped. Never written to disk or the database: only the text read from them is kept. The type is decided from the file's first bytes, never its name. Password-protected, damaged and oversized-when-unpacked files are refused before anything reaches the model |
+| What GitHub is told | A username the user typed, to list its public repositories and read the READMEs they pick. Usernames and repository names are checked against GitHub's own naming rules before they are put in an address. A repository link is stored only if it is on github.com |
 | The scheduled reload | Refused unless the request carries the secret; refused always when no secret is set. Compared in constant time |
 | Links from outside | An advert's link is used only if it is on reed.co.uk over https; anything else is replaced by Reed's standard address |
 | Right to erasure | "Delete my account" removes the login; cascading deletes remove every row |
@@ -282,6 +323,7 @@ cd backend
 .venv\Scripts\python migrate.py          # create or update the tables
 .venv\Scripts\python setup_agents.py     # create or update the voice agents
 .venv\Scripts\python scripts/refresh_sponsors.py   # load the sponsor register (about 20 seconds)
+.venv\Scripts\python scripts/cv_check.py path\to\cv.pdf   # optional: see what a CV file reads as
 cd ..\frontend
 npm ci
 ```
@@ -318,10 +360,15 @@ cd backend && .venv\Scripts\python -m pytest tests
 | `test_routes_jobs` | Refresh end to end with Reed and the model replaced: cache, failures, limits, save, hide, track, the scheduler's secret, no key in any response |
 | `test_visa` | Facts always carry source and date; no verdict; the figures appear nowhere but the rules file |
 | `test_fixtures` | The test helpers never commit to the shared database |
+| `test_cvfile` | Real PDFs and Word files built in memory: text in order, tables, headers, text boxes, the page and length limits, every refusal with its message, nothing written to disk |
+| `test_github` | Request shape, forks left out, each failure and its message, names GitHub would never allow, the token in no error or log |
+| `test_intake`, `test_stories` | Both extraction calls run and one may fail; linking achievements to jobs and courses; what is proposed and what is left out; story batches |
+| `test_repo_history`, `test_routes_profile` | Work history, education, skills, found facts, editing achievements and stories; one user never reading or changing another's |
+| `test_routes_imports` | Upload, GitHub import, improve and the story bank end to end with the model and GitHub replaced: limits, refusals, nothing saved on failure, no username in the log |
 
-Database tests run against the real database inside transactions that are rolled back, so they leave nothing behind. Because the real register and real adverts are in that database, tests use names that cannot occur in real data and never count whole tables. Run the suite on its own: a second database-heavy job at the same time has caused dropped connections.
+No test can reach the real model: an AI task that a test did not replace fails loudly. Database tests run against the real database inside transactions that are rolled back, so they leave nothing behind. Because the real register and real adverts are in that database, tests use names that cannot occur in real data and never count whole tables. Run the suite on its own: a second database-heavy job at the same time has caused dropped connections.
 
-**Deploy to Vercel.** Not yet done for this version. `vercel.json` schedules the register reload for 05:00 UTC every Monday; it works only if `CRON_SECRET` is set in the Vercel project. Add every variable from `backend/.env` to the Vercel project (use `BEDROCK_REGION`, not `AWS_REGION`, which Vercel reserves), add the Vercel address to Supabase's Site URL and Redirect URLs, then deploy. `vercel.json` builds the frontend, runs `app.py` as one function in London (`lhr1`), and leaves tests and scripts out of the bundle.
+**Deploy to Vercel.** Not yet done for this version. `vercel.json` schedules the register reload for 05:00 UTC every Monday; it works only if `CRON_SECRET` is set in the Vercel project. The function may run for 120 seconds, to leave room for an import and one retry. Set `GITHUB_TOKEN` there: Vercel shares server addresses, and without a token GitHub allows only 60 requests an hour for each address. Add every variable from `backend/.env` to the Vercel project (use `BEDROCK_REGION`, not `AWS_REGION`, which Vercel reserves), add the Vercel address to Supabase's Site URL and Redirect URLs, then deploy. `vercel.json` builds the frontend, runs `app.py` as one function in London (`lhr1`), and leaves tests and scripts out of the bundle.
 
 ## 13. Verification record for step 0
 
@@ -344,8 +391,12 @@ Database tests run against the real database inside transactions that are rolled
 
 ## 14. Known limitations
 
-- The tailored CV is a profile paragraph, selected bullets and a cover letter, not a full downloadable CV (step 3).
-- Achievements can be deleted but not edited (step 1).
+- The tailored CV is a profile paragraph, selected bullets and a cover letter, not a full downloadable CV (step 3). It does not yet use the work history, education and skills that step 1 collects.
+- A scanned or image-only CV cannot be read; the user is asked to paste the text. Only the first 20 pages and 30,000 characters of a file are read.
+- Jobs, courses and skills an import found are lost if the user leaves the page before confirming them. Uploading the same CV again brings them back without repeating achievements.
+- Nothing checks that a GitHub account is the user's own. Looking up repositories is not limited per user, so heavy use by one person could use up the server's GitHub allowance.
+- An achievement at an employer where the user held two roles is linked to the more recent one; the user can change it.
+- At most 8 achievements come from one CV. A longer CV needs a second upload to pick up the rest.
 - No streaks, milestones or weekly plan yet (step 4); the home page shows a getting-started checklist and tracker findings.
 - Networking and Peers are removed until their steps make them real.
 - The user's speech appears in the live transcript per finished sentence, not word by word.
@@ -415,13 +466,62 @@ The register is reloaded by `python scripts/refresh_sponsors.py`, or weekly on V
 | Real adverts stored and matched to the register, in a transaction then rolled back | 390 adverts stored in 0.3 seconds. Named employers found correctly: FDM Group, Isio, Unipart, Brown & Brown listed; Live Nation, Sagacity, Shift4 possible. One doubtful possible match ("The Hyde Group" to "Hyde Farm Limited"), which the wording asks the user to check | 12 Oct 2026 |
 | Real adverts scored against a sample profile | 7 of 7 scored in 17 seconds after fetching each full advert; fits from 17% to 67% | 12 Oct 2026 |
 | The training rule on real adverts | 136 of 324 classed as training, from five companies; none of the 28 left as employers read like a programme | 12 Oct 2026 |
+| A signed-in run by the project owner, read from the database afterwards | 26 searches; 687 adverts stored (606 from recruiters, 56 from named employers of which 29 are on the register, 7 possible and 20 not found, 25 training programmes); 30 jobs scored over two refreshes, from 0% to 83%; 2 jobs saved with their full adverts; 1 CV tailored from a listing; 1 application tracked with its link, posting date and role family; 1 job dismissed | 12 Oct 2026 |
 
 **Not yet verified:**
 
-- **A refresh through the app for a real account.** Every part has run on real data separately (search, storing, register matching, full adverts, scoring), but not yet as one request from the Jobs page.
-- **The Jobs page, the role family figures and the offer check on screen**, signed in. Verified by lint, build and the API tests only.
-- **Fit scores on a real profile.** Checked only against a two-achievement sample.
-- **All eight hand checks in the step document.**
+- **What the owner made of the pages.** The owner has run the Jobs page signed in, and the database shows it worked end to end. Whether anything on screen looked wrong, whether the fit labels feel right on a real profile, and whether the large "Not checked yet" group is a problem have not been recorded.
+- **The rest of the eight hand checks in the step document**, including a second account.
 - **The weekly reload on Vercel.** Nothing is deployed. The route is tested; the schedule and the 60-second limit there are not.
 - **Reed's terms of use and call limits.** Not published on its developer page.
 
+## 17. Building a profile (step 1)
+
+**Four ways in.** A voice call with the coach, a CV file, pasted text, or GitHub projects, in onboarding and on the Profile page, in any order and more than once.
+
+**What one import does** (`POST /api/ai/achievements` or `/upload`):
+
+1. A file is read into text (`cvfile.py`) and dropped. A file that cannot be read is refused here, before anything is counted or sent to the model.
+2. One AI action is counted. The user's saved achievements, jobs and courses are read.
+3. Two model calls run at the same time (`intake.read`). One returns achievements that are not already saved, each with the place it happened as the text names it. The other returns the jobs, courses, skills and languages the text states.
+4. Each achievement is tied to where it happened (`intake.place`): to a saved job or course at once, or to a job or course that was only just found, to be linked when the user confirms it.
+5. Achievements are saved. Everything else comes back as a proposal (`intake.proposals`): a new job or course whole, or, where it repeats one already saved, only the fields it would fill in.
+6. The page shows "We also found" with everything ticked. `POST /api/profile/facts` saves what is left ticked, all or nothing, and links the achievements. Confirming twice changes nothing.
+
+**Reading files.** Checked on 13 October 2026 against sample CVs made for the purpose: Word single-column and two-column table layouts, each also exported to PDF by Word itself, and two designed two-column PDFs. `pypdf`'s default mode returned every sentence whole and in order; its "layout" mode broke sentences in two-column files and is not used. A two-column PDF can still mix a side column's lines among the main column's, and the model is told so; on the real model it read such text correctly.
+
+| File | Answer |
+|---|---|
+| Empty | "That file is empty." |
+| Over 4 MB | "That file is over 4 MB. Upload a smaller one, or paste the text instead." |
+| Neither a PDF nor a Word file, whatever its name | "Upload a PDF or a Word (.docx) file." |
+| Password-protected PDF | "This PDF is password-protected. Remove the password, or paste the text instead." |
+| Damaged, or unpacks to more than 20 MB | "We could not open that file. Save it again as PDF or .docx, or paste the text instead." |
+| A scan with no text | "We could not read any text in this file. Paste the text instead." |
+
+**GitHub.** The user types a username and sees that account's public repositories that are not forks. Up to five are read (description and the first 6,000 characters of the README) and each becomes a project achievement linked to its repository. Without `GITHUB_TOKEN`, GitHub allows 60 requests an hour for each server address; one import uses about seven.
+
+**Editing.** Every field of an achievement but its quote can be edited, and it can be linked to a job or course. "Improve with AI" rewrites the bullet from the achievement's own facts and a one-line note, saves it and offers Undo. Stories can be edited and deleted; "Build my story bank" writes stories for the strongest achievements that have none, never taking the total past eight.
+
+**Timings on the real model, 13 October 2026.** A CV import, both calls: 11 to 14 seconds in the check script, 22 seconds through the browser with the file reading and saving. Two GitHub projects: 9 seconds, 16 through the browser. Improve: 4 to 5 seconds. Eight stories: 17 seconds.
+
+## 18. Verification record for step 1
+
+| Check | Result | Date |
+|---|---|---|
+| Automated backend suite | 907 passed, 0 skipped, against the real database | 13 Oct 2026 |
+| Frontend | Lints with no errors; builds | 13 Oct 2026 |
+| Real model, one call per AI task (`live_check.py`) | 21 of 21 passed: the 13 from before and 8 new (CV achievements, CV facts, both at once, the same CV again adding nothing, GitHub projects, improve with and without a number, a story bank of four) | 13 Oct 2026 |
+| File reading on sample CVs | Six made-up CVs in real layouts, two of them exported to PDF by Word: every sentence whole and in order; a scanned PDF refused with its message | 13 Oct 2026 |
+| GitHub, real API | Repository list, README, "no such user" and the allowance of 60 an hour confirmed | 13 Oct 2026 |
+| The pages against the real backend, as a temporary user whose data was never saved | Onboarding with a two-column PDF (7 achievements, each with a "From your CV" quote; 2 jobs, 2 courses, 8 skills and 3 languages offered; unticked items not saved; achievements linked). A Word upload. A scanned PDF refused. The current course filled in, not duplicated. Edit, link, improve and undo. Add, edit and delete a job; the current course locked. Skills and languages. GitHub list and import on a real account. Story bank, story edit and delete. Imports in the journal with the text read. No JavaScript errors | 13 Oct 2026 |
+| The database afterwards | No trace of the temporary user | 13 Oct 2026 |
+
+**Not yet verified:**
+
+- **A real CV.** Every file so far was made for the test. The owner's own CV, as PDF and as Word, has not been uploaded (hand check 1).
+- **The owner's own GitHub account** (hand check 3), and **a signed-in session**: the pages were driven without the login screen, through a temporary check page that was then removed.
+- **How the pages look.** They were checked by their text and behaviour, not by eye: the browser pane was not on screen, so no screenshot was taken.
+- **A second account in the browser seeing none of it** (hand check 7). Proved by automated tests only.
+- **A voice call after this change.** The coach's own prompt is unchanged, but what follows the call now also proposes jobs and courses; tested with the model replaced, not with a real call.
+- **Anything on Vercel**: the 4.5 MB cap, the 120-second limit and GitHub's allowance from shared addresses.

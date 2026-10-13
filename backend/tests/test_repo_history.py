@@ -87,6 +87,12 @@ def test_fill_entry_does_not_end_a_current_job(conn, user_a):
     assert filled["is_current"] is True and filled["end_month"] is None and filled["location"] == "Pune"
 
 
+def test_fill_entry_does_not_reopen_a_job_that_has_ended(conn, user_a):
+    row = repo.add_entry(conn, user_a, "work_history", JOB | {"location": ""})   # ended in August 2025
+    filled = repo.fill_entry(conn, user_a, "work_history", row["id"], {"is_current": True, "location": "Pune"})
+    assert filled["is_current"] is False and filled["end_month"] == date(2025, 8, 1) and filled["location"] == "Pune"
+
+
 @pytest.mark.parametrize("table, fields, name", TABLES)
 def test_delete_entry(conn, user_a, table, fields, name):
     row = repo.add_entry(conn, user_a, table, fields)

@@ -432,8 +432,9 @@ def update_entry(conn, user_id, table: str, entry_id, fields: dict) -> dict | No
 
 
 def fill_entry(conn, user_id, table: str, entry_id, fields: dict) -> dict | None:
-    """Fill in the fields that are empty now and leave the rest as the user has them. A month
-    that would end a current job, or put the end before the start, is left out."""
+    """Fill in the fields that are empty now and leave the rest as the user has them. Left out:
+    a month that would end a current job or put the end before the start, and "still there" for
+    a job that has an end month."""
     values = _entry_values(table, fields)
     row = get_entry(conn, user_id, table, entry_id)
     if row is None:
@@ -441,6 +442,8 @@ def fill_entry(conn, user_id, table: str, entry_id, fields: dict) -> dict | None
     blanks = {k: v for k, v in values.items() if v and not row[k]}
     if row.get("is_current"):
         blanks.pop("end_month", None)
+    if row.get("end_month"):
+        blanks.pop("is_current", None)  # a job the user says has ended is not reopened
     start, end = blanks.get("start_month") or row["start_month"], blanks.get("end_month") or row["end_month"]
     if start and end and end < start:
         blanks = {k: v for k, v in blanks.items() if k not in _MONTHS}

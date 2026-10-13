@@ -2,6 +2,8 @@
 
 > **For agentic workers:** follow `careerai-building-a-step` stage 4. Every task is test-first: write the tests, watch them fail for the right reason, write the code, watch them pass, run the whole suite on its own, commit. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status, 13 October 2026:** tasks 1 to 13 are built and committed, and task 14 is done except step 4, the owner's hand checks. Changes from this plan made while building, each for a stated reason: the repository list is `POST /api/github/repos` with the username in the body (a real run showed the username in the server log); `ai.extract_facts` and `intake.read` take no saved jobs or courses, because matching against what is saved is done in code; "Add a number" shows only when neither the bullet nor a real result has a digit; a GitHub achievement with an unverifiable quote is kept without the quote; a repository with nothing to read is refused before the AI; `python-multipart` and `python-docx` were, as planned, not needed.
+
 **Goal:** A user can build a complete profile from an uploaded CV or their GitHub projects, correct anything the AI got wrong, and ends up with work history, education, skills and a story bank saved in a shape step 3 can build a full UK CV from.
 
 **Architecture:** A file is read in memory into plain text (`cvfile.py`) and thrown away; only the text travels on. One import runs two model calls side by side, one for achievements and one for CV facts, with no database connection open. Achievements are saved at once. Facts (jobs, courses, skills, languages) come back as proposals and are saved only when the user confirms them. GitHub is read through its public API with no login (`github.py`).

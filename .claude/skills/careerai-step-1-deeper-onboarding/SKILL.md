@@ -5,8 +5,21 @@ description: Use when building, continuing or reviewing step 1 of the CareerAI r
 
 # Step 1: deeper onboarding
 
-**Status:** Being built on branch `step-1-deeper-onboarding` (started 13 October 2026). Design approved by the owner, 12 October 2026; the task plan and the changes below approved 13 October 2026. **Depends on:** step 0. **Size:** medium (smaller than step 0).
+**Status:** Built on branch `step-1-deeper-onboarding` (13 October 2026), not yet merged. **Not finished:** the hand checks that need the owner's own CV, GitHub account and login. See "Where it stands" straight below. Design approved by the owner, 12 October 2026; the task plan and the changes under "Changed at build time" approved 13 October 2026. **Depends on:** step 0. **Size:** medium (smaller than step 0).
 **REQUIRED:** follow `careerai-building-a-step`.
+
+## Where it stands (13 October 2026)
+
+All fourteen tasks in `docs/superpowers/plans/2026-10-13-step-1-deeper-onboarding.md` are built and committed except the owner's hand checks. 907 backend tests pass; the real model passes all 21 checks; the pages were run against the real backend as a temporary user whose data was never saved (see `docs/ARCHITECTURE.md` section 18).
+
+To finish the step, in this order:
+
+1. With the owner signed in, do the seven hand checks below. The owner uploads their own CV (as PDF, then as Word) and types their own GitHub username.
+2. Look at the pages by eye. They were checked by text and behaviour only: the four tiles, "We also found", the three new Profile sections, the achievement card's edit and improve forms, the story editor.
+3. If a real CV reads badly, run `python scripts/cv_check.py <file>` from `backend/` to see the text the AI receives, and tell the owner before changing libraries.
+4. Update `docs/ARCHITECTURE.md` section 18 and this section, then give the owner the pull request link when they ask.
+
+Decisions made while building, beyond those in "Changed at build time", are in the plan's table and in `docs/ARCHITECTURE.md` sections 5 and 17.
 
 ## Goal
 
@@ -45,6 +58,10 @@ The checks under "Verify at build time" were run and the owner approved these ch
 | `work_history.is_current` is added; an unknown end month stays empty. All dates are optional | "Null means present" would claim a past job is current when the AI could not read its end date | Approved with the plan |
 | One extra route, `POST /api/profile/facts`, saves what the user ticked and links the new achievements | The link can only be made once the job or course exists | Approved with the plan |
 | The migration is `005_profile_depth` | 003 and 004 were used by step 2 | Forced |
+| **The repository list is `POST /api/github/repos`** with the username in the body, not `GET /api/github/{username}/repos` | A real run showed the typed username in the server log. The same reasoning as step 2's offer check | Found while building |
+| "Add a number" shows only when neither the bullet nor a real result has a digit | On a real CV the model left its "Add a number" marker beside a bullet that already said "5 hours a week" | Found while building |
+| A GitHub achievement whose quote is not in that repository's README or description is kept without a quote | The same rule as every other source | Found while building |
+| A repository with no README and no description is refused before the AI is called | There is nothing to read | Found while building |
 
 **What the checks found.** `pypdf` in its default mode returned every sentence whole and in order from six sample CVs, including two-column Word layouts exported to PDF by Word; its "layout" mode did not and is not used. GitHub allows 60 requests an hour per server address without a token. Vercel's request body limit is 4.5 MB.
 
@@ -103,7 +120,7 @@ Both new tables follow the standing rules: `user_id` with cascade delete, row-le
 | Route | Purpose |
 |---|---|
 | `POST /api/ai/achievements/upload` | Multipart file. Extract text, discard the file, run the same extraction as pasted text with source `cv`. Returns achievements plus proposed education, work history, skills, languages |
-| `GET /api/github/{username}/repos` | The user's public non-fork repositories |
+| `POST /api/github/repos` | `{username}` → the user's public non-fork repositories (see "Changed at build time") |
 | `POST /api/ai/achievements/github` | `{username, repos: [names]}` (1 to 5). Reads each README and description, returns project achievements |
 | `POST`, `PATCH`, `DELETE /api/work-history[/{id}]` | Work history |
 | `POST`, `PATCH`, `DELETE /api/education[/{id}]` | Education |

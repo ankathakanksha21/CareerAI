@@ -17,6 +17,8 @@ The product is built in numbered steps, 0 to 7. Each step has its own document i
 - **Every user's data is private.** Every database function takes `(conn, user_id, ...)` and filters by it. Every new table and route gets a test proving account B cannot read or change account A's rows.
 - **FastAPI is the only gateway to data.** The browser uses Supabase for login only.
 - **No database connection held open across an AI, voice or other outside call.**
+- **An uploaded file is read in memory and dropped.** Never written to disk or the database; only the text read from it is kept.
+- **What a user types never goes in an address.** A name, a salary or a username travels in the request body, so it stays out of server logs.
 - **Everything that costs money is limited per user per day** (`limits.py`).
 - **The menu shows only features that genuinely work.** Every page has an empty state with one clear action.
 - **Tests first.** Write the failing test, watch it fail, then write the code. Run the whole suite before every commit, and on its own: the tests use the real database.
@@ -44,6 +46,7 @@ cd backend && .venv\Scripts\python migrate.py               # apply new migratio
 cd backend && .venv\Scripts\python scripts/live_check.py    # one real call per AI task (uses credits)
 cd backend && .venv\Scripts\python scripts/refresh_sponsors.py   # reload the gov.uk sponsor register
 cd backend && .venv\Scripts\python scripts/reed_check.py   # one real Reed search; prints the reply's shape
+cd backend && .venv\Scripts\python scripts/cv_check.py path\to\cv.pdf   # what a CV file reads as (local only)
 cd backend && .venv\Scripts\python -m uvicorn main:app --reload --port 8000
 cd frontend && npm run dev                                  # http://localhost:5173
 cd frontend && npm run lint && npm run build
