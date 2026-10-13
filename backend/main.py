@@ -11,12 +11,13 @@ import httpx
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 import ai
 import analytics
 import content
 import db
+import intake
 import jobs
 import limits
 import reed
@@ -72,6 +73,11 @@ def _found(row):
     return row
 
 
+def _achievement(row: dict) -> dict:
+    """An achievement as the pages get it: with whether it still lacks a number."""
+    return row | {"needs_number": ai.needs_number(row)}
+
+
 def _job_dates() -> tuple[date, date]:
     """The oldest posting date still shown, and the oldest that counts as just posted."""
     today = date.today()
@@ -93,6 +99,7 @@ def get_state(user: CurrentUser):
     with db.transaction() as conn:
         profile = repo.get_or_create_profile(conn, user.id, user.name)
         state = repo.load_state(conn, user.id)
+        state["achievements"] = [_achievement(a) for a in state["achievements"]]
         usage = limits.usage(conn, user.id)
         job_counts = repo.job_counts(conn, user.id, since, fresh_since)
         market = jobs.market(repo.family_market(conn, user.id, since))
@@ -105,7 +112,7 @@ def get_state(user: CurrentUser):
         "usage": usage,
         "jobs": job_counts,   # matching adverts not yet seen, and how many of those were just posted
         "market": market,     # live figures for each targeted role family
-        "options": {"sources": analytics.SOURCES, "stages": analytics.STAGES},
+        "options": {"sources": analytics.SOURCES, "stages": analytics.STAGES, "language_levels": ai.LANGUAGE_LEVELS},
         "config": {"llm": llm_configured(), "jobs": jobs_configured(),
                    "voice": {"onboarding": voice_configured("onboarding"), "interviewer": voice_configured("interviewer")}},
     }
@@ -171,6 +178,254 @@ def delete_job(job_id: UUID, user: CurrentUser):
     with db.transaction() as conn:
         _found(repo.delete_job(conn, user.id, str(job_id)))
     return Response(status_code=204)
+
+
+class AchievementPatch(BaseModel):
+    """What a user may change on an achievement. Not its quote or its source: sending either is refused."""
+    model_config = ConfigDict(extra="forbid")
+    title: Text(160) = None
+    uk_version: Text(600) = None
+    skills: Annotated[list[Text(60)], Field(max_length=20)] = None
+    outcome: Text(300, 0) = None
+    scale: Text(200, 0) = None
+    context_note: Text(600, 0) = None
+    work_history_id: UUID | None = None  # where it happened: one of the user's jobs...
+    education_id: UUID | None = None     # ...or one of their courses
+
+
+@app.patch("/api/achievements/{achievement_id}")
+def update_achievement(achievement_id: UUID, body: AchievementPatch, user: CurrentUser):
+    with db.transaction() as conn:
+        return _achievement(_found(repo.update_achievement(conn, user.id, str(achievement_id), _ids_as_text(body.model_dump(exclude_unset=True)))))
+
+
+class StoryPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: Text(200) = None
+    competency: Text(80, 0) = None
+    situation: Text(2000, 0) = None
+    task: Text(2000, 0) = None
+    action: Text(2000, 0) = None
+    result: Text(2000, 0) = None
+
+
+@app.patch("/api/stories/{story_id}")
+def update_story(story_id: UUID, body: StoryPatch, user: CurrentUser):
+    with db.transaction() as conn:
+        return _found(repo.update_story(conn, user.id, str(story_id), body.model_dump(exclude_unset=True)))
+
+
+@app.delete("/api/stories/{story_id}", status_code=204)
+def delete_story(story_id: UUID, user: CurrentUser):
+    with db.transaction() as conn:
+        _found(repo.delete_story(conn, user.id, str(story_id)))
+    return Response(status_code=204)
+
+
+# ---------- work history, education, skills ----------
+
+END_BEFORE_START = "The end month cannot be before the start month."
+CURRENT_HAS_NO_END = "A job you still do has no end month."
+FROM_DETAILS = "Your current course comes from Your details. Change it there."
+ENTRY_CHECKS = {"work_history_current_has_no_end": CURRENT_HAS_NO_END}  # the other check on these tables is the order of the months
+SET_IN_DETAILS = ("institution", "qualification", "end_month")
+HAPPENED_AT = {"work_history": "work_history_id", "education": "education_id"}
+
+
+def _first_of_month(value: date) -> date:
+    if not 1950 <= value.year <= 2100:
+        raise ValueError("Enter a real month.")
+    return value.replace(day=1)
+
+
+Month = Annotated[date, AfterValidator(_first_of_month)]
+
+
+class Period(BaseModel):
+    start_month: Month | None = None
+    end_month: Month | None = None
+
+    @model_validator(mode="after")
+    def months_in_order(self):
+        if getattr(self, "is_current", False) and self.end_month:
+            raise ValueError(CURRENT_HAS_NO_END)
+        if self.start_month and self.end_month and self.end_month < self.start_month:
+            raise ValueError(END_BEFORE_START)
+        return self
+
+
+class JobEntry(Period):
+    employer: Text(160)
+    job_title: Text(160, 0) = ""
+    location: Text(120, 0) = ""
+    country: Text(80, 0) = ""
+    is_current: bool = False
+    employer_context: Text(300, 0) = ""  # one line on what the employer does, for a UK reader
+
+
+class JobEntryPatch(Period):
+    employer: Text(160) = None
+    job_title: Text(160, 0) = None
+    location: Text(120, 0) = None
+    country: Text(80, 0) = None
+    is_current: bool = None
+    employer_context: Text(300, 0) = None
+
+
+class CourseEntry(Period):
+    institution: Text(160)
+    qualification: Text(120, 0) = ""
+    subject: Text(160, 0) = ""
+    grade: Text(80, 0) = ""
+    country: Text(80, 0) = ""
+
+
+class CourseEntryPatch(Period):
+    institution: Text(160) = None
+    qualification: Text(120, 0) = None
+    subject: Text(160, 0) = None
+    grade: Text(80, 0) = None
+    country: Text(80, 0) = None
+
+
+def _months_refused(error: psycopg.errors.CheckViolation) -> HTTPException:
+    """A change that, with what is already stored, would break the order of the months."""
+    return HTTPException(422, ENTRY_CHECKS.get(error.diag.constraint_name, END_BEFORE_START))
+
+
+def _add_entry(table: str, body: BaseModel, user: User) -> dict:
+    with db.transaction() as conn:
+        return repo.add_entry(conn, user.id, table, body.model_dump())
+
+
+def _update_entry(table: str, entry_id: UUID, body: BaseModel, user: User) -> dict:
+    fields = body.model_dump(exclude_unset=True)
+    try:
+        with db.transaction() as conn:
+            row = _found(repo.get_entry(conn, user.id, table, str(entry_id)))
+            if row.get("from_details") and any(k in fields and fields[k] != row[k] for k in SET_IN_DETAILS):
+                raise HTTPException(422, FROM_DETAILS)
+            return _found(repo.update_entry(conn, user.id, table, str(entry_id), fields))
+    except psycopg.errors.CheckViolation as e:
+        raise _months_refused(e)
+
+
+def _delete_entry(table: str, entry_id: UUID, user: User) -> Response:
+    with db.transaction() as conn:
+        row = _found(repo.get_entry(conn, user.id, table, str(entry_id)))
+        if row.get("from_details"):
+            raise HTTPException(422, FROM_DETAILS)
+        repo.delete_entry(conn, user.id, table, str(entry_id))
+    return Response(status_code=204)
+
+
+@app.post("/api/work-history", status_code=201)
+def add_work_history(body: JobEntry, user: CurrentUser):
+    return _add_entry("work_history", body, user)
+
+
+@app.patch("/api/work-history/{entry_id}")
+def update_work_history(entry_id: UUID, body: JobEntryPatch, user: CurrentUser):
+    return _update_entry("work_history", entry_id, body, user)
+
+
+@app.delete("/api/work-history/{entry_id}", status_code=204)
+def delete_work_history(entry_id: UUID, user: CurrentUser):
+    return _delete_entry("work_history", entry_id, user)
+
+
+@app.post("/api/education", status_code=201)
+def add_education(body: CourseEntry, user: CurrentUser):
+    return _add_entry("education", body, user)
+
+
+@app.patch("/api/education/{entry_id}")
+def update_education(entry_id: UUID, body: CourseEntryPatch, user: CurrentUser):
+    return _update_entry("education", entry_id, body, user)
+
+
+@app.delete("/api/education/{entry_id}", status_code=204)
+def delete_education(entry_id: UUID, user: CurrentUser):
+    return _delete_entry("education", entry_id, user)
+
+
+class Language(BaseModel):
+    language: Text(40)
+    level: Literal["", *ai.LANGUAGE_LEVELS] = ""
+
+
+Skills = Annotated[list[Text(60)], Field(max_length=60)]
+Languages = Annotated[list[Language], Field(max_length=10)]
+
+
+class SkillsIn(BaseModel):
+    skills: Skills
+    languages: Languages
+
+
+@app.put("/api/profile/skills")
+def put_skills(body: SkillsIn, user: CurrentUser):
+    with db.transaction() as conn:
+        repo.get_or_create_profile(conn, user.id, user.name)
+        return repo.set_skills(conn, user.id, body.skills, [x.model_dump() for x in body.languages]) | {"email": user.email}
+
+
+# What an import found, as the user confirmed it. An entry with an id adds to one they already
+# have; one without is new. Each carries the new achievements that happened there.
+class Found(BaseModel):
+    id: UUID | None = None
+    achievement_ids: Annotated[list[UUID], Field(max_length=50)] = []
+
+
+class FoundJob(JobEntryPatch, Found):
+    @model_validator(mode="after")
+    def new_job_names_its_employer(self):
+        if self.id is None and not self.employer:
+            raise ValueError("A job needs its employer.")
+        return self
+
+
+class FoundCourse(CourseEntryPatch, Found):
+    @model_validator(mode="after")
+    def new_course_names_its_institution(self):
+        if self.id is None and not self.institution:
+            raise ValueError("A course needs its university, college or school.")
+        return self
+
+
+class FactsIn(BaseModel):
+    source: Literal["voice", "paste", "cv"]
+    work_history: Annotated[list[FoundJob], Field(max_length=20)] = []
+    education: Annotated[list[FoundCourse], Field(max_length=20)] = []
+    skills: Skills = []
+    languages: Languages = []
+
+
+@app.post("/api/profile/facts")
+def confirm_facts(body: FactsIn, user: CurrentUser):
+    """Save the jobs, courses, skills and languages the user ticked after an import, all or
+    nothing. An entry that repeats one already saved fills in its blanks instead of adding a
+    second, so confirming twice changes nothing."""
+    try:
+        with db.transaction() as conn:
+            repo.get_or_create_profile(conn, user.id, user.name)
+            for table, entries in (("work_history", body.work_history), ("education", body.education)):
+                for entry in entries:
+                    fields = entry.model_dump(exclude={"id", "achievement_ids"}, exclude_unset=True)
+                    if entry.id:
+                        row = repo.fill_entry(conn, user.id, table, str(entry.id), fields)
+                        if row is None:  # not this user's entry: nothing is added to it or linked to it
+                            continue
+                    else:
+                        repeats = intake.match(fields, table, repo.list_entries(conn, user.id, table))
+                        row = (repo.fill_entry(conn, user.id, table, repeats["id"], fields) if repeats
+                               else repo.add_entry(conn, user.id, table, fields, body.source))
+                    repo.link_achievements(conn, user.id, [str(x) for x in entry.achievement_ids], **{HAPPENED_AT[table]: row["id"]})
+            profile = repo.add_skills(conn, user.id, body.skills, [x.model_dump() for x in body.languages])
+            return {"work_history": repo.list_entries(conn, user.id, "work_history"),
+                    "education": repo.list_entries(conn, user.id, "education"), "profile": profile | {"email": user.email}}
+    except psycopg.errors.CheckViolation as e:
+        raise _months_refused(e)
 
 
 # ---------- applications ----------

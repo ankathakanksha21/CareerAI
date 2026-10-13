@@ -53,16 +53,16 @@ def same(a: str, b: str) -> bool:
     return len(short) >= MIN_NAME_CHARS and f" {short} " in f" {long} "
 
 
-def _match(entry: dict, table: str, saved: list) -> dict | None:
-    """The saved job or course this found one repeats, if any. Another role at the same employer,
-    or another course at the same university, is a different entry."""
+def match(entry: dict, table: str, saved: list) -> dict | None:
+    """The saved job or course this one repeats, if any. Another role at the same employer, or
+    another course at the same university, is a different entry."""
     for row in saved:
-        if not same(entry[NAMED_BY[table]], row[NAMED_BY[table]]):
+        if not same(entry.get(NAMED_BY[table]), row[NAMED_BY[table]]):
             continue
         if table == "work_history":
-            if not entry["job_title"] or not row["job_title"] or same(entry["job_title"], row["job_title"]):
+            if not entry.get("job_title") or not row["job_title"] or same(entry["job_title"], row["job_title"]):
                 return row
-        elif same(f"{entry['qualification']} {entry['subject']}", f"{row['qualification']} {row['subject']}"):
+        elif same(f"{entry.get('qualification') or ''} {entry.get('subject') or ''}", f"{row['qualification']} {row['subject']}"):
             return row
     return None
 
@@ -111,15 +111,15 @@ def proposals(facts: dict | None, items: list, saved_items: list, work: list, ed
     for table, saved in (("work_history", work), ("education", education)):
         offered[table] = []
         for i, entry in enumerate(facts[table]):
-            ids, match = happened_at.get((table, i), []), _match(entry, table, saved)
-            if not match:
+            ids, repeats = happened_at.get((table, i), []), match(entry, table, saved)
+            if not repeats:
                 offered[table].append(entry | {"achievement_ids": ids})
                 continue
-            adds = {k: entry[k] for k in FILLABLE[table] if entry[k] and not match[k]}
-            if match.get("is_current"):
+            adds = {k: entry[k] for k in FILLABLE[table] if entry[k] and not repeats[k]}
+            if repeats.get("is_current"):
                 adds.pop("end_month", None)
             if adds or ids:
-                offered[table].append({"id": match["id"], "name": _name(table, match), "adds": adds, "achievement_ids": ids})
+                offered[table].append({"id": repeats["id"], "name": _name(table, repeats), "adds": adds, "achievement_ids": ids})
     has = {s.lower() for s in profile.get("skills") or []}
     speaks = {x["language"].lower() for x in profile.get("languages") or []}
     offered["skills"] = [s for s in facts["skills"] if s.lower() not in has]
