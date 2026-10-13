@@ -9,26 +9,34 @@ from uuid import UUID
 
 import httpx
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 import ai
 import analytics
 import content
+import cvfile
 import db
+import github
+import intake
 import jobs
 import limits
 import reed
 import repo
 import sponsors
+import stories
 import visa
 import voice
 from auth import User, current_user
 from config import cron_secret, env, jobs_configured, llm_configured, supabase_url, voice_configured
 from llm import LLMNotConfigured
+from parallel import together
 
 logging.basicConfig(level=logging.INFO)
+# httpx logs the address of every outside call it makes. Those addresses can hold what a user typed
+# (a GitHub username) or who they are (the account being deleted), so only its warnings are kept
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("main")
 app = FastAPI(title="UK Career Navigator")
 
@@ -60,6 +68,11 @@ def ai_not_configured(request, exc):
     return JSONResponse({"detail": "AI is not set up on the server."}, status_code=503)
 
 
+@app.exception_handler(github.GitHubError)
+def github_failed(request, exc):
+    return JSONResponse({"detail": exc.message}, status_code=exc.status)
+
+
 @app.exception_handler(psycopg.OperationalError)
 def database_unreachable(request, exc):
     log.error("database unreachable: %s", type(exc).__name__)
@@ -70,6 +83,11 @@ def _found(row):
     if not row:
         raise HTTPException(404, GONE)
     return row
+
+
+def _achievement(row: dict) -> dict:
+    """An achievement as the pages get it: with whether it still lacks a number."""
+    return row | {"needs_number": ai.needs_number(row)}
 
 
 def _job_dates() -> tuple[date, date]:
@@ -93,6 +111,7 @@ def get_state(user: CurrentUser):
     with db.transaction() as conn:
         profile = repo.get_or_create_profile(conn, user.id, user.name)
         state = repo.load_state(conn, user.id)
+        state["achievements"] = [_achievement(a) for a in state["achievements"]]
         usage = limits.usage(conn, user.id)
         job_counts = repo.job_counts(conn, user.id, since, fresh_since)
         market = jobs.market(repo.family_market(conn, user.id, since))
@@ -105,7 +124,7 @@ def get_state(user: CurrentUser):
         "usage": usage,
         "jobs": job_counts,   # matching adverts not yet seen, and how many of those were just posted
         "market": market,     # live figures for each targeted role family
-        "options": {"sources": analytics.SOURCES, "stages": analytics.STAGES},
+        "options": {"sources": analytics.SOURCES, "stages": analytics.STAGES, "language_levels": ai.LANGUAGE_LEVELS},
         "config": {"llm": llm_configured(), "jobs": jobs_configured(),
                    "voice": {"onboarding": voice_configured("onboarding"), "interviewer": voice_configured("interviewer")}},
     }
@@ -171,6 +190,254 @@ def delete_job(job_id: UUID, user: CurrentUser):
     with db.transaction() as conn:
         _found(repo.delete_job(conn, user.id, str(job_id)))
     return Response(status_code=204)
+
+
+class AchievementPatch(BaseModel):
+    """What a user may change on an achievement. Not its quote or its source: sending either is refused."""
+    model_config = ConfigDict(extra="forbid")
+    title: Text(160) = None
+    uk_version: Text(600) = None
+    skills: Annotated[list[Text(60)], Field(max_length=20)] = None
+    outcome: Text(300, 0) = None
+    scale: Text(200, 0) = None
+    context_note: Text(600, 0) = None
+    work_history_id: UUID | None = None  # where it happened: one of the user's jobs...
+    education_id: UUID | None = None     # ...or one of their courses
+
+
+@app.patch("/api/achievements/{achievement_id}")
+def update_achievement(achievement_id: UUID, body: AchievementPatch, user: CurrentUser):
+    with db.transaction() as conn:
+        return _achievement(_found(repo.update_achievement(conn, user.id, str(achievement_id), _ids_as_text(body.model_dump(exclude_unset=True)))))
+
+
+class StoryPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: Text(200) = None
+    competency: Text(80, 0) = None
+    situation: Text(2000, 0) = None
+    task: Text(2000, 0) = None
+    action: Text(2000, 0) = None
+    result: Text(2000, 0) = None
+
+
+@app.patch("/api/stories/{story_id}")
+def update_story(story_id: UUID, body: StoryPatch, user: CurrentUser):
+    with db.transaction() as conn:
+        return _found(repo.update_story(conn, user.id, str(story_id), body.model_dump(exclude_unset=True)))
+
+
+@app.delete("/api/stories/{story_id}", status_code=204)
+def delete_story(story_id: UUID, user: CurrentUser):
+    with db.transaction() as conn:
+        _found(repo.delete_story(conn, user.id, str(story_id)))
+    return Response(status_code=204)
+
+
+# ---------- work history, education, skills ----------
+
+END_BEFORE_START = "The end month cannot be before the start month."
+CURRENT_HAS_NO_END = "A job you still do has no end month."
+FROM_DETAILS = "Your current course comes from Your details. Change it there."
+ENTRY_CHECKS = {"work_history_current_has_no_end": CURRENT_HAS_NO_END}  # the other check on these tables is the order of the months
+SET_IN_DETAILS = ("institution", "qualification", "end_month")
+HAPPENED_AT = {"work_history": "work_history_id", "education": "education_id"}
+
+
+def _first_of_month(value: date) -> date:
+    if not 1950 <= value.year <= 2100:
+        raise ValueError("Enter a real month.")
+    return value.replace(day=1)
+
+
+Month = Annotated[date, AfterValidator(_first_of_month)]
+
+
+class Period(BaseModel):
+    start_month: Month | None = None
+    end_month: Month | None = None
+
+    @model_validator(mode="after")
+    def months_in_order(self):
+        if getattr(self, "is_current", False) and self.end_month:
+            raise ValueError(CURRENT_HAS_NO_END)
+        if self.start_month and self.end_month and self.end_month < self.start_month:
+            raise ValueError(END_BEFORE_START)
+        return self
+
+
+class JobEntry(Period):
+    employer: Text(160)
+    job_title: Text(160, 0) = ""
+    location: Text(120, 0) = ""
+    country: Text(80, 0) = ""
+    is_current: bool = False
+    employer_context: Text(300, 0) = ""  # one line on what the employer does, for a UK reader
+
+
+class JobEntryPatch(Period):
+    employer: Text(160) = None
+    job_title: Text(160, 0) = None
+    location: Text(120, 0) = None
+    country: Text(80, 0) = None
+    is_current: bool = None
+    employer_context: Text(300, 0) = None
+
+
+class CourseEntry(Period):
+    institution: Text(160)
+    qualification: Text(120, 0) = ""
+    subject: Text(160, 0) = ""
+    grade: Text(80, 0) = ""
+    country: Text(80, 0) = ""
+
+
+class CourseEntryPatch(Period):
+    institution: Text(160) = None
+    qualification: Text(120, 0) = None
+    subject: Text(160, 0) = None
+    grade: Text(80, 0) = None
+    country: Text(80, 0) = None
+
+
+def _months_refused(error: psycopg.errors.CheckViolation) -> HTTPException:
+    """A change that, with what is already stored, would break the order of the months."""
+    return HTTPException(422, ENTRY_CHECKS.get(error.diag.constraint_name, END_BEFORE_START))
+
+
+def _add_entry(table: str, body: BaseModel, user: User) -> dict:
+    with db.transaction() as conn:
+        return repo.add_entry(conn, user.id, table, body.model_dump())
+
+
+def _update_entry(table: str, entry_id: UUID, body: BaseModel, user: User) -> dict:
+    fields = body.model_dump(exclude_unset=True)
+    try:
+        with db.transaction() as conn:
+            row = _found(repo.get_entry(conn, user.id, table, str(entry_id)))
+            if row.get("from_details") and any(k in fields and fields[k] != row[k] for k in SET_IN_DETAILS):
+                raise HTTPException(422, FROM_DETAILS)
+            return _found(repo.update_entry(conn, user.id, table, str(entry_id), fields))
+    except psycopg.errors.CheckViolation as e:
+        raise _months_refused(e)
+
+
+def _delete_entry(table: str, entry_id: UUID, user: User) -> Response:
+    with db.transaction() as conn:
+        row = _found(repo.get_entry(conn, user.id, table, str(entry_id)))
+        if row.get("from_details"):
+            raise HTTPException(422, FROM_DETAILS)
+        repo.delete_entry(conn, user.id, table, str(entry_id))
+    return Response(status_code=204)
+
+
+@app.post("/api/work-history", status_code=201)
+def add_work_history(body: JobEntry, user: CurrentUser):
+    return _add_entry("work_history", body, user)
+
+
+@app.patch("/api/work-history/{entry_id}")
+def update_work_history(entry_id: UUID, body: JobEntryPatch, user: CurrentUser):
+    return _update_entry("work_history", entry_id, body, user)
+
+
+@app.delete("/api/work-history/{entry_id}", status_code=204)
+def delete_work_history(entry_id: UUID, user: CurrentUser):
+    return _delete_entry("work_history", entry_id, user)
+
+
+@app.post("/api/education", status_code=201)
+def add_education(body: CourseEntry, user: CurrentUser):
+    return _add_entry("education", body, user)
+
+
+@app.patch("/api/education/{entry_id}")
+def update_education(entry_id: UUID, body: CourseEntryPatch, user: CurrentUser):
+    return _update_entry("education", entry_id, body, user)
+
+
+@app.delete("/api/education/{entry_id}", status_code=204)
+def delete_education(entry_id: UUID, user: CurrentUser):
+    return _delete_entry("education", entry_id, user)
+
+
+class Language(BaseModel):
+    language: Text(40)
+    level: Literal["", *ai.LANGUAGE_LEVELS] = ""
+
+
+Skills = Annotated[list[Text(60)], Field(max_length=60)]
+Languages = Annotated[list[Language], Field(max_length=10)]
+
+
+class SkillsIn(BaseModel):
+    skills: Skills
+    languages: Languages
+
+
+@app.put("/api/profile/skills")
+def put_skills(body: SkillsIn, user: CurrentUser):
+    with db.transaction() as conn:
+        repo.get_or_create_profile(conn, user.id, user.name)
+        return repo.set_skills(conn, user.id, body.skills, [x.model_dump() for x in body.languages]) | {"email": user.email}
+
+
+# What an import found, as the user confirmed it. An entry with an id adds to one they already
+# have; one without is new. Each carries the new achievements that happened there.
+class Found(BaseModel):
+    id: UUID | None = None
+    achievement_ids: Annotated[list[UUID], Field(max_length=50)] = []
+
+
+class FoundJob(JobEntryPatch, Found):
+    @model_validator(mode="after")
+    def new_job_names_its_employer(self):
+        if self.id is None and not self.employer:
+            raise ValueError("A job needs its employer.")
+        return self
+
+
+class FoundCourse(CourseEntryPatch, Found):
+    @model_validator(mode="after")
+    def new_course_names_its_institution(self):
+        if self.id is None and not self.institution:
+            raise ValueError("A course needs its university, college or school.")
+        return self
+
+
+class FactsIn(BaseModel):
+    source: Literal["voice", "paste", "cv"]
+    work_history: Annotated[list[FoundJob], Field(max_length=20)] = []
+    education: Annotated[list[FoundCourse], Field(max_length=20)] = []
+    skills: Skills = []
+    languages: Languages = []
+
+
+@app.post("/api/profile/facts")
+def confirm_facts(body: FactsIn, user: CurrentUser):
+    """Save the jobs, courses, skills and languages the user ticked after an import, all or
+    nothing. An entry that repeats one already saved fills in its blanks instead of adding a
+    second, so confirming twice changes nothing."""
+    try:
+        with db.transaction() as conn:
+            repo.get_or_create_profile(conn, user.id, user.name)
+            for table, entries in (("work_history", body.work_history), ("education", body.education)):
+                for entry in entries:
+                    fields = entry.model_dump(exclude={"id", "achievement_ids"}, exclude_unset=True)
+                    if entry.id:
+                        row = repo.fill_entry(conn, user.id, table, str(entry.id), fields)
+                        if row is None:  # not this user's entry: nothing is added to it or linked to it
+                            continue
+                    else:
+                        repeats = intake.match(fields, table, repo.list_entries(conn, user.id, table))
+                        row = (repo.fill_entry(conn, user.id, table, repeats["id"], fields) if repeats
+                               else repo.add_entry(conn, user.id, table, fields, body.source))
+                    repo.link_achievements(conn, user.id, [str(x) for x in entry.achievement_ids], **{HAPPENED_AT[table]: row["id"]})
+            profile = repo.add_skills(conn, user.id, body.skills, [x.model_dump() for x in body.languages])
+            return {"work_history": repo.list_entries(conn, user.id, "work_history"),
+                    "education": repo.list_entries(conn, user.id, "education"), "profile": profile | {"email": user.email}}
+    except psycopg.errors.CheckViolation as e:
+        raise _months_refused(e)
 
 
 # ---------- applications ----------
@@ -461,6 +728,47 @@ def _start_ai(user: User, action: str) -> dict:
         return repo.get_or_create_profile(conn, user.id, user.name)
 
 
+# ---------- building a profile: a coach call, pasted text, a CV file, GitHub ----------
+
+NOTHING_FOUND = "We could not find any achievements in that. Add more detail and try again."
+FILE_CUT = "That file is long, so only the first part of it was read."
+# How each kind of import is counted against the daily limit and logged in the journal: action, entry type, with whom, title
+IMPORTS = {
+    "voice": ("achievements", "coach", "Careers coach", "Background call with your careers coach"),
+    "paste": ("achievements", "coach", "Careers coach", "Profile built from your pasted background"),
+    "cv": ("cv", "import", "", "Profile built from your uploaded CV"),
+}
+
+
+def _import_background(user: User, text: str, source: str) -> dict:
+    """Turn a user's own account of their background into saved achievements and proposed CV
+    facts. Achievements are saved at once, each linked to the job or course it happened in when
+    that is already saved. Jobs, courses, skills and languages are only offered: they are saved
+    when the user confirms them (POST /api/profile/facts)."""
+    action, kind, with_whom, title = IMPORTS[source]
+    with db.transaction() as conn:
+        limits.check_and_record(conn, user.id, "ai", action)
+        profile = repo.get_or_create_profile(conn, user.id, user.name)
+        achievements = repo.list_achievements(conn, user.id)
+        work, education = repo.list_entries(conn, user.id, "work_history"), repo.list_entries(conn, user.id, "education")
+    found = intake.read(text, profile, source, achievements)
+    placed = intake.place(found["items"], found["facts"], work, education)
+    with db.transaction() as conn:
+        saved = repo.add_achievements(conn, user.id, placed, source)
+        offered = intake.proposals(found["facts"], placed, saved, work, education, profile)
+        if not saved and not (offered and any(offered.values())):
+            raise HTTPException(422, NOTHING_FOUND)
+        if found["pitch"] and saved:
+            repo.set_pitch(conn, user.id, found["pitch"])
+        repo.add_journal_entry(
+            conn, user.id, type=kind, with_whom=with_whom, title=title,
+            summary=(f"{analytics.plural(len(saved), 'achievement')} captured and rewritten for UK employers." if saved
+                     else "Nothing new to add as achievements. Your work history and education were read for you to confirm."),
+            points=[i["title"] for i in saved], actions=["Review your profile and add any missing numbers"], transcript=text)
+    return {"items": [_achievement(a) for a in saved], "pitch": found["pitch"], "facts": offered,
+            "notice": intake.FACTS_FAILED if found["facts"] is None else None}
+
+
 class Background(BaseModel):
     transcript: str
     source: Literal["voice", "paste"] = "voice"
@@ -469,21 +777,114 @@ class Background(BaseModel):
 @app.post("/api/ai/achievements")
 def ai_achievements(body: Background, user: CurrentUser):
     transcript = _check_length(body.transcript, MIN_TEXT, MAX_TEXT, "Say or paste a bit more first.")
-    profile = _start_ai(user, "achievements")
-    result = ai.extract_achievements(transcript, profile)
-    if not result["items"]:
-        raise HTTPException(422, "We could not find any achievements in that. Add more detail and try again.")
+    return _import_background(user, transcript, body.source)
+
+
+async def upload_bytes(request: Request, user: CurrentUser) -> bytes:
+    """The body of an upload, held in memory and never more than one chunk past the limit. It is
+    read as the raw request body, not as a form: a form upload would be spooled to a temporary
+    file on disk, and an uploaded CV must never be written anywhere. Signed-in users only."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > cvfile.MAX_BYTES:
+        raise HTTPException(413, cvfile.TOO_BIG)
+    data = bytearray()
+    async for chunk in request.stream():
+        data += chunk
+        if len(data) > cvfile.MAX_BYTES:
+            raise HTTPException(413, cvfile.TOO_BIG)
+    return bytes(data)
+
+
+@app.post("/api/ai/achievements/upload")
+def ai_achievements_upload(data: Annotated[bytes, Depends(upload_bytes)], user: CurrentUser):
+    """A PDF or Word CV. The file is read into text and dropped; a file that cannot be read is
+    refused before anything is counted or sent to the model."""
+    try:
+        text, cut = cvfile.text(data)
+    except cvfile.Unreadable as e:
+        raise HTTPException(422, str(e))
+    result = _import_background(user, text, "cv")
+    notices = [FILE_CUT] if cut else []
+    return result | {"cut": cut, "notice": " ".join(notices + [result["notice"] or ""]).strip() or None}
+
+
+GitHubUser = StringConstraints(pattern=f"^{github.USERNAME}$")
+MAX_REPOS = 5
+NOT_LISTED = "Pick repositories from the list."
+ALREADY_IMPORTED = "Those repositories are already in your profile."
+NOTHING_TO_READ = "Those repositories have no README or description to read."
+
+
+class GitHubName(BaseModel):
+    username: Annotated[str, GitHubUser]
+
+
+@app.post("/api/github/repos")
+def github_repos(body: GitHubName, user: CurrentUser):
+    """A GitHub user's public repositories that are their own work, each marked if already imported.
+    The username travels in the request body, so it never appears in an address or an access log."""
+    found = github.repos(body.username)
     with db.transaction() as conn:
-        items = repo.add_achievements(conn, user.id, result["items"], body.source)
-        if result["pitch"]:
-            repo.set_pitch(conn, user.id, result["pitch"])
+        imported = repo.imported_urls(conn, user.id)
+    return {"username": body.username, "repos": [r | {"imported": r["url"] in imported} for r in found]}
+
+
+class GitHubImport(BaseModel):
+    username: Annotated[str, GitHubUser]
+    repos: Annotated[list[Annotated[str, StringConstraints(pattern=f"^{github.REPO}$")]], Field(min_length=1, max_length=MAX_REPOS)]
+
+
+@app.post("/api/ai/achievements/github")
+def ai_achievements_github(body: GitHubImport, user: CurrentUser):
+    """Turn up to five of a GitHub user's repositories into project achievements. Everything
+    that can fail without the model (GitHub, a name that is not theirs, nothing to read) is
+    settled before the AI action is counted."""
+    listed = {r["name"]: r for r in github.repos(body.username)}
+    names = list(dict.fromkeys(body.repos))
+    if any(name not in listed for name in names):  # also a fork or a private repository: those are never listed
+        raise HTTPException(422, NOT_LISTED)
+    with db.transaction() as conn:
+        imported = repo.imported_urls(conn, user.id)
+    chosen = [listed[name] for name in names if listed[name]["url"] not in imported]
+    if not chosen:
+        raise HTTPException(422, ALREADY_IMPORTED)
+    readmes = together(lambda r: github.readme(body.username, r["name"]), chosen)
+    readable = [r | {"readme": text} for r, text in zip(chosen, readmes) if text or r["description"]]
+    if not readable:
+        raise HTTPException(422, NOTHING_TO_READ)
+    repos = [r | {"n": n} for n, r in enumerate(readable, start=1)]
+
+    _start_ai(user, "github")
+    found = ai.github_achievements(repos)
+    items = [found[r["n"]] | {"source_url": r["url"]} for r in repos if r["n"] in found]
+    missed = len(chosen) - len(items)
+    with db.transaction() as conn:
+        saved = repo.add_achievements(conn, user.id, items, "github")
+        repo.set_github_username(conn, user.id, body.username)
         repo.add_journal_entry(
-            conn, user.id, type="coach", with_whom="Careers coach",
-            title="Background call with your careers coach" if body.source == "voice" else "Profile built from your pasted background",
-            summary=f"{analytics.plural(len(items), 'achievement')} captured and rewritten for UK employers.",
-            points=[i["title"] for i in items], actions=["Review your profile and add any missing numbers"],
-            transcript=transcript)
-    return {"items": items, "pitch": result["pitch"]}
+            conn, user.id, type="import", with_whom="", title="Projects imported from GitHub",
+            summary=f"{analytics.plural(len(saved), 'project')} added from github.com/{body.username}.",
+            points=[i["title"] for i in saved], actions=["Add a number to each project where you can"],
+            transcript="\n\n".join(f"{r['name']}\n{r['description']}\n{r['readme']}".strip() for r in repos))
+    notice = f"{missed} {'repository' if missed == 1 else 'repositories'} said too little to describe." if missed else None
+    return {"items": [_achievement(a) for a in saved], "notice": notice}
+
+
+class ImproveIn(BaseModel):
+    note: Text(300, 0) = ""  # what the user adds: usually the missing number
+
+
+@app.post("/api/ai/achievements/{achievement_id}/improve")
+def ai_improve(achievement_id: UUID, body: ImproveIn, user: CurrentUser):
+    """Rewrite one achievement from its own facts and the user's note, and save it. The answer
+    carries what it replaced, so the page can offer to undo."""
+    with db.transaction() as conn:
+        achievement = _found(repo.get_achievement(conn, user.id, str(achievement_id)))
+    _start_ai(user, "improve")
+    better = ai.improve(achievement, body.note)
+    with db.transaction() as conn:
+        updated = _found(repo.update_achievement(conn, user.id, achievement["id"], better))
+    return {"achievement": _achievement(updated), "previous": {k: achievement[k] for k in better}}
 
 
 @app.post("/api/ai/families")
@@ -557,6 +958,27 @@ def ai_star(body: AchievementRef, user: CurrentUser):
     story = ai.star(achievement)
     with db.transaction() as conn:
         return repo.add_story(conn, user.id, achievement["id"], story)
+
+
+@app.post("/api/ai/stories/bank")
+def ai_story_bank(user: CurrentUser):
+    """Write STAR stories for the strongest achievements that have none, until the user has eight."""
+    with db.transaction() as conn:
+        existing = repo.list_stories(conn, user.id)
+        without = repo.achievements_without_story(conn, user.id)
+        any_achievement = bool(without) or bool(repo.list_achievements(conn, user.id))
+    if not any_achievement:
+        raise HTTPException(400, "Build your profile first.")
+    if len(existing) >= stories.BANK:
+        raise HTTPException(400, f"You already have {stories.BANK} stories.")
+    if not without:
+        raise HTTPException(400, "Every achievement already has a story.")
+    _start_ai(user, "story bank")
+    written, missed = stories.write(stories.pick(without, len(existing)), sorted({s["competency"] for s in existing if s["competency"]}))
+    with db.transaction() as conn:
+        room = stories.BANK - len(repo.list_stories(conn, user.id))  # counted again: another request may have added some meanwhile
+        saved = [repo.add_story(conn, user.id, achievement_id, story) for achievement_id, story in written[:max(0, room)]]
+    return {"stories": saved, "notice": "Some stories could not be written. Try again to write the rest." if missed else None}
 
 
 class InterviewIn(BaseModel):

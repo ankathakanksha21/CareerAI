@@ -42,11 +42,56 @@ def update_profile(conn, user_id, *, full_name: str, university: str, course: st
         "course = excluded.course, graduation_date = excluded.graduation_date, visa_type = excluded.visa_type, "
         "visa_end_date = excluded.visa_end_date, locations = excluded.locations, updated_at = now() returning *",
         (user_id, *values)).fetchone()
+    # the course typed here is the user's first education entry, kept in step with it. A start month
+    # they added that now falls after the graduation month is cleared rather than left impossible
+    conn.execute(
+        "insert into education (user_id, institution, qualification, end_month, country, from_details) "
+        "values (%s, %s, %s, %s, 'United Kingdom', true) "
+        "on conflict (user_id) where from_details do update set institution = excluded.institution, "
+        "qualification = excluded.qualification, end_month = excluded.end_month, updated_at = now(), "
+        "start_month = case when education.start_month > excluded.end_month then null else education.start_month end",
+        (user_id, values[1], values[2], values[3]))
     return _profile(row)
 
 
 def set_pitch(conn, user_id, pitch: str) -> None:
     conn.execute("update profiles set pitch = %s, updated_at = now() where user_id = %s", (pitch, user_id))
+
+
+def _tidy_skills(skills: list[str], languages: list[dict]) -> tuple[list[str], list[dict]]:
+    """Trimmed, without blanks, and without a second spelling of the same skill or language."""
+    kept, seen = [], set()
+    for skill in skills:
+        name = (skill or "").strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            kept.append(name)
+    spoken, seen = [], set()
+    for item in languages:
+        name = (item.get("language") or "").strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            spoken.append({"language": name, "level": (item.get("level") or "").strip()})
+    return kept, spoken
+
+
+def set_skills(conn, user_id, skills: list[str], languages: list[dict]) -> dict:
+    """Replace the user's skills and spoken languages. Returns the profile."""
+    skills, languages = _tidy_skills(skills, languages)
+    return _profile(conn.execute(
+        "insert into profiles (user_id, skills, languages) values (%s, %s, %s) on conflict (user_id) do update "
+        "set skills = excluded.skills, languages = excluded.languages, updated_at = now() returning *",
+        (user_id, skills, Jsonb(languages))).fetchone())
+
+
+def add_skills(conn, user_id, skills: list[str], languages: list[dict]) -> dict:
+    """Add skills and languages the user does not already have, ignoring case. Returns the profile."""
+    row = conn.execute("select skills, languages from profiles where user_id = %s", (user_id,)).fetchone() or {"skills": [], "languages": []}
+    return set_skills(conn, user_id, [*row["skills"], *skills], [*row["languages"], *languages])
+
+
+def set_github_username(conn, user_id, username: str) -> None:
+    conn.execute("update profiles set github_username = %s, updated_at = now() where user_id = %s", (username, user_id))
 
 
 def details_complete(profile: dict) -> bool:
@@ -56,21 +101,84 @@ def details_complete(profile: dict) -> bool:
             and bool(profile.get("graduation_date")) and bool(profile.get("visa_end_date")) and bool(profile.get("locations")))
 
 
+# ---------- references to the user's other rows ----------
+
+def _own(conn, user_id, table: str, row_id):
+    """row_id if it names one of this user's rows in `table`, else None. Stops a row
+    from pointing at something that belongs to someone else or no longer exists."""
+    if row_id is None:
+        return None
+    found = conn.execute(f"select id from {table} where id = %s and user_id = %s", (row_id, user_id)).fetchone()
+    return found["id"] if found else None
+
+
 # ---------- achievements ----------
 
 def list_achievements(conn, user_id) -> list[dict]:
     return _rows(conn.execute("select * from achievements where user_id = %s order by created_at desc, id", (user_id,)))
 
 
+# What a user may edit. Not the quote (`raw`) or where it came from: those record the source
+ACHIEVEMENT_FIELDS = ("title", "uk_version", "skills", "outcome", "scale", "context_note", "work_history_id", "education_id")
+_HAPPENED_AT = {"work_history_id": "work_history", "education_id": "education"}
+
+
+def _happened_at(conn, user_id, fields: dict) -> dict:
+    """The job or course an achievement is linked to, kept only if it is this user's. An
+    achievement happened in one or the other: naming one clears the other."""
+    links = {k: _own(conn, user_id, table, fields[k]) for k, table in _HAPPENED_AT.items() if k in fields}
+    if links.get("work_history_id"):
+        links["education_id"] = None
+    elif links.get("education_id"):
+        links["work_history_id"] = None
+    return links
+
+
 def add_achievements(conn, user_id, items: list[dict], source: str) -> list[dict]:
     saved = []
     for item in items:
+        links = {"work_history_id": None, "education_id": None} | _happened_at(conn, user_id, item)
         saved.append(_row(conn.execute(
-            "insert into achievements (user_id, title, raw, uk_version, skills, outcome, scale, context_note, source) "
-            "values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
+            "insert into achievements (user_id, title, raw, uk_version, skills, outcome, scale, context_note, source, "
+            "work_history_id, education_id, source_url) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
             (user_id, item["title"], item.get("raw", ""), item["uk_version"], item.get("skills") or [],
-             item.get("outcome", ""), item.get("scale", ""), item.get("context_note", ""), source)).fetchone()))
+             item.get("outcome", ""), item.get("scale", ""), item.get("context_note", ""), source,
+             links["work_history_id"], links["education_id"], item.get("source_url"))).fetchone()))
     return saved
+
+
+def update_achievement(conn, user_id, achievement_id, fields: dict) -> dict | None:
+    """Change only the fields given."""
+    unknown = set(fields) - set(ACHIEVEMENT_FIELDS)
+    if unknown:
+        raise ValueError(f"not editable achievement fields: {sorted(unknown)}")
+    values = {k: v for k, v in fields.items() if k not in _HAPPENED_AT} | _happened_at(conn, user_id, fields)
+    if not values:
+        return get_achievement(conn, user_id, achievement_id)
+    assignments = ", ".join(f"{k} = %s" for k in values)
+    return _row(conn.execute(f"update achievements set {assignments} where id = %s and user_id = %s returning *",
+                             (*values.values(), achievement_id, user_id)).fetchone())
+
+
+def link_achievements(conn, user_id, achievement_ids: list, *, work_history_id=None, education_id=None) -> int:
+    """Say where several of the user's achievements happened. Returns how many were linked."""
+    links = _happened_at(conn, user_id, {"work_history_id": work_history_id, "education_id": education_id})
+    if not achievement_ids or not any(links.values()):
+        return 0
+    return conn.execute("update achievements set work_history_id = %s, education_id = %s where user_id = %s and id = any(%s)",
+                        (links["work_history_id"], links["education_id"], user_id, list(achievement_ids))).rowcount
+
+
+def imported_urls(conn, user_id) -> set[str]:
+    """The repositories already turned into achievements."""
+    rows = conn.execute("select source_url from achievements where user_id = %s and source_url is not null", (user_id,)).fetchall()
+    return {r["source_url"] for r in rows}
+
+
+def achievements_without_story(conn, user_id) -> list[dict]:
+    return _rows(conn.execute(
+        "select a.* from achievements a where a.user_id = %s and not exists (select 1 from stories s where s.achievement_id = a.id) "
+        "order by a.created_at desc, a.id", (user_id,)))
 
 
 def get_achievement(conn, user_id, achievement_id) -> dict | None:
@@ -114,17 +222,6 @@ def sync_families(conn, user_id, families: list[dict]) -> list[dict]:
 def set_family_targeted(conn, user_id, family_id, targeted: bool) -> dict | None:
     return _row(conn.execute("update role_families set targeted = %s where id = %s and user_id = %s returning *",
                              (targeted, family_id, user_id)).fetchone())
-
-
-# ---------- references to the user's other rows ----------
-
-def _own(conn, user_id, table: str, row_id):
-    """row_id if it names one of this user's rows in `table`, else None. Stops a row
-    from pointing at something that belongs to someone else or no longer exists."""
-    if row_id is None:
-        return None
-    found = conn.execute(f"select id from {table} where id = %s and user_id = %s", (row_id, user_id)).fetchone()
-    return found["id"] if found else None
 
 
 # ---------- saved jobs ----------
@@ -181,6 +278,29 @@ def add_story(conn, user_id, achievement_id, story: dict) -> dict:
     return _row(conn.execute(
         f"insert into stories (user_id, achievement_id, {', '.join(fields)}) values (%s, %s, {', '.join(['%s'] * len(fields))}) returning *",
         (user_id, _own(conn, user_id, "achievements", achievement_id), *(story.get(f, "") for f in fields))).fetchone())
+
+
+STORY_FIELDS = ("title", "competency", "situation", "task", "action", "result")  # what a user may edit
+
+
+def get_story(conn, user_id, story_id) -> dict | None:
+    return _row(conn.execute("select * from stories where id = %s and user_id = %s", (story_id, user_id)).fetchone())
+
+
+def update_story(conn, user_id, story_id, fields: dict) -> dict | None:
+    """Change only the fields given."""
+    unknown = set(fields) - set(STORY_FIELDS)
+    if unknown:
+        raise ValueError(f"not editable story fields: {sorted(unknown)}")
+    if not fields:
+        return get_story(conn, user_id, story_id)
+    assignments = ", ".join(f"{k} = %s" for k in fields)
+    return _row(conn.execute(f"update stories set {assignments} where id = %s and user_id = %s returning *",
+                             (*fields.values(), story_id, user_id)).fetchone())
+
+
+def delete_story(conn, user_id, story_id) -> bool:
+    return conn.execute("delete from stories where id = %s and user_id = %s", (story_id, user_id)).rowcount == 1
 
 
 # ---------- applications ----------
@@ -253,11 +373,95 @@ def get_journal_transcript(conn, user_id, entry_id) -> str | None:
     return row["transcript"] if row else None
 
 
+# ---------- work history and education ----------
+# Two tables of the same shape, so one set of functions. `table` is always one of the two names
+# below, written in this codebase, never taken from a request.
+
+ENTRY_FIELDS = {
+    "work_history": ("employer", "job_title", "location", "country", "start_month", "end_month", "is_current", "employer_context"),
+    "education": ("institution", "qualification", "subject", "start_month", "end_month", "grade", "country"),
+}
+_ENTRY_ORDER = {
+    "work_history": "is_current desc, coalesce(end_month, start_month) desc nulls last, created_at desc, id",
+    "education": "from_details desc, coalesce(end_month, start_month) desc nulls last, created_at desc, id",
+}
+_MONTHS = ("start_month", "end_month")
+
+
+def _entry_values(table: str, fields: dict) -> dict:
+    if table not in ENTRY_FIELDS:
+        raise ValueError(f"not a table of entries: {table}")
+    unknown = set(fields) - set(ENTRY_FIELDS[table])
+    if unknown:
+        raise ValueError(f"not {table} fields: {sorted(unknown)}")
+    values = {}
+    for key, value in fields.items():
+        if key in _MONTHS:
+            values[key] = value.replace(day=1) if value else None
+        elif key == "is_current":
+            values[key] = bool(value)
+        else:
+            values[key] = (value or "").strip()
+    return values
+
+
+def list_entries(conn, user_id, table: str) -> list[dict]:
+    _entry_values(table, {})
+    return _rows(conn.execute(f"select * from {table} where user_id = %s order by {_ENTRY_ORDER[table]}", (user_id,)))
+
+
+def get_entry(conn, user_id, table: str, entry_id) -> dict | None:
+    _entry_values(table, {})
+    return _row(conn.execute(f"select * from {table} where id = %s and user_id = %s", (entry_id, user_id)).fetchone())
+
+
+def add_entry(conn, user_id, table: str, fields: dict, source: str = "manual") -> dict:
+    values = _entry_values(table, fields)
+    columns = ["user_id", "source", *values]
+    return _row(conn.execute(
+        f"insert into {table} ({', '.join(columns)}) values ({', '.join(['%s'] * len(columns))}) returning *",
+        (user_id, source, *values.values())).fetchone())
+
+
+def update_entry(conn, user_id, table: str, entry_id, fields: dict) -> dict | None:
+    """Change only the fields given."""
+    values = _entry_values(table, fields)
+    assignments = ", ".join([f"{k} = %s" for k in values] + ["updated_at = now()"])
+    return _row(conn.execute(f"update {table} set {assignments} where id = %s and user_id = %s returning *",
+                             (*values.values(), entry_id, user_id)).fetchone())
+
+
+def fill_entry(conn, user_id, table: str, entry_id, fields: dict) -> dict | None:
+    """Fill in the fields that are empty now and leave the rest as the user has them. Left out:
+    a month that would end a current job or put the end before the start, and "still there" for
+    a job that has an end month."""
+    values = _entry_values(table, fields)
+    row = get_entry(conn, user_id, table, entry_id)
+    if row is None:
+        return None
+    blanks = {k: v for k, v in values.items() if v and not row[k]}
+    if row.get("is_current"):
+        blanks.pop("end_month", None)
+    if row.get("end_month"):
+        blanks.pop("is_current", None)  # a job the user says has ended is not reopened
+    start, end = blanks.get("start_month") or row["start_month"], blanks.get("end_month") or row["end_month"]
+    if start and end and end < start:
+        blanks = {k: v for k, v in blanks.items() if k not in _MONTHS}
+    return update_entry(conn, user_id, table, entry_id, blanks) if blanks else row
+
+
+def delete_entry(conn, user_id, table: str, entry_id) -> bool:
+    _entry_values(table, {})
+    return conn.execute(f"delete from {table} where id = %s and user_id = %s", (entry_id, user_id)).rowcount == 1
+
+
 # ---------- everything one user owns ----------
 
 def load_state(conn, user_id) -> dict:
     return {
         "achievements": list_achievements(conn, user_id),
+        "work_history": list_entries(conn, user_id, "work_history"),
+        "education": list_entries(conn, user_id, "education"),
         "role_families": list_families(conn, user_id),
         "saved_jobs": list_jobs(conn, user_id),
         "cv_versions": list_cv_versions(conn, user_id),

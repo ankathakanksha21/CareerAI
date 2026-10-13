@@ -404,3 +404,15 @@ button.me:hover { border-color: var(--green-line); }
 .heard .transcript { background: #fff; border-radius: 8px; padding: 10px; min-height: 64px; }
 .heard .turn.user { border: 1px solid var(--green-line); font-weight: 500; }
 .heard .turn.user .who { color: var(--green); }
+
+/* ---------- step 1: imports, work history, education, skills ---------- */
+.repo, .found-row { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; cursor: pointer; }
+.repo input, .found-row input { margin-top: 3px; }
+.found-row { font-size: 14px; }
+.entry { display: flex; gap: 12px; align-items: start; }
+.entry .who { flex: 1; min-width: 0; }
+.entry .acts { display: flex; gap: 12px; align-items: center; flex: none; }
+.month { display: flex; gap: 8px; }
+.card.editing { border-color: var(--green); }
+input[type=file] { font-size: 14px; max-width: 100%; }
+input:disabled, select:disabled, textarea:disabled { background: var(--soft); color: var(--ink-3); }

@@ -2,11 +2,11 @@
 and how an advert's fit is worked out. Pure functions and outside calls; the SQL is in repo.py."""
 import re
 import statistics
-from concurrent.futures import ThreadPoolExecutor
 
 import ai
 import reed
 import sponsors
+from parallel import together
 
 CACHE_HOURS = 6            # a search anyone ran this recently is read from the database, not from Reed
 FRESH_DAYS = 14            # adverts older than this are not shown
@@ -15,7 +15,6 @@ TITLES_PER_FAMILY = 3
 SEARCHES_PER_REFRESH = 20  # keeps one refresh well inside the 60-second request limit
 SCORE_PER_REFRESH = 15
 SCORE_BATCH = 5            # adverts per model call; the calls run side by side
-WORKERS = 8
 
 FIT_BANDS = ((80, "direct"), (60, "near"), (40, "stretch"))  # below the last: not a match
 SHOWN_ON_CARD = 3
@@ -113,13 +112,6 @@ def shortlist(candidates: list[dict], skills: list[str], include_senior: bool, l
 
 # ---------- outside calls, several at once ----------
 
-def _together(work, items) -> list:
-    if not items:
-        return []
-    with ThreadPoolExecutor(max_workers=min(WORKERS, len(items))) as pool:
-        return list(pool.map(work, items))
-
-
 def fetch(searches: list[dict]) -> tuple[dict, int]:
     """Run the searches on Reed side by side. Returns {(query, location): listings} for those that
     worked, each listing with who really placed it and the key its employer is looked up by, and
@@ -130,7 +122,7 @@ def fetch(searches: list[dict]) -> tuple[dict, int]:
         except reed.ReedError:
             return None
 
-    found = dict(zip(((s["query"], s["location"]) for s in searches), _together(one, searches)))
+    found = dict(zip(((s["query"], s["location"]) for s in searches), together(one, searches)))
     done = {key: [item | {"employer_key": sponsors.employer_key(item["employer"]), "posted_by": poster(item)} for item in listings]
             for key, listings in found.items() if listings is not None}
     # a company seen selling a programme sells one in its other adverts too, whatever their short text says
@@ -152,7 +144,7 @@ def fetch_details(candidates: list[dict]) -> dict[str, dict]:
             return None
 
     short = [c for c in candidates if not c["description_is_full"]]
-    return {c["listing_id"]: d for c, d in zip(short, _together(one, short)) if d}
+    return {c["listing_id"]: d for c, d in zip(short, together(one, short)) if d}
 
 
 # ---------- fit ----------
@@ -199,7 +191,7 @@ def score(candidates: list[dict], achievements: list[dict]) -> tuple[list[dict],
         return [{"match_id": c["match_id"], "fit": fit(judged[n], titles), "from_summary": not c["description_is_full"]}
                 for n, c in enumerate(batch, 1) if n in judged]
 
-    results = _together(one, batches)
+    results = together(one, batches)
     if batches and all(r is None for r in results):
         raise ai.AIError("job fit")
     rows = [row for r in results if r for row in r]

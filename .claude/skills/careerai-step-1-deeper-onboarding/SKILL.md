@@ -5,8 +5,21 @@ description: Use when building, continuing or reviewing step 1 of the CareerAI r
 
 # Step 1: deeper onboarding
 
-**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 0. **Size:** medium (smaller than step 0).
+**Status:** Built on branch `step-1-deeper-onboarding` (13 October 2026), not yet merged. **Not finished:** the hand checks that need the owner's own CV, GitHub account and login. See "Where it stands" straight below. Design approved by the owner, 12 October 2026; the task plan and the changes under "Changed at build time" approved 13 October 2026. **Depends on:** step 0. **Size:** medium (smaller than step 0).
 **REQUIRED:** follow `careerai-building-a-step`.
+
+## Where it stands (13 October 2026)
+
+All fourteen tasks in `docs/superpowers/plans/2026-10-13-step-1-deeper-onboarding.md` are built and committed except the owner's hand checks. 907 backend tests pass; the real model passes all 21 checks; the pages were run against the real backend as a temporary user whose data was never saved (see `docs/ARCHITECTURE.md` section 18).
+
+To finish the step, in this order:
+
+1. With the owner signed in, do the seven hand checks below. The owner uploads their own CV (as PDF, then as Word) and types their own GitHub username.
+2. Look at the pages by eye. They were checked by text and behaviour only: the four tiles, "We also found", the three new Profile sections, the achievement card's edit and improve forms, the story editor.
+3. If a real CV reads badly, run `python scripts/cv_check.py <file>` from `backend/` to see the text the AI receives, and tell the owner before changing libraries.
+4. Update `docs/ARCHITECTURE.md` section 18 and this section, then give the owner the pull request link when they ask.
+
+Decisions made while building, beyond those in "Changed at build time", are in the plan's table and in `docs/ARCHITECTURE.md` sections 5 and 17.
 
 ## Goal
 
@@ -28,6 +41,29 @@ After step 0 a profile can only be built by voice or pasted text, achievements c
 | Missing numbers | Achievements with no number show an "Add a number" prompt | Recommended; approved 12 Oct 2026 |
 | Story bank | One button, "Build my story bank", writes STAR stories for up to 8 of the strongest achievements that have none, in one AI call. Stories can be edited and deleted | Recommended; approved 12 Oct 2026 |
 | Duplicates | When importing from a second source the AI is given the existing achievements and told not to repeat them. The user deletes any that slip through | Recommended; approved 12 Oct 2026 |
+
+## Changed at build time (13 October 2026)
+
+The checks under "Verify at build time" were run and the owner approved these changes with the plan, `docs/superpowers/plans/2026-10-13-step-1-deeper-onboarding.md`, whose table of 24 decisions is the full list. Where this section and the rest of this document disagree, this section wins.
+
+| Change | Why | Decided by |
+|---|---|---|
+| **The upload limit is 4 MB**, not 5 | Vercel refuses a request body over 4.5 MB | Forced; owner told |
+| **The quote on an achievement is read-only.** Every other field can be edited | An edited quote could show "From your CV" beside words the CV never had | Owner, 13 Oct 2026 |
+| The file travels as the raw request body, not a multipart form. `python-multipart` and `python-docx` are not added; `pypdf` is the only new package | A form upload writes files over 1 MB to disk. Word files are read with the standard library, which reaches the tables and text boxes CV templates use | Approved with the plan |
+| One import is **two model calls side by side** (achievements; CV facts), one AI action. The story bank writes in batches of four | A single combined call took 27 to 34 seconds on the real model | Approved with the plan |
+| Up to 8 achievements from a CV or pasted text; 3 to 6 from a voice call | A CV holds more than a short call | Approved with the plan |
+| The current course is a real `education` row made from "Your details" and kept in step with it | Step 3 reads one list | Approved with the plan |
+| A found job or course matching a saved one fills in its blanks instead of duplicating it | Every CV repeats the current course | Approved with the plan |
+| `work_history.is_current` is added; an unknown end month stays empty. All dates are optional | "Null means present" would claim a past job is current when the AI could not read its end date | Approved with the plan |
+| One extra route, `POST /api/profile/facts`, saves what the user ticked and links the new achievements | The link can only be made once the job or course exists | Approved with the plan |
+| The migration is `005_profile_depth` | 003 and 004 were used by step 2 | Forced |
+| **The repository list is `POST /api/github/repos`** with the username in the body, not `GET /api/github/{username}/repos` | A real run showed the typed username in the server log. The same reasoning as step 2's offer check | Found while building |
+| "Add a number" shows only when neither the bullet nor a real result has a digit | On a real CV the model left its "Add a number" marker beside a bullet that already said "5 hours a week" | Found while building |
+| A GitHub achievement whose quote is not in that repository's README or description is kept without a quote | The same rule as every other source | Found while building |
+| A repository with no README and no description is refused before the AI is called | There is nothing to read | Found while building |
+
+**What the checks found.** `pypdf` in its default mode returned every sentence whole and in order from six sample CVs, including two-column Word layouts exported to PDF by Word; its "layout" mode did not and is not used. GitHub allows 60 requests an hour per server address without a token. Vercel's request body limit is 4.5 MB.
 
 ## In scope
 
@@ -67,7 +103,7 @@ The user's current course from "Your details" appears as the first education ent
 
 **Interview coach → STAR stories:** "Build my story bank" (hidden once 8 stories exist), and Edit and Delete on each story.
 
-## Data changes (migration `003_profile_depth`)
+## Data changes (migration `005_profile_depth`)
 
 | Change | Detail |
 |---|---|
@@ -84,7 +120,7 @@ Both new tables follow the standing rules: `user_id` with cascade delete, row-le
 | Route | Purpose |
 |---|---|
 | `POST /api/ai/achievements/upload` | Multipart file. Extract text, discard the file, run the same extraction as pasted text with source `cv`. Returns achievements plus proposed education, work history, skills, languages |
-| `GET /api/github/{username}/repos` | The user's public non-fork repositories |
+| `POST /api/github/repos` | `{username}` → the user's public non-fork repositories (see "Changed at build time") |
 | `POST /api/ai/achievements/github` | `{username, repos: [names]}` (1 to 5). Reads each README and description, returns project achievements |
 | `POST`, `PATCH`, `DELETE /api/work-history[/{id}]` | Work history |
 | `POST`, `PATCH`, `DELETE /api/education[/{id}]` | Education |

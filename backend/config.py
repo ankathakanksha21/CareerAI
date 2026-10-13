@@ -39,6 +39,11 @@ def cron_secret() -> str:
     return env("CRON_SECRET")
 
 
+def github_token() -> str:
+    """Optional. Lifts GitHub's allowance from 60 requests an hour for each server address to 5,000."""
+    return env("GITHUB_TOKEN")
+
+
 def supabase_url() -> str:
     return env("SUPABASE_URL").rstrip("/")
 

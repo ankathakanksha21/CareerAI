@@ -5,6 +5,7 @@ failed call, so a user never sees content that did not come from their own data.
 import json
 import logging
 import re
+from datetime import date
 
 import anthropic
 import httpx
@@ -22,6 +23,15 @@ ATTEMPTS = 2  # the first call plus one retry
 FITS = ("direct", "near", "stretch")
 STRENGTHS = ("strong", "needs a number", "needs detail")
 NOT_SHOWN = {"", "none", "gap", "n/a", "na", "-", "null", "nothing"}
+MAX_ITEMS = {"voice": 6, "paste": 8, "cv": 8}  # achievements taken from one import
+TEXT_NAME = {"voice": "Background transcript", "paste": "Pasted text", "cv": "CV text"}
+LANGUAGE_LEVELS = ("Native", "Fluent", "Professional", "Conversational", "Basic")
+_LEVEL_WORDS = (("Native", ("native", "mother tongue", "first language", "bilingual")), ("Fluent", ("fluent",)),
+                ("Professional", ("professional", "advanced", "proficient", "business")),
+                ("Conversational", ("conversational", "intermediate")), ("Basic", ("basic", "beginner", "elementary")))
+STILL_THERE = {"present", "current", "now", "ongoing", "to date", "till date", "today"}
+MAX_SKILLS, MAX_SKILL_CHARS = 40, 60
+MIN_NAME_SHARE = 0.5  # how much of an employer's or institution's name must be in the text for it to be kept
 
 
 class AIError(Exception):
@@ -75,7 +85,9 @@ def _blank(value) -> bool:
     return value is None
 
 
-def _run(task: str, system: str, user: str, template: dict, max_tokens: int = 1500, required: tuple = ()) -> dict:
+def _run(task: str, system: str, user: str, template: dict, max_tokens: int = 1500, required: tuple = (), check=None) -> dict:
+    """One AI task: the model's reply in the template's shape. A reply that is malformed, lacks a
+    required field or fails `check` counts as a failed attempt and is asked for once more."""
     for attempt in range(1, ATTEMPTS + 1):
         try:
             data = _conform(complete_json(BASE + "\n\n" + system, user, max_tokens), template)
@@ -84,9 +96,12 @@ def _run(task: str, system: str, user: str, template: dict, max_tokens: int = 15
             log.warning("AI task %s, attempt %d: %s", task, attempt, type(e).__name__)
             continue
         missing = [k for k in required if _blank(data.get(k))]
-        if not missing:
+        if missing:
+            log.warning("AI task %s, attempt %d: reply had no %s", task, attempt, ", ".join(missing))
+        elif check and not check(data):
+            log.warning("AI task %s, attempt %d: reply failed its check", task, attempt)
+        else:
             return data
-        log.warning("AI task %s, attempt %d: reply had no %s", task, attempt, ", ".join(missing))
     raise AIError(task)
 
 
@@ -119,23 +134,80 @@ MIN_SHARED_SHARE = 0.5  # how much of a paraphrase must appear in one sentence t
 MIN_SHARED_WORDS = 3    # ...and at least this many words, so one common word never makes a match
 
 
-def verbatim(quote: str, transcript: str) -> str:
-    """What the candidate actually said that backs up `quote`, so the app never shows words
-    they did not say. The quote itself if they said exactly that (ignoring case and punctuation),
-    otherwise their sentence that shares most words with it, otherwise an empty string."""
-    said = _said_by_candidate(transcript)
+WRAPPED_LINES = 5       # a sentence in a document can be wrapped across this many lines
+
+
+def _closest_passage(lines: list[str], wanted: set) -> tuple[str, int]:
+    """The run of consecutive lines sharing most words with `wanted`, and how many it shares. A
+    PDF wraps sentences wherever the page was narrow, so one line is often half a sentence. Between
+    runs that share as much, one that ends a sentence wins, then the shorter."""
+    best, best_rank = "", (0, False, 0)
+    for start in range(len(lines)):
+        for size in range(1, WRAPPED_LINES + 1):
+            passage = " ".join(lines[start:start + size])
+            rank = (len(set(_words(passage)) & wanted), passage.endswith((".", "!", "?")), -len(passage))
+            if rank > best_rank:
+                best, best_rank = passage, rank
+    return best, best_rank[0]
+
+
+def verbatim(quote: str, transcript: str, speech: bool = True) -> str:
+    """What the candidate actually said or wrote that backs up `quote`, so the app never shows
+    words that are not theirs. The quote itself if the text has exactly that (ignoring case,
+    punctuation and line breaks), otherwise the part of it that shares most words with the quote,
+    otherwise an empty string.
+
+    With speech, the text is a call transcript or pasted notes: lines labelled as the coach's or
+    the interviewer's are not the candidate's. Without it, the text is a document (a CV, a README):
+    every line counts, even one that happens to begin "Coach:"."""
+    said = _said_by_candidate(transcript) if speech else transcript
     wanted = _words(quote)
     if not wanted:
         return ""
     if f" {' '.join(wanted)} " in f" {' '.join(_words(said))} ":
         return quote.strip()
-    best, best_shared = "", 0
-    for sentence in re.split(r"(?<=[.!?])\s+|\n+", said):
-        shared = len(set(_words(sentence)) & set(wanted))
-        if shared > best_shared:
-            best, best_shared = sentence.strip(), shared
+    if speech:
+        best, best_shared = "", 0
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+", said):
+            shared = len(set(_words(sentence)) & set(wanted))
+            if shared > best_shared:
+                best, best_shared = sentence.strip(), shared
+    else:
+        best, best_shared = _closest_passage([line.strip() for line in said.splitlines() if line.strip()], set(wanted))
     enough = best_shared >= MIN_SHARED_WORDS and best_shared / len(set(wanted)) >= MIN_SHARED_SHARE
     return best[:300] if enough else ""
+
+
+def _key(text: str) -> str:
+    """A wording reduced to its words, to tell whether two are the same."""
+    return " ".join(_words(text))
+
+
+def month(value) -> date | None:
+    """A date the model gave as YYYY-MM. Anything else ("2021", "Summer 2022") is no date at all:
+    a month is never guessed."""
+    m = re.fullmatch(r"(\d{4})-(0[1-9]|1[0-2])", value.strip() if isinstance(value, str) else "")
+    return date(int(m[1]), int(m[2]), 1) if m and 1950 <= int(m[1]) <= 2100 else None
+
+
+NO_NUMBER = "Add a number"  # how the model marks a result with no figure, followed by what to measure
+_PLACEHOLDER = re.compile(r"add a number\s*:?\s*<[^>]*>", re.I)
+
+
+def _outcome(text: str) -> str:
+    """A result as the model gave it, unless it copied the prompt's own "<what to measure>"
+    placeholder: then only the marker is kept."""
+    text = text.strip()
+    return NO_NUMBER if _PLACEHOLDER.fullmatch(text) else text
+
+
+def needs_number(achievement: dict) -> bool:
+    """True when an achievement has no figure yet: neither its bullet nor its result holds a digit.
+    A result that is only the extraction's "Add a number: ..." marker says what to measure and is
+    not a figure; and the marker beside a bullet that already has a number is ignored."""
+    outcome = (achievement.get("outcome") or "").strip()
+    result = "" if outcome.lower().startswith("add a number") else outcome
+    return not re.search(r"\d", f"{achievement.get('uk_version') or ''} {result}")
 
 
 def _who(profile: dict) -> str:
@@ -145,32 +217,121 @@ def _who(profile: dict) -> str:
     return ", ".join(x for x in (profile.get("full_name"), study, visa) if x)
 
 
-# 1. Background transcript to achievements
-def extract_achievements(transcript: str, profile: dict) -> dict:
+# 1. A voice call, pasted text or the text of a CV file to achievements
+def extract_achievements(text: str, profile: dict, source: str = "voice", existing=()) -> dict:
+    """Achievements found in the text that are not in `existing` (the user's saved ones), each with
+    `where`: the employer or institution it happened at, as the text names it."""
     system = (
-        "Turn a candidate's spoken or pasted background into achievements written for UK employers. "
-        "Each item is one achievement. Use only facts, tools, methods and data sources the candidate actually stated; never add detail they did not say. "
+        "Turn a candidate's spoken or written background into achievements written for UK employers. "
+        "Each item is one achievement. Use only facts, tools, methods and data sources the text actually states; never add detail it does not contain. "
         "uk_version is a single UK CV bullet: action verb first, result with a number, scale. "
-        "If the candidate gave no number, do not make one up: set outcome to 'Add a number: <what to measure>'. "
-        "context_note explains something a UK recruiter would not know (an overseas employer, a local term, why it counts) "
-        "or gives one UK framing tip. If the text contains no achievements at all, return an empty items list."
+        "If the text gives no number, do not make one up: set outcome to 'Add a number: <what to measure>'. "
+        "context_note explains something a UK recruiter would not know (an overseas employer, a local term, a grading scale, why it counts) "
+        "or gives one UK framing tip. "
+        "where is the employer, or the university, college or school, at which it happened, named exactly as the text names it. "
+        "Use an empty string for a personal project or when the text does not say. "
+        + ("Text taken from a CV file can arrive out of order, with a side column mixed into the main one: read it as a whole. " if source == "cv" else "")
+        + ("Some achievements are already in the candidate's profile and are listed. Do not return those again: return only achievements that are not listed. "
+           if existing else "")
+        + "If the text contains no achievements at all, or none that are new, return an empty items list."
+    )
+    saved = [a.get("uk_version") or a.get("title") or "" for a in existing][:40]
+    user = (
+        f"Candidate: {_who(profile)}.\n"
+        + (f"Already in the profile: {_j(saved)}\n" if existing else "")
+        + f"{TEXT_NAME[source]}:\n{text}\n\n"
+        'Return {"items":[{"title":str,"raw":str (an exact quote copied from the text, under 25 words),"uk_version":str,"skills":[str],'
+        '"outcome":str,"scale":str,"context_note":str,"where":str}],'
+        '"pitch":str (two sentences in the first person, starting with I am, for networking)}. '
+        + ("3 to 6 items." if source == "voice" else f"Up to {MAX_ITEMS[source]} items, strongest first.")
+    )
+    template = {"items": [{"title": "", "raw": "", "uk_version": "", "skills": [""], "outcome": "", "scale": "", "context_note": "", "where": ""}],
+                "pitch": ""}
+    data = _run("achievements", system, user, template, 2800)
+    items, seen = [], {_key(x) for a in existing for x in (a.get("uk_version") or "",) if x}
+    for item in data["items"]:
+        bullet = item["uk_version"].strip() or item["raw"].strip() or item["title"].strip()
+        if not bullet or _key(bullet) in seen:  # nothing in it, or already saved or returned
+            continue
+        seen.add(_key(bullet))
+        # "raw" is shown to the user as their own words, so it must be found in what they said or wrote
+        items.append(item | {"uk_version": bullet, "title": item["title"].strip() or bullet[:60], "where": item["where"].strip(),
+                             "outcome": _outcome(item["outcome"]), "raw": verbatim(item["raw"] or bullet, text, speech=source != "cv")})
+    return {"items": items[:MAX_ITEMS[source]], "pitch": data["pitch"].strip()}
+
+
+# 1b. The same text to the plain facts a CV is built from
+def _named_in(name: str, words: set) -> bool:
+    """Whether a name the model returned is really in the text: at least half of its words are.
+    The check behind the prompt's "never invent an employer"."""
+    parts = [w for w in _words(name) if len(w) >= 3] or _words(name)
+    return bool(parts) and sum(w in words for w in parts) / len(parts) >= MIN_NAME_SHARE
+
+
+def _period(start, end) -> dict:
+    """Start and end months from what the model gave. An end before the start is dropped."""
+    first, last = month(start), month(end)
+    return {"start_month": first, "end_month": None if first and last and last < first else last}
+
+
+def extract_facts(text: str, profile: dict, source: str = "cv") -> dict:
+    """Jobs, courses, skills and spoken languages the text states, in the shape of the tables they
+    are saved to. Everything the model returns is checked: a name must be in the text, a date must
+    be a real month, and nothing is listed twice. Finding nothing is not an error."""
+    system = (
+        "List the plain CV facts stated in a candidate's CV, notes or spoken background: jobs, courses, skills and spoken languages. "
+        "Use only what the text states; never add an employer, course, date or grade it does not contain. "
+        "Text taken from a CV file can arrive out of order, with a side column mixed into the main one: read it as a whole. "
+        "work_history lists each job, internship or placement. Volunteering, societies and personal projects are not jobs. "
+        "education lists each course, including the one the candidate is on now. "
+        "Dates are YYYY-MM. If the text gives only a year, or you are unsure of the month, leave the date empty: never guess a month. "
+        "end is the word present for a job the candidate still does. "
+        "location is the town or city. employer_context is one plain line on what the employer does, only if the text says so "
+        "or the company is widely known; otherwise leave it empty. "
+        "qualification is the award (MSc, BTech, A levels) and subject is what it is in. grade is the result as written (2:1, Merit, CGPA 8.4/10), or empty. "
+        "skills are the tools, methods and technologies the text names, each a word or short phrase. "
+        f"languages are spoken languages. level is one of {', '.join(LANGUAGE_LEVELS)}, or empty if the text does not say."
     )
     user = (
-        f"Candidate: {_who(profile)}.\nBackground transcript:\n{transcript}\n\n"
-        'Return {"items":[{"title":str,"raw":str (an exact quote copied from the candidate, under 25 words),"uk_version":str,"skills":[str],'
-        '"outcome":str,"scale":str,"context_note":str}],'
-        '"pitch":str (two sentences in the first person, starting with I am, for networking)}. 3 to 6 items.'
+        f"Candidate: {_who(profile)}.\n{TEXT_NAME[source]}:\n{text}\n\n"
+        'Return {"work_history":[{"employer":str,"job_title":str,"location":str,"country":str,"start":str,"end":str,"employer_context":str}],'
+        '"education":[{"institution":str,"qualification":str,"subject":str,"start":str,"end":str,"grade":str,"country":str}],'
+        '"skills":[str],"languages":[{"language":str,"level":str}]}'
     )
-    template = {"items": [{"title": "", "raw": "", "uk_version": "", "skills": [""], "outcome": "", "scale": "", "context_note": ""}], "pitch": ""}
-    data = _run("achievements", system, user, template, 2500)
-    items = []
-    for item in data["items"]:
-        text = item["uk_version"].strip() or item["raw"].strip() or item["title"].strip()
-        if text:  # an item with nothing in it is not an achievement
-            # "raw" is shown to the user as "You said", so it must be their words, not the model's
-            items.append(item | {"uk_version": text, "title": item["title"].strip() or text[:60],
-                                 "raw": verbatim(item["raw"] or text, transcript)})
-    return {"items": items, "pitch": data["pitch"].strip()}
+    template = {"work_history": [{"employer": "", "job_title": "", "location": "", "country": "", "start": "", "end": "", "employer_context": ""}],
+                "education": [{"institution": "", "qualification": "", "subject": "", "start": "", "end": "", "grade": "", "country": ""}],
+                "skills": [""], "languages": [{"language": "", "level": ""}]}
+    data = _run("cv facts", system, user, template, 2200)
+    words, seen = set(_words(text)), set()
+
+    def fresh(*key) -> bool:
+        if key in seen:
+            return False
+        seen.add(key)
+        return True
+
+    jobs = []
+    for w in data["work_history"]:
+        employer, current = w["employer"].strip()[:160], w["end"].strip().lower() in STILL_THERE
+        period = _period(w["start"], "" if current else w["end"])
+        if _named_in(employer, words) and fresh("job", _key(employer), _key(w["job_title"]), period["start_month"]):
+            jobs.append({"employer": employer, "job_title": w["job_title"].strip()[:160], "location": w["location"].strip()[:120],
+                         "country": w["country"].strip()[:80], **period, "is_current": current,
+                         "employer_context": w["employer_context"].strip()[:300]})
+    courses = []
+    for e in data["education"]:
+        institution = e["institution"].strip()[:160]
+        if _named_in(institution, words) and fresh("course", _key(institution), _key(f"{e['qualification']} {e['subject']}")):
+            courses.append({"institution": institution, "qualification": e["qualification"].strip()[:120], "subject": e["subject"].strip()[:160],
+                            **_period(e["start"], e["end"]), "grade": e["grade"].strip()[:80], "country": e["country"].strip()[:80]})
+    skills = [x.strip() for x in data["skills"]
+              if 0 < len(x.strip()) <= MAX_SKILL_CHARS and _named_in(x, words) and fresh("skill", x.strip().lower())]
+    languages = []
+    for item in data["languages"]:
+        name, given = item["language"].strip()[:40], item["level"].lower()
+        if _named_in(name, words) and fresh("language", name.lower()):
+            languages.append({"language": name, "level": next((level for level, hints in _LEVEL_WORDS if any(h in given for h in hints)), "")})
+    return {"work_history": jobs, "education": courses, "skills": skills[:MAX_SKILLS], "languages": languages}
 
 
 # 2. Achievements to role families
@@ -252,6 +413,18 @@ def tailor(job: dict, achievements: list, profile: dict) -> dict:
 
 
 # 5. One achievement to a STAR story
+STORY_KEYS = ("title", "competency", "situation", "task", "action", "result", "strength", "tip")
+
+
+def _story(data: dict, achievement: dict) -> dict:
+    """A story as the model wrote it, with a title and a strength the UI knows."""
+    strength = data["strength"].strip().lower()
+    return {k: data[k] for k in STORY_KEYS} | {
+        "title": data["title"].strip() or achievement.get("title", ""),
+        "strength": strength if strength in STRENGTHS else "needs detail",
+    }
+
+
 def star(achievement: dict) -> dict:
     system = (
         "Turn one achievement into a STAR interview story a UK interviewer will score well. "
@@ -263,13 +436,8 @@ def star(achievement: dict) -> dict:
         'Return {"title":str,"competency":str (e.g. Influencing, Problem solving),"situation":str,"task":str,'
         '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str}'
     )
-    template = {"title": "", "competency": "", "situation": "", "task": "", "action": "", "result": "", "strength": "", "tip": ""}
-    data = _run("star", system, user, template, 900, required=("situation", "action"))
-    strength = data["strength"].strip().lower()
-    return {k: data[k] for k in template} | {
-        "title": data["title"].strip() or achievement.get("title", ""),
-        "strength": strength if strength in STRENGTHS else "needs detail",
-    }
+    data = _run("star", system, user, dict.fromkeys(STORY_KEYS, ""), 900, required=("situation", "action"))
+    return _story(data, achievement)
 
 
 # 6. Mock interview transcript to feedback
@@ -370,3 +538,105 @@ def score_jobs(batch: list, achievements: list) -> dict:
     if not scored:
         raise AIError("job fit")
     return scored
+
+
+# 10. Public GitHub repositories to project achievements
+def github_achievements(repos: list) -> dict:
+    """One project achievement for each repository the model could describe, keyed by the
+    repository's number: {n: item}. Each comes only from that repository's name, description,
+    main language and README, and its quote is kept only if those really contain it."""
+    system = (
+        "Turn a candidate's own public code repositories into project achievements written for UK employers. "
+        "One item per repository, from its name, description, main language and README only: never add a feature, tool, user or number they do not state. "
+        "uk_version is a single UK CV bullet: action verb first, what was built and with what, and a result or scale only if the README gives one. "
+        "If it gives no number, do not make one up: set outcome to the words 'Add a number: ' followed by what the candidate should measure, "
+        "in your own words (for example how many people use it, or how much faster it runs). "
+        "raw is an exact quote copied from that repository's README or description, under 25 words. "
+        "skills are the languages, libraries and tools it names. context_note is one tip on presenting a personal project to a UK employer. "
+        "Leave out a repository whose README and description say too little to tell what was built."
+    )
+    listed = [{"n": r["n"], "name": r["name"], "description": r.get("description") or "", "main_language": r.get("language") or "",
+               "readme": r.get("readme") or ""} for r in repos]
+    user = (
+        f"Repositories: {_j(listed)}\n\n"
+        'Return {"items":[{"n":int (the repository number),"title":str,"raw":str,"uk_version":str,"skills":[str],'
+        '"outcome":str,"scale":str,"context_note":str}]}'
+    )
+    template = {"items": [{"n": 0, "title": "", "raw": "", "uk_version": "", "skills": [""], "outcome": "", "scale": "", "context_note": ""}]}
+    data = _run("github", system, user, template, 400 + 380 * len(repos), required=("items",))
+    sent, found = {r["n"]: r for r in repos}, {}
+    for item in data["items"]:
+        repo, bullet = sent.get(item["n"]), item["uk_version"].strip()
+        if not repo or item["n"] in found or not bullet:
+            continue
+        own_words = f"{repo.get('description') or ''}\n{repo.get('readme') or ''}"
+        found[item["n"]] = {"title": item["title"].strip() or repo["name"], "raw": verbatim(item["raw"], own_words, speech=False),
+                            "uk_version": bullet, "skills": item["skills"], "outcome": _outcome(item["outcome"]),
+                            "scale": item["scale"].strip(), "context_note": item["context_note"].strip()}
+    if not found:
+        raise AIError("github")
+    return found
+
+
+# 11. One achievement rewritten from its own facts and a note from the user
+NUMBER_WORDS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+                "ten": "10", "eleven": "11", "twelve": "12", "fifteen": "15", "twenty": "20", "thirty": "30", "forty": "40",
+                "fifty": "50", "hundred": "100", "thousand": "1000", "million": "1000000"}
+
+
+def _numbers(text: str, spelled: bool = False) -> set:
+    """Every figure in the text, with thousands separators removed. With spelled, numbers written
+    as words count as their digits too."""
+    found = {n.replace(",", "") for n in re.findall(r"\d[\d,]*(?:\.\d+)?", text)}
+    return found | {NUMBER_WORDS[w] for w in _words(text) if w in NUMBER_WORDS} if spelled else found
+
+
+def improve(achievement: dict, note: str) -> dict:
+    """A better bullet, result and scale for one achievement, from what it already holds and the
+    user's note. A rewrite carrying a number found in neither is not accepted: on a CV an invented
+    figure is the invention that does most harm."""
+    system = (
+        "Rewrite one CV achievement for a UK employer, using only the facts it already holds and the candidate's note. "
+        "uk_version is a single CV bullet: action verb first, result with a number, scale. "
+        "Never add a fact, tool, employer or number that is in neither the achievement nor the note. "
+        "If there is still no number, leave numbers out and set outcome to 'Add a number: <what to measure>'. "
+        "outcome is the result in a few words. scale is who or how much was affected, or an empty string."
+    )
+    facts = {k: achievement.get(k) for k in ("title", "raw", "uk_version", "skills", "outcome", "scale", "context_note")}
+    user = (f"Achievement: {_j(facts)}\nCandidate's note: {note.strip() or '(none)'}\n\n"
+            'Return {"uk_version":str,"outcome":str,"scale":str}')
+    allowed = _numbers(f"{_j(facts)} {note}", spelled=True)
+    data = _run("improve", system, user, {"uk_version": "", "outcome": "", "scale": ""}, 500, required=("uk_version",),
+                check=lambda d: _numbers(f"{d['uk_version']} {d['outcome']} {d['scale']}") <= allowed)
+    return {"uk_version": data["uk_version"].strip(), "outcome": _outcome(data["outcome"]), "scale": data["scale"].strip()}
+
+
+# 12. Several achievements to STAR stories in one call
+def story_bank(achievements: list, taken=()) -> dict:
+    """A STAR story for each numbered achievement sent, keyed by its number: {n: story}. `taken`
+    lists competencies the user's stories already cover, so new ones spread out where the facts allow."""
+    system = (
+        "Turn each numbered achievement into a STAR interview story a UK interviewer will score well. One story per achievement, "
+        "using only the facts in that achievement. "
+        "Situation and task one sentence each, action 2 to 3 sentences in first person with what 'I' did, result with the number. "
+        "If a number is missing, keep it out and say so in tip. "
+        "competency is what the story shows best, for example Problem solving, Teamwork, Influencing, Initiative, Delivering results, "
+        "Communication, Leadership or Adaptability. Use a different competency for each story where the facts allow"
+        + (f", and prefer ones not already covered: {', '.join(taken)}." if taken else ".")
+    )
+    listed = [{"n": a["n"]} | {k: a.get(k) for k in ("title", "raw", "uk_version", "skills", "outcome", "scale")} for a in achievements]
+    user = (
+        f"Achievements: {_j(listed)}\n\n"
+        'Return {"stories":[{"n":int (the achievement number),"title":str,"competency":str,"situation":str,"task":str,'
+        '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str}]}'
+    )
+    template = {"stories": [{"n": 0} | dict.fromkeys(STORY_KEYS, "")]}
+    data = _run("story bank", system, user, template, 300 + 450 * len(achievements), required=("stories",))
+    sent, found = {a["n"]: a for a in achievements}, {}
+    for story in data["stories"]:
+        achievement = sent.get(story["n"])
+        if achievement and story["n"] not in found and story["situation"].strip() and story["action"].strip():
+            found[story["n"]] = _story(story, achievement)
+    if not found:
+        raise AIError("story bank")
+    return found
