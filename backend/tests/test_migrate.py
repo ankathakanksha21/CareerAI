@@ -9,7 +9,8 @@ pytestmark = pytest.mark.db
 
 TABLES = ("profiles", "achievements", "role_families", "saved_jobs", "cv_versions", "stories",
           "applications", "journal_entries", "usage_events", "schema_migrations",
-          "job_listings", "job_searches", "job_search_results", "sponsors", "reference_meta", "job_matches")
+          "job_listings", "job_searches", "job_search_results", "sponsors", "reference_meta", "job_matches",
+          "work_history", "education")
 
 
 def test_apply_all_is_idempotent(conn):
@@ -143,3 +144,92 @@ def test_a_listing_can_be_a_training_programme_and_nothing_else_new(conn):
     conn.execute(insert, ("t-training", "training"))
     with pytest.raises(psycopg.errors.CheckViolation):
         conn.execute(insert, ("t-other", "charity"))
+
+
+# ---------- 005_profile_depth: work history, education, skills, achievement links ----------
+
+def _job(conn, user, **kw):
+    fields = {"employer": "Zzqx Holdings Ltd"} | kw
+    return conn.execute(f"insert into work_history (user_id, {', '.join(fields)}) values (%s, {', '.join(['%s'] * len(fields))}) returning id",
+                        (user, *fields.values())).fetchone()["id"]
+
+
+def _course(conn, user, **kw):
+    fields = {"institution": "University of Zzqx"} | kw
+    return conn.execute(f"insert into education (user_id, {', '.join(fields)}) values (%s, {', '.join(['%s'] * len(fields))}) returning id",
+                        (user, *fields.values())).fetchone()["id"]
+
+
+def test_history_and_education_deleted_with_user(conn, user_a):
+    job, course = _job(conn, user_a), _course(conn, user_a)
+    conn.execute("delete from auth.users where id = %s", (user_a,))
+    assert _count(conn, "work_history", "id", job) == 0
+    assert _count(conn, "education", "id", course) == 0
+
+
+def test_deleting_a_job_or_course_keeps_the_achievement_and_clears_the_link(conn, user_a):
+    job, course = _job(conn, user_a), _course(conn, user_a)
+    insert = "insert into achievements (user_id, title, uk_version, source, {}) values (%s, 'T', 'Did X', 'cv', %s) returning id"
+    at_work = conn.execute(insert.format("work_history_id"), (user_a, job)).fetchone()["id"]
+    on_course = conn.execute(insert.format("education_id"), (user_a, course)).fetchone()["id"]
+    conn.execute("delete from work_history where id = %s", (job,))
+    conn.execute("delete from education where id = %s", (course,))
+    rows = conn.execute("select work_history_id, education_id from achievements where id = any(%s)", ([at_work, on_course],)).fetchall()
+    assert len(rows) == 2 and all(r["work_history_id"] is None and r["education_id"] is None for r in rows)
+
+
+@pytest.mark.parametrize("make", [_job, _course])
+def test_end_before_start_rejected(conn, user_a, make):
+    make(conn, user_a, start_month=date(2023, 7, 1), end_month=date(2023, 7, 1))  # the same month is fine
+    with pytest.raises(psycopg.errors.CheckViolation):
+        make(conn, user_a, start_month=date(2023, 7, 1), end_month=date(2023, 6, 1))
+
+
+def test_current_job_cannot_have_an_end_month(conn, user_a):
+    _job(conn, user_a, is_current=True)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _job(conn, user_a, is_current=True, end_month=date(2025, 8, 1))
+
+
+def test_one_current_course_per_user(conn, user_a, user_b):
+    _course(conn, user_a, from_details=True)
+    _course(conn, user_a)                      # any number of other courses
+    _course(conn, user_b, from_details=True)   # another user has their own
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        _course(conn, user_a, from_details=True)
+
+
+@pytest.mark.parametrize("source, accepted", [("cv", True), ("github", True), ("voice", True), ("paste", True), ("linkedin", False)])
+def test_achievement_sources(conn, user_a, source, accepted):
+    insert = "insert into achievements (user_id, title, uk_version, source) values (%s, 'T', 'Did X', %s)"
+    if accepted:
+        conn.execute(insert, (user_a, source))
+    else:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(insert, (user_a, source))
+
+
+def test_entry_source_is_checked(conn, user_a):
+    _job(conn, user_a, source="cv")
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _job(conn, user_a, source="linkedin")
+
+
+def test_journal_import_type(conn, user_a):
+    insert = "insert into journal_entries (user_id, type, title) values (%s, %s, 'T')"
+    conn.execute(insert, (user_a, "import"))
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute(insert, (user_a, "other"))
+
+
+def test_profile_starts_with_no_skills_languages_or_github(conn, user_a):
+    row = conn.execute("insert into profiles (user_id, full_name) values (%s, 'Test Person') returning skills, languages, github_username",
+                       (user_a,)).fetchone()
+    assert row["skills"] == [] and row["languages"] == [] and row["github_username"] is None
+
+
+def test_entry_defaults(conn, user_a):
+    job = conn.execute("select * from work_history where id = %s", (_job(conn, user_a),)).fetchone()
+    assert job["is_current"] is False and job["source"] == "manual" and job["start_month"] is None and job["employer_context"] == ""
+    course = conn.execute("select * from education where id = %s", (_course(conn, user_a),)).fetchone()
+    assert course["from_details"] is False and course["source"] == "manual" and course["grade"] == ""
