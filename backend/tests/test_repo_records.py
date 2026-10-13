@@ -202,3 +202,48 @@ def test_load_state_only_own_rows(conn, user_a, user_b):
     assert set(mine) == set(theirs) == keys
     assert all(len(mine[k]) == 1 for k in keys)
     assert all(theirs[k] == [] for k in keys)
+
+
+# ---------- editing and deleting stories ----------
+
+def story(conn, user):
+    a = repo.add_achievements(conn, user, [ITEM], "paste")[0]
+    return a, repo.add_story(conn, user, a["id"], STORY)
+
+
+def test_update_story_changes_only_the_fields_given(conn, user_a):
+    _, s = story(conn, user_a)
+    changed = repo.update_story(conn, user_a, s["id"], {"result": "Late deliveries fell by 8%", "competency": "Delivering results"})
+    assert changed["result"] == "Late deliveries fell by 8%" and changed["competency"] == "Delivering results"
+    assert changed["situation"] == "s" and changed["strength"] == "strong" and changed["achievement_id"] == s["achievement_id"]
+    assert repo.get_story(conn, user_a, s["id"]) == changed
+
+
+@pytest.mark.parametrize("field", ["achievement_id", "user_id", "strength"])
+def test_update_story_refuses_other_fields(conn, user_a, field):
+    _, s = story(conn, user_a)
+    with pytest.raises(ValueError):
+        repo.update_story(conn, user_a, s["id"], {field: "changed"})
+
+
+def test_delete_story_keeps_the_achievement(conn, user_a):
+    a, s = story(conn, user_a)
+    assert repo.delete_story(conn, user_a, s["id"]) is True
+    assert repo.delete_story(conn, user_a, s["id"]) is False
+    assert repo.list_stories(conn, user_a) == [] and repo.get_achievement(conn, user_a, a["id"]) is not None
+
+
+def test_another_user_cannot_read_change_or_delete_a_story(conn, user_a, user_b):
+    _, s = story(conn, user_a)
+    assert repo.get_story(conn, user_b, s["id"]) is None
+    assert repo.update_story(conn, user_b, s["id"], {"title": "Taken over"}) is None
+    assert repo.delete_story(conn, user_b, s["id"]) is False
+    assert repo.get_story(conn, user_a, s["id"]) == s
+
+
+def test_achievements_without_story(conn, user_a, user_b):
+    a, _ = story(conn, user_a)
+    bare = repo.add_achievements(conn, user_a, [ITEM | {"title": "Thing two"}], "paste")[0]
+    repo.add_achievements(conn, user_b, [ITEM], "paste")
+    assert [x["id"] for x in repo.achievements_without_story(conn, user_a)] == [bare["id"]]
+    assert len(repo.achievements_without_story(conn, user_b)) == 1

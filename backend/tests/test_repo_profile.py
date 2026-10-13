@@ -95,6 +95,98 @@ def test_list_achievements_empty_for_other_user(conn, user_a, user_b):
     assert repo.list_achievements(conn, user_b) == []
 
 
+
+# ---------- editing an achievement, and where it happened ----------
+
+def job_at(conn, user, employer="Zzqx Holdings Ltd"):
+    return repo.add_entry(conn, user, "work_history", {"employer": employer})
+
+
+def course_at(conn, user):
+    return repo.add_entry(conn, user, "education", {"institution": "University of Zzqx"})
+
+
+def test_update_achievement_changes_only_the_fields_given(conn, user_a):
+    a = repo.add_achievements(conn, user_a, [ITEM], "cv")[0]
+    changed = repo.update_achievement(conn, user_a, a["id"], {"uk_version": "Built X for 55 users", "skills": ["SQL", "Excel"]})
+    assert changed["uk_version"] == "Built X for 55 users" and changed["skills"] == ["SQL", "Excel"]
+    assert {k: changed[k] for k in ("title", "raw", "outcome", "scale", "context_note", "source")} == \
+           {k: a[k] for k in ("title", "raw", "outcome", "scale", "context_note", "source")}
+
+
+@pytest.mark.parametrize("field", ["raw", "source", "user_id", "source_url"])
+def test_the_quote_and_the_source_cannot_be_edited(conn, user_a, field):
+    a = repo.add_achievements(conn, user_a, [ITEM], "cv")[0]
+    with pytest.raises(ValueError):
+        repo.update_achievement(conn, user_a, a["id"], {field: "changed"})
+    assert repo.get_achievement(conn, user_a, a["id"]) == a
+
+
+def test_update_achievement_none_for_other_user(conn, user_a, user_b):
+    a = repo.add_achievements(conn, user_a, [ITEM], "cv")[0]
+    assert repo.update_achievement(conn, user_b, a["id"], {"title": "Taken over"}) is None
+    assert repo.get_achievement(conn, user_a, a["id"])["title"] == "Thing one"
+
+
+def test_an_achievement_is_linked_to_a_job_or_a_course_never_both(conn, user_a):
+    a = repo.add_achievements(conn, user_a, [ITEM], "cv")[0]
+    job, course = job_at(conn, user_a), course_at(conn, user_a)
+    at_work = repo.update_achievement(conn, user_a, a["id"], {"work_history_id": job["id"]})
+    assert at_work["work_history_id"] == job["id"] and at_work["education_id"] is None
+    on_course = repo.update_achievement(conn, user_a, a["id"], {"education_id": course["id"]})
+    assert on_course["education_id"] == course["id"] and on_course["work_history_id"] is None
+    unlinked = repo.update_achievement(conn, user_a, a["id"], {"education_id": None})
+    assert unlinked["education_id"] is None and unlinked["work_history_id"] is None
+
+
+def test_an_achievement_cannot_be_linked_to_another_users_job_or_course(conn, user_a, user_b):
+    a = repo.add_achievements(conn, user_a, [ITEM], "cv")[0]
+    theirs, their_course = job_at(conn, user_b), course_at(conn, user_b)
+    assert repo.update_achievement(conn, user_a, a["id"], {"work_history_id": theirs["id"]})["work_history_id"] is None
+    assert repo.update_achievement(conn, user_a, a["id"], {"education_id": their_course["id"]})["education_id"] is None
+
+
+def test_deleting_the_job_keeps_the_achievement_unlinked(conn, user_a):
+    job = job_at(conn, user_a)
+    a = repo.add_achievements(conn, user_a, [ITEM | {"work_history_id": job["id"]}], "cv")[0]
+    assert a["work_history_id"] == job["id"]
+    repo.delete_entry(conn, user_a, "work_history", job["id"])
+    assert repo.get_achievement(conn, user_a, a["id"])["work_history_id"] is None
+
+
+def test_new_achievements_carry_their_link_and_repository(conn, user_a, user_b):
+    job, theirs = job_at(conn, user_a), job_at(conn, user_b)
+    saved = repo.add_achievements(conn, user_a, [
+        ITEM | {"work_history_id": job["id"], "source_url": "https://github.com/zzqx-sample/thing"},
+        ITEM | {"title": "Thing two", "work_history_id": theirs["id"]},
+        ITEM | {"title": "Thing three"}], "github")
+    assert saved[0]["work_history_id"] == job["id"] and saved[0]["source_url"] == "https://github.com/zzqx-sample/thing"
+    assert saved[1]["work_history_id"] is None and saved[2]["source_url"] is None
+
+
+def test_link_achievements_links_only_the_callers(conn, user_a, user_b):
+    mine = repo.add_achievements(conn, user_a, [ITEM, ITEM | {"title": "Thing two"}], "cv")
+    theirs = repo.add_achievements(conn, user_b, [ITEM], "cv")[0]
+    course = course_at(conn, user_a)
+    assert repo.link_achievements(conn, user_a, [mine[0]["id"], theirs["id"]], education_id=course["id"]) == 1
+    assert repo.get_achievement(conn, user_a, mine[0]["id"])["education_id"] == course["id"]
+    assert repo.get_achievement(conn, user_a, mine[1]["id"])["education_id"] is None
+    assert repo.get_achievement(conn, user_b, theirs["id"])["education_id"] is None
+
+
+def test_link_achievements_to_another_users_job_does_nothing(conn, user_a, user_b):
+    a = repo.add_achievements(conn, user_a, [ITEM], "cv")[0]
+    assert repo.link_achievements(conn, user_a, [a["id"]], work_history_id=job_at(conn, user_b)["id"]) == 0
+    assert repo.link_achievements(conn, user_a, [], work_history_id=job_at(conn, user_a)["id"]) == 0
+    assert repo.get_achievement(conn, user_a, a["id"])["work_history_id"] is None
+
+
+def test_imported_urls(conn, user_a, user_b):
+    repo.add_achievements(conn, user_a, [ITEM | {"source_url": "https://github.com/zzqx-sample/thing"}, ITEM], "github")
+    assert repo.imported_urls(conn, user_a) == {"https://github.com/zzqx-sample/thing"}
+    assert repo.imported_urls(conn, user_b) == set()
+
+
 # ---------- role families ----------
 
 def test_sync_inserts_new_families(conn, user_a):
