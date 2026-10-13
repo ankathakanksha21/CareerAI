@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { api } from '../api'
 import { Empty, ErrorRetry, Meter, PageHead, fmtDate, isoDay, useAction } from '../ui'
 
-const TYPES = [['all', 'All'], ['interview', 'Mock interviews'], ['coach', 'Coach calls']]
-const TYPE_LABEL = { interview: 'Mock interview', coach: 'Coach call' }
+const TYPES = [['all', 'All'], ['interview', 'Mock interviews'], ['coach', 'Coach calls'], ['import', 'Imports']]
+const TYPE_LABEL = { interview: 'Mock interview', coach: 'Coach call', import: 'Import' }
+const TRANSCRIPT_LINK = { interview: 'View what you said in this interview', coach: 'View what you told the coach', import: 'View the text we read' }
 const SCORE_LABELS = { structure: 'Structure', clarity: 'Clarity', evidence: 'Evidence', uk_tone: 'UK tone' }
 
 // What was said in that session, fetched only when the user asks for it
@@ -13,7 +14,7 @@ function Transcript({ entry }) {
   return (
     <>
       <button className="linkish small" style={{ marginTop: 8 }} disabled={load.loading} onClick={() => load.run()}>
-        {load.loading ? 'Loading transcript' : entry.type === 'interview' ? 'View what you said in this interview' : 'View what you told the coach'}
+        {load.loading ? 'Loading' : TRANSCRIPT_LINK[entry.type]}
       </button>
       <ErrorRetry error={load.error} onRetry={load.retry} />
     </>
@@ -26,9 +27,9 @@ export default function Journal({ s, go }) {
 
   return (
     <>
-      <PageHead title="Journal" lede="A log of every coach call and mock interview, with notes written for you after each one." />
+      <PageHead title="Journal" lede="A log of every coach call, mock interview and import, with notes written for you after each one." />
       {s.journal.length === 0 ? (
-        <Empty title="No sessions yet." body="Coach calls and mock interviews are saved here automatically." action="Practise an interview" onAction={() => go('interview')} />
+        <Empty title="No sessions yet." body="Coach calls, mock interviews and imports are saved here automatically." action="Practise an interview" onAction={() => go('interview')} />
       ) : (
         <>
           <div className="filters">
@@ -47,7 +48,7 @@ export default function Journal({ s, go }) {
                   <div>
                     <div className="row" style={{ gap: 8 }}>
                       <span className="chip good">{TYPE_LABEL[e.type]}</span>
-                      <span className="small muted">with {e.with_whom}</span>
+                      {e.with_whom && <span className="small muted">with {e.with_whom}</span>}
                     </div>
                     <h3 style={{ marginTop: 6, fontSize: 15.5 }}>{e.title}</h3>
                     <p className="small" style={{ marginTop: 2 }}>{e.summary}</p>
@@ -55,7 +56,7 @@ export default function Journal({ s, go }) {
                       <details>
                         <summary>Session notes</summary>
                         <div className="grid cols-2" style={{ marginTop: 10 }}>
-                          {e.points.length > 0 && <div><h3>{e.type === 'interview' ? 'What worked' : 'Key points'}</h3><ul className="dots small">{e.points.map((x) => <li key={x}>{x}</li>)}</ul></div>}
+                          {e.points.length > 0 && <div><h3>{e.type === 'interview' ? 'What worked' : e.type === 'import' ? 'Added' : 'Key points'}</h3><ul className="dots small">{e.points.map((x) => <li key={x}>{x}</li>)}</ul></div>}
                           {e.actions.length > 0 && <div><h3>{e.type === 'interview' ? 'Change next time' : 'Actions'}</h3><ul className="dots small">{e.actions.map((x) => <li key={x}>{x}</li>)}</ul></div>}
                           {e.scores && (
                             <div className="stack" style={{ gap: 6 }}>

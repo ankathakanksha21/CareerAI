@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { BriefcaseBusiness, FileText, MessagesSquare, PhoneCall } from 'lucide-react'
-import { post } from '../api'
-import { ErrorRetry, Meter, PageHead, useAction } from '../ui'
+import { del, patch, post } from '../api'
+import { ErrorRetry, Meter, PageHead, attempt, useAction } from '../ui'
 import VoiceAgent from '../VoiceAgent'
 import { AddJob, JobPicker } from '../components/Jobs'
 
@@ -121,42 +121,118 @@ function Sessions({ s, focus, refresh, session }) {
   )
 }
 
+const BANK = 8 // stories a candidate needs; "Build my story bank" fills up to this
+const STORY_PARTS = [['situation', 'Situation'], ['task', 'Task'], ['action', 'Action'], ['result', 'Result']]
+const STRENGTH_TONE = { strong: 'good', 'needs a number': 'warn', 'needs detail': 'bad' }
+
+// One STAR story, read or edited in place
+function Story({ st, refresh, notify }) {
+  const [form, setForm] = useState(null) // the fields being edited, or nothing
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+
+  const save = async (ev) => {
+    ev.preventDefault()
+    if (!form.title.trim()) return setError('Give the story a title.')
+    setBusy(true)
+    setError(null)
+    try {
+      await patch(`/api/stories/${st.id}`, form)
+      await refresh()
+      setForm(null)
+      notify('Story saved')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const remove = async () => {
+    if (!window.confirm('Delete this story? The achievement it came from is kept.')) return
+    await attempt(notify)(async () => {
+      await del(`/api/stories/${st.id}`)
+      await refresh()
+      notify('Story deleted')
+    })
+  }
+
+  if (form) {
+    return (
+      <form className="card stack editing" onSubmit={save} noValidate>
+        <label className="field">Title<input type="text" value={form.title} maxLength={200} onChange={set('title')} /></label>
+        <label className="field">Competency<input type="text" value={form.competency} maxLength={80} onChange={set('competency')} placeholder="e.g. Problem solving" /></label>
+        {STORY_PARTS.map(([key, label]) => (
+          <label key={key} className="field">{label}<textarea rows={key === 'action' ? 4 : 2} value={form[key]} maxLength={2000} onChange={set(key)} /></label>
+        ))}
+        {error && <p className="error" role="alert">{error}</p>}
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn ghost small" onClick={() => setForm(null)}>Cancel</button>
+          <button className="btn small" type="submit" disabled={busy}>{busy ? 'Saving' : 'Save'}</button>
+        </div>
+      </form>
+    )
+  }
+  return (
+    <article className="card stack">
+      <div className="row"><h3 style={{ flex: 1 }}>{st.title}</h3><span className={`chip ${STRENGTH_TONE[st.strength] || ''}`}>{st.strength}</span></div>
+      <span className="small muted">{st.competency}</span>
+      <div className="star">
+        {STORY_PARTS.map(([key, label]) => <span key={key} style={{ display: 'contents' }}><b>{label[0]}</b><span>{st[key]}</span></span>)}
+      </div>
+      <div className="row">
+        <button className="linkish small" onClick={() => setForm({ title: st.title, competency: st.competency, situation: st.situation, task: st.task, action: st.action, result: st.result })}>Edit</button>
+        <button className="linkish small" onClick={remove}>Delete</button>
+      </div>
+    </article>
+  )
+}
+
 function Stories({ s, refresh, notify, go }) {
   const [evId, setEvId] = useState(s.achievements[0]?.id || '')
   const make = useAction(async (id) => { const r = await post('/api/ai/star', { achievement_id: id }); await refresh(); notify('Story added'); return r })
-  const tone = { strong: 'good', 'needs a number': 'warn', 'needs detail': 'bad' }
+  const bank = useAction(async () => {
+    const r = await post('/api/ai/stories/bank')
+    await refresh()
+    notify(r.stories.length === 1 ? '1 story added' : `${r.stories.length} stories added`)
+    return r
+  })
+  const told = new Set(s.stories.map((st) => st.achievement_id))
+  const untold = s.achievements.filter((a) => !told.has(a.id)).length
+  const room = Math.min(BANK - s.stories.length, untold) // how many the bank would write now
   return (
     <>
       <section className="card" style={{ marginBottom: 16 }}>
-        <h2>Turn an achievement into a story</h2>
+        <h2>Turn your achievements into stories</h2>
         <p className="sub">UK competency interviews expect STAR answers: situation, task, action, result. Aim for 6 to 8 stories.</p>
         {s.achievements.length === 0 ? (
           <p className="small">Your profile has no achievements yet. <button className="linkish" onClick={() => go('profile')}>Build your profile</button> first.</p>
         ) : (
-          <div className="row">
-            <select value={evId} onChange={(e) => setEvId(e.target.value)} aria-label="Achievement">
-              {s.achievements.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
-            </select>
-            <button className="btn" disabled={make.loading} onClick={() => make.run(evId)}>{make.loading ? 'Writing' : 'Write STAR story'}</button>
+          <div className="stack">
+            {room > 0 && (
+              <div className="row">
+                <button className="btn" disabled={bank.loading || make.loading} onClick={() => bank.run()}>{bank.loading ? 'Writing your stories' : 'Build my story bank'}</button>
+                <span className="small muted">
+                  {bank.loading ? 'This takes about half a minute.' : `Writes ${room === 1 ? 'a story' : `${room} stories`} from your strongest achievements that have none.`}
+                </span>
+              </div>
+            )}
+            <div className="row">
+              <select value={evId} onChange={(e) => setEvId(e.target.value)} aria-label="Achievement">
+                {s.achievements.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
+              </select>
+              <button className={room > 0 ? 'btn ghost' : 'btn'} disabled={make.loading || bank.loading} onClick={() => make.run(evId)}>{make.loading ? 'Writing' : 'Write one story'}</button>
+            </div>
           </div>
         )}
+        <ErrorRetry error={bank.error} onRetry={bank.retry} />
+        {bank.result?.notice && !bank.loading && <p className="small muted" role="status" style={{ marginTop: 8 }}>{bank.result.notice}</p>}
         <ErrorRetry error={make.error} onRetry={make.retry} />
         {make.result?.tip && <p className="small" style={{ marginTop: 8 }}>Tip: {make.result.tip}</p>}
       </section>
-      {s.stories.length === 0 && <p className="muted">No stories yet. Write one from an achievement above.</p>}
+      {s.stories.length === 0 && <p className="muted">No stories yet. Build your story bank above, or write one at a time.</p>}
       <div className="grid cols-2">
-        {s.stories.map((st) => (
-          <article key={st.id} className="card stack">
-            <div className="row"><h3 style={{ flex: 1 }}>{st.title}</h3><span className={`chip ${tone[st.strength] || ''}`}>{st.strength}</span></div>
-            <span className="small muted">{st.competency}</span>
-            <div className="star">
-              <b>S</b><span>{st.situation}</span>
-              <b>T</b><span>{st.task}</span>
-              <b>A</b><span>{st.action}</span>
-              <b>R</b><span>{st.result}</span>
-            </div>
-          </article>
-        ))}
+        {s.stories.map((st) => <Story key={st.id} st={st} refresh={refresh} notify={notify} />)}
       </div>
     </>
   )

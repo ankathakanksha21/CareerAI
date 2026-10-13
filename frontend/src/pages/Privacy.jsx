@@ -23,6 +23,9 @@ export default function Privacy({ go, signedIn }) {
           <li>Your email address and name.</li>
           <li>Your university, course, graduation date, visa type, visa end date and preferred locations.</li>
           <li>What you tell the careers coach in a voice call, or paste into the app, about your background.</li>
+          <li>The text of a CV you upload. The file is read once and discarded: we keep the text we read from it, never the file.</li>
+          <li>Your work history, education, skills and languages, once you confirm them.</li>
+          <li>Your GitHub username, if you import projects, and the public description and README of the repositories you pick.</li>
           <li>Job descriptions you add, which matched jobs you save or dismiss, and the applications you log.</li>
           <li>Content the AI writes for you: achievements, CVs, cover letters, interview stories and feedback.</li>
           <li>A count of how many AI actions and voice calls you use each day.</li>
@@ -36,6 +39,7 @@ export default function Privacy({ go, signedIn }) {
           <li><span className="strong">Supabase</span> stores your account and data, in London.</li>
           <li><span className="strong">Amazon Web Services (Bedrock)</span> runs the AI model that writes text for you, in the United States.</li>
           <li><span className="strong">ElevenLabs</span> runs voice calls and turns them into text.</li>
+          <li><span className="strong">GitHub</span> supplies public repository details when you import projects. We send it the username you type, nothing else about you.</li>
           <li><span className="strong">Reed</span> supplies job adverts. We send it job titles and locations from your target roles, never your name or anything else about you.</li>
         </ul>
 
@@ -46,7 +50,7 @@ export default function Privacy({ go, signedIn }) {
         <p>Until you delete your account.</p>
 
         <h2>Your choices</h2>
-        <p>You can delete your account and everything in it at any time from the Account page. You can also remove individual achievements, jobs and applications.</p>
+        <p>You can delete your account and everything in it at any time from the Account page. You can also edit or remove individual achievements, jobs, courses, skills, stories and applications.</p>
 
         {contact && <><h2>Contact</h2><p>Questions about your information: <a href={`mailto:${contact}`}>{contact}</a></p></>}
       </main>

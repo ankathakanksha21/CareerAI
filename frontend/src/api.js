@@ -6,9 +6,10 @@ export const onSignedOut = (fn) => { signedOut = fn }
 
 function send(path, method, body, token) {
   const headers = {}
-  if (body) headers['Content-Type'] = 'application/json'
+  const file = body instanceof Blob // a file travels as the raw body, exactly as it is
+  if (body) headers['Content-Type'] = file ? 'application/octet-stream' : 'application/json'
   if (token) headers.Authorization = `Bearer ${token}`
-  return fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined })
+  return fetch(path, { method, headers, body: !body || file ? body || undefined : JSON.stringify(body) })
 }
 
 function message(data, status) {
@@ -39,3 +40,4 @@ export const post = (path, body = {}) => api(path, { method: 'POST', body })
 export const patch = (path, body = {}) => api(path, { method: 'PATCH', body })
 export const put = (path, body = {}) => api(path, { method: 'PUT', body })
 export const del = (path) => api(path, { method: 'DELETE' })
+export const upload = (path, file) => api(path, { method: 'POST', body: file })

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Check } from 'lucide-react'
 import { post } from '../api'
-import { Avatar, Brand, ErrorRetry, FamilyCard, attempt, useAction } from '../ui'
+import { Avatar, Brand, ErrorRetry, FamilyCard, Quote, attempt, useAction } from '../ui'
 import DetailsForm from '../components/DetailsForm'
 import BackgroundInput from '../components/BackgroundInput'
+import FoundFacts, { hasFacts, mergeFound } from '../components/FoundFacts'
 
 const STEPS = ['Your details', 'Your background', 'Your profile', 'Target roles']
 
@@ -15,14 +16,20 @@ function firstOpenStep(s) {
   return 3
 }
 
-function ProfileStep({ s, back, next }) {
+function ProfileStep({ s, back, next, found, clearFound }) {
   const p = s.profile
-  const families = useAction(async () => { await post('/api/ai/families'); await next() })
+  const facts = useRef(null) // the "We also found" panel, while there is something to confirm
+  const offered = hasFacts(found)
+  const proceed = useAction(async () => {
+    if (facts.current) await facts.current.save() // what is ticked is saved; the panel then goes away
+    if (!s.role_families.length) await post('/api/ai/families')
+    await next()
+  })
   return (
     <>
       <div className="ob-title">
         <h1>Your profile</h1>
-        <p>Here is what you told us, written the way UK employers read it. Each one shows the words it came from.</p>
+        <p>Here is what you gave us, written the way UK employers read it. Each one shows the words it came from.</p>
       </div>
       <div className="card">
         <div className="profile-head">
@@ -40,16 +47,18 @@ function ProfileStep({ s, back, next }) {
           <div key={e.id} className="card tight">
             <div className="strong">{e.title}</div>
             <p style={{ marginTop: 4 }}>{e.uk_version}</p>
-            {e.raw && <p className="said" style={{ marginTop: 4 }}>You said: "{e.raw}"</p>}
+            <Quote a={e} style={{ marginTop: 4 }} />
             <div className="row" style={{ marginTop: 8 }}>{e.skills.slice(0, 4).map((k) => <span key={k} className="chip">{k}</span>)}</div>
           </div>
         ))}
       </div>
-      <ErrorRetry error={families.error} onRetry={families.retry} />
+      {found?.notice && <p className="small muted section" role="status">{found.notice}</p>}
+      {offered && <div className="section"><FoundFacts ref={facts} embedded found={found} onSaved={clearFound} /></div>}
+      <ErrorRetry error={proceed.error} onRetry={proceed.retry} />
       <div className="ob-actions">
         <button className="btn ghost large" onClick={back}>Add more</button>
-        <button className="btn large" disabled={families.loading} onClick={() => (s.role_families.length ? next() : families.run())}>
-          {families.loading ? 'Finding roles that fit' : 'Continue'}
+        <button className="btn large" disabled={proceed.loading} onClick={() => proceed.run()}>
+          {proceed.loading ? (s.role_families.length ? 'Saving' : 'Finding roles that fit') : offered ? 'Save and continue' : 'Continue'}
         </button>
       </div>
     </>
@@ -78,6 +87,12 @@ function RolesStep({ s, refresh, go, notify }) {
 
 export default function Onboarding({ s, refresh, go, session, notify }) {
   const [step, setStep] = useState(() => firstOpenStep(s))
+  const [found, setFound] = useState(null) // jobs, courses and skills an import read, until the user confirms them
+  const built = async (r) => {
+    setFound((was) => mergeFound(was, { facts: r.facts, source: r.source, notice: r.notice }))
+    await refresh()
+    setStep(2)
+  }
   const reachable = firstOpenStep(s)
   const current = Math.min(step, reachable) // never show a step whose earlier steps are unfinished
 
@@ -112,13 +127,16 @@ export default function Onboarding({ s, refresh, go, session, notify }) {
           <>
             <div className="ob-title">
               <h1>Tell us about your background</h1>
-              <p>Work, projects, internships, volunteering. We turn it into evidence UK employers understand.</p>
+              <p>Work, projects, internships, volunteering. Use any of these, and more than one if you like.</p>
             </div>
-            <BackgroundInput s={s} userId={session.user.id} onBuilt={async () => { await refresh(); setStep(2) }} />
+            <BackgroundInput s={s} userId={session.user.id} onBuilt={built} />
+            {s.achievements.length === 0 && hasFacts(found) && (
+              <FoundFacts found={found} onSaved={async () => { setFound(null); await refresh() }} onDismiss={() => setFound(null)} />
+            )}
             {s.achievements.length > 0 && <div className="ob-actions"><button className="btn ghost large" onClick={() => setStep(2)}>Continue with what I have</button></div>}
           </>
         )}
-        {current === 2 && <ProfileStep s={s} back={() => setStep(1)} next={async () => { await refresh(); setStep(3) }} />}
+        {current === 2 && <ProfileStep s={s} found={found} clearFound={() => setFound(null)} back={() => setStep(1)} next={async () => { await refresh(); setStep(3) }} />}
         {current === 3 && <RolesStep s={s} refresh={refresh} go={go} notify={notify} />}
       </main>
     </div>

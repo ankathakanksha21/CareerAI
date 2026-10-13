@@ -100,7 +100,16 @@ export const parseDay = (iso) => { const [y, m, d] = iso.slice(0, 10).split('-')
 export const daysUntil = (iso) => Math.round((parseDay(iso) - today()) / 86400000)
 export const pct = (x) => `${Math.round(x * 100)}%`
 export const fmtDate = (iso, opts = { day: 'numeric', month: 'short' }) => parseDay(iso).toLocaleDateString('en-GB', opts)
+export const fmtMonth = (iso) => fmtDate(iso, { month: 'short', year: 'numeric' })
+// When a job or course ran: "Jul 2023 to Aug 2025", "Jul 2023 to present", or nothing if no dates were given
+export const period = (e) => {
+  const end = e.is_current ? 'present' : e.end_month ? fmtMonth(e.end_month) : ''
+  if (e.start_month) return end ? `${fmtMonth(e.start_month)} to ${end}` : `From ${fmtMonth(e.start_month)}`
+  return e.is_current ? 'Current' : end ? `Until ${end}` : ''
+}
 export const VISA_LABEL = { student: 'Student', graduate: 'Graduate' }
+// An achievement's quote is labelled by where it really came from
+export const QUOTE_LABEL = { voice: 'You said', paste: 'You wrote', cv: 'From your CV', github: 'From your repository' }
 export const FIT_LABEL = { direct: 'Direct fit', near: 'Near fit', stretch: 'Stretch', none: 'Not a match' }
 export const money = (n) => `£${Math.round(n).toLocaleString('en-GB')}`
 export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -143,6 +152,12 @@ export function FamilyCard({ f, onToggle, market, onJobs }) {
       </div>
     </article>
   )
+}
+
+// The user's own words an achievement was built from. Shown only when they were found in the source
+export function Quote({ a, style }) {
+  if (!a.raw) return null
+  return <p className="said" style={style}>{QUOTE_LABEL[a.source] || QUOTE_LABEL.voice}: "{a.raw}"</p>
 }
 
 export function Brand({ onClick }) {
