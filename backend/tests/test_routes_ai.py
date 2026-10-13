@@ -18,20 +18,13 @@ FEEDBACK = {"scores": {"structure": 3, "clarity": 4, "evidence": 2, "uk_tone": 3
 STORY = {"title": "Story", "competency": "c", "situation": "s", "task": "t", "action": "a", "result": "r", "strength": "strong", "tip": ""}
 
 
-@pytest.fixture
-def stub(monkeypatch):
-    """Replace one ai.<name> with a function returning `result` (or raising it). Returns the calls made."""
-    def install(name, result):
-        calls = []
+NO_FACTS = {"work_history": [], "education": [], "skills": [], "languages": []}
 
-        def fake(*args, **kwargs):
-            calls.append(args)
-            if isinstance(result, Exception):
-                raise result
-            return result
-        monkeypatch.setattr(ai, name, fake)
-        return calls
-    return install
+
+@pytest.fixture(autouse=True)
+def no_facts(monkeypatch):
+    """Every import also asks for CV facts. Unless a test says otherwise, none are found."""
+    monkeypatch.setattr(ai, "extract_facts", lambda *args, **kwargs: NO_FACTS)
 
 
 def state(client):

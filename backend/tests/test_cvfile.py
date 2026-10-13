@@ -1,12 +1,10 @@
-import builtins
 import io
-import tempfile
 import zipfile
 
 import pytest
 
 import cvfile
-from files import CV_LINES, cv_docx, cv_pdf, docx, locked_pdf, paragraph, pdf, table, text_box
+from files import CV_LINES, cv_docx, cv_pdf, docx, forbid_disk_writes, locked_pdf, paragraph, pdf, table, text_box
 
 LONG_LINE = "Analysed delivery records for the operations team every single week. "  # about 70 characters
 
@@ -147,12 +145,5 @@ def test_a_word_file_that_unpacks_too_large_is_refused_without_being_unpacked(mo
 @pytest.mark.parametrize("make", [cv_pdf, cv_docx])
 def test_reading_a_file_never_touches_the_disk(monkeypatch, make):
     data = make()
-    cvfile.text(data)  # first, so that anything Python loads lazily is already loaded
-
-    def no_disk(*args, **kwargs):
-        raise AssertionError("the file was written to disk")
-    for name in ("TemporaryFile", "NamedTemporaryFile", "SpooledTemporaryFile", "mkstemp", "mkdtemp"):
-        monkeypatch.setattr(tempfile, name, no_disk)
-    monkeypatch.setattr(builtins, "open", no_disk)
-    monkeypatch.setattr(io, "open", no_disk)
+    forbid_disk_writes(monkeypatch)
     assert cvfile.text(data)[0].split("\n") == CV_LINES

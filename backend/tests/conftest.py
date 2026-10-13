@@ -11,6 +11,36 @@ def no_env_file(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "ENV_PATH", tmp_path / "none")
 
 
+# ---------- the model ----------
+
+@pytest.fixture(autouse=True)
+def no_real_model(monkeypatch):
+    """No test reaches the real model by accident: an AI task that was not replaced fails loudly."""
+    import ai
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a test called the real model: replace the AI task it uses")
+    monkeypatch.setattr(ai, "complete_json", refuse)
+
+
+@pytest.fixture
+def stub(monkeypatch):
+    """Replace one ai.<name> with a function returning `result` (or raising it). Returns the calls made."""
+    import ai
+
+    def install(name, result):
+        calls = []
+
+        def fake(*args, **kwargs):
+            calls.append(args)
+            if isinstance(result, Exception):
+                raise result
+            return result
+        monkeypatch.setattr(ai, name, fake)
+        return calls
+    return install
+
+
 # ---------- database fixtures (tests marked "db") ----------
 
 @pytest.fixture

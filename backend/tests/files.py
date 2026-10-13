@@ -1,6 +1,8 @@
 """Real PDF and Word files built in memory for tests. Nothing here touches the disk, and the
 people and employers in them cannot be real."""
+import builtins
 import io
+import tempfile
 import zipfile
 from xml.sax.saxutils import escape
 
@@ -86,3 +88,21 @@ def cv_pdf() -> bytes:
 
 def cv_docx() -> bytes:
     return docx("".join(paragraph(x) for x in CV_LINES))
+
+
+def forbid_disk_writes(monkeypatch) -> None:
+    """From here on, the test fails if anything creates a temporary file or opens any file for
+    writing. Reading stays allowed: the server reads its own settings file on every request."""
+    real_open = builtins.open
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("something was written to disk")
+
+    def read_only(file, mode="r", *args, **kwargs):
+        if any(flag in mode for flag in "wax+"):
+            refuse()
+        return real_open(file, mode, *args, **kwargs)
+    for name in ("TemporaryFile", "NamedTemporaryFile", "SpooledTemporaryFile", "mkstemp", "mkdtemp"):
+        monkeypatch.setattr(tempfile, name, refuse)
+    monkeypatch.setattr(builtins, "open", read_only)
+    monkeypatch.setattr(io, "open", read_only)
