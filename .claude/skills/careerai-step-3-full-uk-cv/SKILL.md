@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 3 of the CareerAI r
 
 # Step 3: the full UK CV
 
-**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 1 (needs work history, education and skills). **Size:** medium.
+**Status:** In progress on branch `step-3-full-uk-cv`. Open questions settled with the owner on 13 October 2026; the plan is `docs/superpowers/plans/2026-10-13-step-3-full-uk-cv.md`. Design approved by the owner, 12 October 2026. **Depends on:** step 1 (needs work history, education and skills). **Size:** medium.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -26,6 +26,10 @@ Today "tailoring" produces a profile paragraph, four or five bullets and a cover
 | Sent versions do not change | Editing a CV version that is already attached to an application creates a new version, so reply rates by version stay true | Recommended; approved 12 Oct 2026 |
 | Length | Two pages. The app shows the page count and says what to trim; it never cuts content silently | Recommended; approved 12 Oct 2026 |
 | Right-to-work line | Off by default. The user can switch it on and edit the wording. The app offers neutral wording stating the current visa and its end date and makes no claim about future eligibility | Recommended; approved 12 Oct 2026 |
+| Right-to-work wording | Graduate visa: "Right to work in the UK: Graduate visa, valid until 14 March 2028." Student visa: "Visa status: Student visa, valid until 30 January 2027." A Student visa limits working hours, so that line does not say "right to work". No hour figures | Owner, 13 Oct 2026 |
+| Achievements linked to no job or course | They go under Projects, with GitHub projects and course projects. The page says how many are unlinked and links to Profile | Owner, 13 Oct 2026 |
+| Certifications, awards and volunteering | A box on the Profile, one per line, used by every CV; a line can be hidden on one CV. One more column, `profiles.additional` | Owner, 13 Oct 2026 |
+| PDF font | Liberation Sans (SIL Open Font Licence 1.1, the same letter widths as Arial), bundled in `backend/fonts`. Characters it cannot draw are named on the page, which points to the Word file | Owner, 13 Oct 2026 |
 
 ## In scope
 
