@@ -85,7 +85,9 @@ def _blank(value) -> bool:
     return value is None
 
 
-def _run(task: str, system: str, user: str, template: dict, max_tokens: int = 1500, required: tuple = ()) -> dict:
+def _run(task: str, system: str, user: str, template: dict, max_tokens: int = 1500, required: tuple = (), check=None) -> dict:
+    """One AI task: the model's reply in the template's shape. A reply that is malformed, lacks a
+    required field or fails `check` counts as a failed attempt and is asked for once more."""
     for attempt in range(1, ATTEMPTS + 1):
         try:
             data = _conform(complete_json(BASE + "\n\n" + system, user, max_tokens), template)
@@ -94,9 +96,12 @@ def _run(task: str, system: str, user: str, template: dict, max_tokens: int = 15
             log.warning("AI task %s, attempt %d: %s", task, attempt, type(e).__name__)
             continue
         missing = [k for k in required if _blank(data.get(k))]
-        if not missing:
+        if missing:
+            log.warning("AI task %s, attempt %d: reply had no %s", task, attempt, ", ".join(missing))
+        elif check and not check(data):
+            log.warning("AI task %s, attempt %d: reply failed its check", task, attempt)
+        else:
             return data
-        log.warning("AI task %s, attempt %d: reply had no %s", task, attempt, ", ".join(missing))
     raise AIError(task)
 
 
@@ -395,6 +400,18 @@ def tailor(job: dict, achievements: list, profile: dict) -> dict:
 
 
 # 5. One achievement to a STAR story
+STORY_KEYS = ("title", "competency", "situation", "task", "action", "result", "strength", "tip")
+
+
+def _story(data: dict, achievement: dict) -> dict:
+    """A story as the model wrote it, with a title and a strength the UI knows."""
+    strength = data["strength"].strip().lower()
+    return {k: data[k] for k in STORY_KEYS} | {
+        "title": data["title"].strip() or achievement.get("title", ""),
+        "strength": strength if strength in STRENGTHS else "needs detail",
+    }
+
+
 def star(achievement: dict) -> dict:
     system = (
         "Turn one achievement into a STAR interview story a UK interviewer will score well. "
@@ -406,13 +423,8 @@ def star(achievement: dict) -> dict:
         'Return {"title":str,"competency":str (e.g. Influencing, Problem solving),"situation":str,"task":str,'
         '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str}'
     )
-    template = {"title": "", "competency": "", "situation": "", "task": "", "action": "", "result": "", "strength": "", "tip": ""}
-    data = _run("star", system, user, template, 900, required=("situation", "action"))
-    strength = data["strength"].strip().lower()
-    return {k: data[k] for k in template} | {
-        "title": data["title"].strip() or achievement.get("title", ""),
-        "strength": strength if strength in STRENGTHS else "needs detail",
-    }
+    data = _run("star", system, user, dict.fromkeys(STORY_KEYS, ""), 900, required=("situation", "action"))
+    return _story(data, achievement)
 
 
 # 6. Mock interview transcript to feedback
@@ -513,3 +525,104 @@ def score_jobs(batch: list, achievements: list) -> dict:
     if not scored:
         raise AIError("job fit")
     return scored
+
+
+# 10. Public GitHub repositories to project achievements
+def github_achievements(repos: list) -> dict:
+    """One project achievement for each repository the model could describe, keyed by the
+    repository's number: {n: item}. Each comes only from that repository's name, description,
+    main language and README, and its quote is kept only if those really contain it."""
+    system = (
+        "Turn a candidate's own public code repositories into project achievements written for UK employers. "
+        "One item per repository, from its name, description, main language and README only: never add a feature, tool, user or number they do not state. "
+        "uk_version is a single UK CV bullet: action verb first, what was built and with what, and a result or scale only if the README gives one. "
+        "If it gives no number, do not make one up: set outcome to 'Add a number: <what to measure>'. "
+        "raw is an exact quote copied from that repository's README or description, under 25 words. "
+        "skills are the languages, libraries and tools it names. context_note is one tip on presenting a personal project to a UK employer. "
+        "Leave out a repository whose README and description say too little to tell what was built."
+    )
+    listed = [{"n": r["n"], "name": r["name"], "description": r.get("description") or "", "main_language": r.get("language") or "",
+               "readme": r.get("readme") or ""} for r in repos]
+    user = (
+        f"Repositories: {_j(listed)}\n\n"
+        'Return {"items":[{"n":int (the repository number),"title":str,"raw":str,"uk_version":str,"skills":[str],'
+        '"outcome":str,"scale":str,"context_note":str}]}'
+    )
+    template = {"items": [{"n": 0, "title": "", "raw": "", "uk_version": "", "skills": [""], "outcome": "", "scale": "", "context_note": ""}]}
+    data = _run("github", system, user, template, 400 + 380 * len(repos), required=("items",))
+    sent, found = {r["n"]: r for r in repos}, {}
+    for item in data["items"]:
+        repo, bullet = sent.get(item["n"]), item["uk_version"].strip()
+        if not repo or item["n"] in found or not bullet:
+            continue
+        own_words = f"{repo.get('description') or ''}\n{repo.get('readme') or ''}"
+        found[item["n"]] = {"title": item["title"].strip() or repo["name"], "raw": verbatim(item["raw"], own_words, speech=False),
+                            "uk_version": bullet, "skills": item["skills"], "outcome": item["outcome"].strip(),
+                            "scale": item["scale"].strip(), "context_note": item["context_note"].strip()}
+    if not found:
+        raise AIError("github")
+    return found
+
+
+# 11. One achievement rewritten from its own facts and a note from the user
+NUMBER_WORDS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+                "ten": "10", "eleven": "11", "twelve": "12", "fifteen": "15", "twenty": "20", "thirty": "30", "forty": "40",
+                "fifty": "50", "hundred": "100", "thousand": "1000", "million": "1000000"}
+
+
+def _numbers(text: str, spelled: bool = False) -> set:
+    """Every figure in the text, with thousands separators removed. With spelled, numbers written
+    as words count as their digits too."""
+    found = {n.replace(",", "") for n in re.findall(r"\d[\d,]*(?:\.\d+)?", text)}
+    return found | {NUMBER_WORDS[w] for w in _words(text) if w in NUMBER_WORDS} if spelled else found
+
+
+def improve(achievement: dict, note: str) -> dict:
+    """A better bullet, result and scale for one achievement, from what it already holds and the
+    user's note. A rewrite carrying a number found in neither is not accepted: on a CV an invented
+    figure is the invention that does most harm."""
+    system = (
+        "Rewrite one CV achievement for a UK employer, using only the facts it already holds and the candidate's note. "
+        "uk_version is a single CV bullet: action verb first, result with a number, scale. "
+        "Never add a fact, tool, employer or number that is in neither the achievement nor the note. "
+        "If there is still no number, leave numbers out and set outcome to 'Add a number: <what to measure>'. "
+        "outcome is the result in a few words. scale is who or how much was affected, or an empty string."
+    )
+    facts = {k: achievement.get(k) for k in ("title", "raw", "uk_version", "skills", "outcome", "scale", "context_note")}
+    user = (f"Achievement: {_j(facts)}\nCandidate's note: {note.strip() or '(none)'}\n\n"
+            'Return {"uk_version":str,"outcome":str,"scale":str}')
+    allowed = _numbers(f"{_j(facts)} {note}", spelled=True)
+    data = _run("improve", system, user, {"uk_version": "", "outcome": "", "scale": ""}, 500, required=("uk_version",),
+                check=lambda d: _numbers(f"{d['uk_version']} {d['outcome']} {d['scale']}") <= allowed)
+    return {k: data[k].strip() for k in ("uk_version", "outcome", "scale")}
+
+
+# 12. Several achievements to STAR stories in one call
+def story_bank(achievements: list, taken=()) -> dict:
+    """A STAR story for each numbered achievement sent, keyed by its number: {n: story}. `taken`
+    lists competencies the user's stories already cover, so new ones spread out where the facts allow."""
+    system = (
+        "Turn each numbered achievement into a STAR interview story a UK interviewer will score well. One story per achievement, "
+        "using only the facts in that achievement. "
+        "Situation and task one sentence each, action 2 to 3 sentences in first person with what 'I' did, result with the number. "
+        "If a number is missing, keep it out and say so in tip. "
+        "competency is what the story shows best, for example Problem solving, Teamwork, Influencing, Initiative, Delivering results, "
+        "Communication, Leadership or Adaptability. Use a different competency for each story where the facts allow"
+        + (f", and prefer ones not already covered: {', '.join(taken)}." if taken else ".")
+    )
+    listed = [{"n": a["n"]} | {k: a.get(k) for k in ("title", "raw", "uk_version", "skills", "outcome", "scale")} for a in achievements]
+    user = (
+        f"Achievements: {_j(listed)}\n\n"
+        'Return {"stories":[{"n":int (the achievement number),"title":str,"competency":str,"situation":str,"task":str,'
+        '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str}]}'
+    )
+    template = {"stories": [{"n": 0} | dict.fromkeys(STORY_KEYS, "")]}
+    data = _run("story bank", system, user, template, 300 + 450 * len(achievements), required=("stories",))
+    sent, found = {a["n"]: a for a in achievements}, {}
+    for story in data["stories"]:
+        achievement = sent.get(story["n"])
+        if achievement and story["n"] not in found and story["situation"].strip() and story["action"].strip():
+            found[story["n"]] = _story(story, achievement)
+    if not found:
+        raise AIError("story bank")
+    return found

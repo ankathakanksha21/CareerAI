@@ -588,3 +588,164 @@ def test_facts_prompt_forbids_guessing_and_names_the_levels(model):
     ai.extract_facts(CV, PROFILE, "cv")
     assert "never guess a month" in calls[0]["system"] and all(level in calls[0]["system"] for level in ai.LANGUAGE_LEVELS)
     assert "CV text:" in calls[0]["user"] and CV in calls[0]["user"]
+
+
+# ---------- step 1: GitHub repositories to project achievements ----------
+
+REPOS = [
+    {"n": 1, "name": "delay-report", "description": "Weekly delivery delays report", "language": "Python",
+     "readme": "# Delay report\nLoads depot delivery data with pandas and builds a weekly delays report in SQL."},
+    {"n": 2, "name": "mess-feedback", "description": "", "language": "Python",
+     "readme": "A Flask app used by 400 students to rate hostel meals."},
+]
+
+
+def project(n, **kw):
+    return {"n": n, "title": "Delay report", "raw": "builds a weekly delays report in SQL", "uk_version": "Built a weekly delays report in SQL and pandas",
+            "skills": ["SQL", "pandas"], "outcome": "Add a number: how many depots", "scale": "", "context_note": "Say who used it."} | kw
+
+
+def test_github_gives_one_achievement_per_repository(model):
+    model({"items": [project(1), project(2, title="", raw="A Flask app used by 400 students", uk_version="Built a Flask app used by 400 students")]})
+    found = ai.github_achievements(REPOS)
+    assert set(found) == {1, 2}
+    assert found[1] == {"title": "Delay report", "raw": "builds a weekly delays report in SQL", "uk_version": "Built a weekly delays report in SQL and pandas",
+                        "skills": ["SQL", "pandas"], "outcome": "Add a number: how many depots", "scale": "", "context_note": "Say who used it."}
+    assert found[2]["title"] == "mess-feedback" and found[2]["raw"] == "A Flask app used by 400 students"
+
+
+def test_a_github_quote_must_come_from_that_repository(model):
+    model({"items": [project(1, raw="A Flask app used by 400 students to rate hostel meals"),   # the other repository's README
+                     project(2, raw="Weekly delivery delays report", uk_version="Built a meal rating app")]})  # the other one's description
+    found = ai.github_achievements(REPOS)
+    assert found[1]["raw"] == "" and found[2]["raw"] == ""
+
+
+def test_a_github_quote_may_come_from_the_description(model):
+    model({"items": [project(1, raw="Weekly delivery delays report")]})
+    assert ai.github_achievements(REPOS)[1]["raw"] == "Weekly delivery delays report"
+
+
+def test_github_ignores_a_repository_that_was_not_sent_a_repeat_and_an_empty_bullet(model):
+    model({"items": [project(7), project(1), project(1, uk_version="A second go at the same one"), project(2, uk_version="  ")]})
+    found = ai.github_achievements(REPOS)
+    assert list(found) == [1] and found[1]["uk_version"] == "Built a weekly delays report in SQL and pandas"
+
+
+def test_github_reads_a_repository_number_given_as_text(model):
+    model({"items": [project("2", raw="")]})
+    assert list(ai.github_achievements(REPOS)) == [2]
+
+
+def test_github_with_nothing_usable_is_an_error(model):
+    model({"items": [project(7)]})
+    with pytest.raises(ai.AIError):
+        ai.github_achievements(REPOS)
+    model({"items": []}, {"items": []})
+    with pytest.raises(ai.AIError):
+        ai.github_achievements(REPOS)
+
+
+def test_github_prompt_holds_the_readmes_and_forbids_invention(model):
+    calls = model({"items": [project(1)]})
+    ai.github_achievements([REPOS[0] | {"stars": 950}])
+    assert "builds a weekly delays report in SQL" in calls[0]["user"] and "delay-report" in calls[0]["user"]
+    assert "950" not in calls[0]["user"] and "do not make one up" in calls[0]["system"]
+
+
+# ---------- step 1: improving one achievement ----------
+
+WEAK = {"id": "a1", "title": "Delays report", "raw": "I built a weekly delays report", "uk_version": "Built a weekly delivery delays report for depot managers",
+        "skills": ["SQL", "Excel"], "outcome": "Add a number: how many managers used it", "scale": "", "context_note": ""}
+
+
+def better(**kw):
+    return {"uk_version": "Built a weekly delivery delays report used by 15 depot managers", "outcome": "Used by 15 managers", "scale": "15 managers"} | kw
+
+
+def test_improve_uses_the_note_and_returns_the_three_fields(model):
+    calls = model(better(uk_version="  Built a weekly delivery delays report used by 15 depot managers  "))
+    assert ai.improve(WEAK, "15 depot managers used it") == better()
+    assert "15 depot managers used it" in calls[0]["user"] and "Built a weekly delivery delays report for depot managers" in calls[0]["user"]
+
+
+def test_improve_rejects_a_number_that_is_in_neither_the_achievement_nor_the_note(model):
+    calls = model(better(uk_version="Built a weekly report used by 15 managers, cutting delays by 30%"), better())
+    assert ai.improve(WEAK, "15 depot managers used it") == better()
+    assert len(calls) == 2
+
+
+def test_improve_fails_and_returns_nothing_when_every_reply_invents_a_number(model):
+    model(better(outcome="Saved 40 hours"), better(scale="200 depots"))
+    with pytest.raises(ai.AIError):
+        ai.improve(WEAK, "15 depot managers used it")
+
+
+@pytest.mark.parametrize("note, bullet", [
+    ("it saved five hours a week", "Built a report saving 5 hours a week"),
+    ("about 1200 orders a day", "Built a report covering 1,200 orders a day"),
+    ("late deliveries fell eight percent", "Built a report that cut late deliveries by 8%"),
+    ("", "Built a weekly delivery delays report for depot managers in SQL and Excel"),
+])
+def test_improve_accepts_the_same_number_written_differently(model, note, bullet):
+    model({"uk_version": bullet, "outcome": "", "scale": ""})
+    assert ai.improve(WEAK, note)["uk_version"] == bullet
+
+
+def test_improve_keeps_numbers_the_achievement_already_had(model):
+    strong = WEAK | {"uk_version": "Built a report for 15 managers", "outcome": "8% fewer late deliveries"}
+    model({"uk_version": "Built a weekly report for 15 depot managers, cutting late deliveries by 8%", "outcome": "8% fewer late deliveries", "scale": "15 managers"})
+    assert "8%" in ai.improve(strong, "make it tighter")["uk_version"]
+
+
+def test_improve_needs_a_bullet_back(model):
+    model({"uk_version": "", "outcome": "x", "scale": ""}, {"uk_version": " ", "outcome": "", "scale": ""})
+    with pytest.raises(ai.AIError):
+        ai.improve(WEAK, "15 managers")
+
+
+# ---------- step 1: the story bank ----------
+
+BANK = [{"n": 1, "id": "a1", "title": "Delays report", "raw": "r", "uk_version": "Built a weekly delays report for 15 managers", "skills": ["SQL"], "outcome": "8% fewer", "scale": ""},
+        {"n": 2, "id": "a2", "title": "Merge script", "raw": "r", "uk_version": "Wrote a merge script", "skills": ["Python"], "outcome": "", "scale": ""}]
+
+
+def told(n, **kw):
+    return {"n": n, "title": "The delays report", "competency": "Problem solving", "situation": "s", "task": "t", "action": "a", "result": "r",
+            "strength": "Strong", "tip": ""} | kw
+
+
+def test_story_bank_writes_one_story_per_achievement_sent(model):
+    model({"stories": [told(1), told(2, title="", competency="Initiative", strength="superb")]})
+    found = ai.story_bank(BANK)
+    assert set(found) == {1, 2}
+    assert found[1] == {"title": "The delays report", "competency": "Problem solving", "situation": "s", "task": "t", "action": "a", "result": "r",
+                        "strength": "strong", "tip": ""}
+    assert found[2]["title"] == "Merge script" and found[2]["strength"] == "needs detail"
+
+
+def test_story_bank_ignores_an_unknown_number_a_repeat_and_a_story_with_no_action(model):
+    model({"stories": [told(9), told(1), told(1, title="Again"), told(2, action="")]})
+    found = ai.story_bank(BANK)
+    assert list(found) == [1] and found[1]["title"] == "The delays report"
+
+
+def test_story_bank_with_nothing_usable_is_an_error(model):
+    model({"stories": [told(9)]})
+    with pytest.raises(ai.AIError):
+        ai.story_bank(BANK)
+
+
+def test_story_bank_prompt_asks_for_different_competencies_and_avoids_those_covered(model):
+    calls = model({"stories": [told(1)]}, {"stories": [told(1)]})
+    ai.story_bank(BANK, ["Teamwork", "Influencing"])
+    ai.story_bank(BANK)
+    assert "different competency" in calls[0]["system"] and "Teamwork, Influencing" in calls[0]["system"]
+    assert "already covered" not in calls[1]["system"]
+    assert "Built a weekly delays report for 15 managers" in calls[0]["user"] and '"id"' not in calls[0]["user"]
+
+
+def test_star_still_normalises_through_the_shared_helper(model):
+    model(told(0, title="", strength="NEEDS A NUMBER"))
+    story = ai.star({"title": "Delays report", "uk_version": "Built X"})
+    assert story["title"] == "Delays report" and story["strength"] == "needs a number" and "n" not in story
