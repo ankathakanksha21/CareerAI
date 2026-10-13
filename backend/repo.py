@@ -42,11 +42,56 @@ def update_profile(conn, user_id, *, full_name: str, university: str, course: st
         "course = excluded.course, graduation_date = excluded.graduation_date, visa_type = excluded.visa_type, "
         "visa_end_date = excluded.visa_end_date, locations = excluded.locations, updated_at = now() returning *",
         (user_id, *values)).fetchone()
+    # the course typed here is the user's first education entry, kept in step with it. A start month
+    # they added that now falls after the graduation month is cleared rather than left impossible
+    conn.execute(
+        "insert into education (user_id, institution, qualification, end_month, country, from_details) "
+        "values (%s, %s, %s, %s, 'United Kingdom', true) "
+        "on conflict (user_id) where from_details do update set institution = excluded.institution, "
+        "qualification = excluded.qualification, end_month = excluded.end_month, updated_at = now(), "
+        "start_month = case when education.start_month > excluded.end_month then null else education.start_month end",
+        (user_id, values[1], values[2], values[3]))
     return _profile(row)
 
 
 def set_pitch(conn, user_id, pitch: str) -> None:
     conn.execute("update profiles set pitch = %s, updated_at = now() where user_id = %s", (pitch, user_id))
+
+
+def _tidy_skills(skills: list[str], languages: list[dict]) -> tuple[list[str], list[dict]]:
+    """Trimmed, without blanks, and without a second spelling of the same skill or language."""
+    kept, seen = [], set()
+    for skill in skills:
+        name = (skill or "").strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            kept.append(name)
+    spoken, seen = [], set()
+    for item in languages:
+        name = (item.get("language") or "").strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            spoken.append({"language": name, "level": (item.get("level") or "").strip()})
+    return kept, spoken
+
+
+def set_skills(conn, user_id, skills: list[str], languages: list[dict]) -> dict:
+    """Replace the user's skills and spoken languages. Returns the profile."""
+    skills, languages = _tidy_skills(skills, languages)
+    return _profile(conn.execute(
+        "insert into profiles (user_id, skills, languages) values (%s, %s, %s) on conflict (user_id) do update "
+        "set skills = excluded.skills, languages = excluded.languages, updated_at = now() returning *",
+        (user_id, skills, Jsonb(languages))).fetchone())
+
+
+def add_skills(conn, user_id, skills: list[str], languages: list[dict]) -> dict:
+    """Add skills and languages the user does not already have, ignoring case. Returns the profile."""
+    row = conn.execute("select skills, languages from profiles where user_id = %s", (user_id,)).fetchone() or {"skills": [], "languages": []}
+    return set_skills(conn, user_id, [*row["skills"], *skills], [*row["languages"], *languages])
+
+
+def set_github_username(conn, user_id, username: str) -> None:
+    conn.execute("update profiles set github_username = %s, updated_at = now() where user_id = %s", (username, user_id))
 
 
 def details_complete(profile: dict) -> bool:
@@ -253,11 +298,92 @@ def get_journal_transcript(conn, user_id, entry_id) -> str | None:
     return row["transcript"] if row else None
 
 
+# ---------- work history and education ----------
+# Two tables of the same shape, so one set of functions. `table` is always one of the two names
+# below, written in this codebase, never taken from a request.
+
+ENTRY_FIELDS = {
+    "work_history": ("employer", "job_title", "location", "country", "start_month", "end_month", "is_current", "employer_context"),
+    "education": ("institution", "qualification", "subject", "start_month", "end_month", "grade", "country"),
+}
+_ENTRY_ORDER = {
+    "work_history": "is_current desc, coalesce(end_month, start_month) desc nulls last, created_at desc, id",
+    "education": "from_details desc, coalesce(end_month, start_month) desc nulls last, created_at desc, id",
+}
+_MONTHS = ("start_month", "end_month")
+
+
+def _entry_values(table: str, fields: dict) -> dict:
+    if table not in ENTRY_FIELDS:
+        raise ValueError(f"not a table of entries: {table}")
+    unknown = set(fields) - set(ENTRY_FIELDS[table])
+    if unknown:
+        raise ValueError(f"not {table} fields: {sorted(unknown)}")
+    values = {}
+    for key, value in fields.items():
+        if key in _MONTHS:
+            values[key] = value.replace(day=1) if value else None
+        elif key == "is_current":
+            values[key] = bool(value)
+        else:
+            values[key] = (value or "").strip()
+    return values
+
+
+def list_entries(conn, user_id, table: str) -> list[dict]:
+    _entry_values(table, {})
+    return _rows(conn.execute(f"select * from {table} where user_id = %s order by {_ENTRY_ORDER[table]}", (user_id,)))
+
+
+def get_entry(conn, user_id, table: str, entry_id) -> dict | None:
+    _entry_values(table, {})
+    return _row(conn.execute(f"select * from {table} where id = %s and user_id = %s", (entry_id, user_id)).fetchone())
+
+
+def add_entry(conn, user_id, table: str, fields: dict, source: str = "manual") -> dict:
+    values = _entry_values(table, fields)
+    columns = ["user_id", "source", *values]
+    return _row(conn.execute(
+        f"insert into {table} ({', '.join(columns)}) values ({', '.join(['%s'] * len(columns))}) returning *",
+        (user_id, source, *values.values())).fetchone())
+
+
+def update_entry(conn, user_id, table: str, entry_id, fields: dict) -> dict | None:
+    """Change only the fields given."""
+    values = _entry_values(table, fields)
+    assignments = ", ".join([f"{k} = %s" for k in values] + ["updated_at = now()"])
+    return _row(conn.execute(f"update {table} set {assignments} where id = %s and user_id = %s returning *",
+                             (*values.values(), entry_id, user_id)).fetchone())
+
+
+def fill_entry(conn, user_id, table: str, entry_id, fields: dict) -> dict | None:
+    """Fill in the fields that are empty now and leave the rest as the user has them. A month
+    that would end a current job, or put the end before the start, is left out."""
+    values = _entry_values(table, fields)
+    row = get_entry(conn, user_id, table, entry_id)
+    if row is None:
+        return None
+    blanks = {k: v for k, v in values.items() if v and not row[k]}
+    if row.get("is_current"):
+        blanks.pop("end_month", None)
+    start, end = blanks.get("start_month") or row["start_month"], blanks.get("end_month") or row["end_month"]
+    if start and end and end < start:
+        blanks = {k: v for k, v in blanks.items() if k not in _MONTHS}
+    return update_entry(conn, user_id, table, entry_id, blanks) if blanks else row
+
+
+def delete_entry(conn, user_id, table: str, entry_id) -> bool:
+    _entry_values(table, {})
+    return conn.execute(f"delete from {table} where id = %s and user_id = %s", (entry_id, user_id)).rowcount == 1
+
+
 # ---------- everything one user owns ----------
 
 def load_state(conn, user_id) -> dict:
     return {
         "achievements": list_achievements(conn, user_id),
+        "work_history": list_entries(conn, user_id, "work_history"),
+        "education": list_entries(conn, user_id, "education"),
         "role_families": list_families(conn, user_id),
         "saved_jobs": list_jobs(conn, user_id),
         "cv_versions": list_cv_versions(conn, user_id),
