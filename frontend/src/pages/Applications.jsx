@@ -1,9 +1,12 @@
 import { useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { BellRing, Plus, Trash2 } from 'lucide-react'
 import { del, patch, post } from '../api'
-import { Empty, ErrorRetry, Meter, PageHead, attempt, fmtDate, isoDay, parseDay, pct, today, useAction } from '../ui'
+import { Empty, ErrorRetry, Meter, PageHead, attempt, fmtDate, isoDay, parseDay, pct, plural, today, useAction } from '../ui'
+import { ENDED_PHRASE, LESSON_LINK, REJECTED, STAGE_LABEL, isDue } from '../tracker'
+import ApplicationPanel from '../components/ApplicationPanel'
+import FollowUps from '../components/FollowUps'
+import RejectQuestions from '../components/RejectQuestions'
 
-const STAGE_LABEL = { applied: 'Applied', no_response: 'No reply', rejected: 'Rejected at CV', screening: 'Phone screen', interview: 'Interview', rejected_after_interview: 'Rejected after interview', offer: 'Offer' }
 const COLUMNS = [
   { key: 'applied', label: 'Applied', stages: ['applied'] },
   { key: 'no_response', label: 'No reply', stages: ['no_response'] },
@@ -13,8 +16,9 @@ const COLUMNS = [
   { key: 'rejected', label: 'Rejected', stages: ['rejected', 'rejected_after_interview'] },
 ]
 const RESPONDED = new Set(['screening', 'interview', 'rejected_after_interview', 'offer'])
-const KIND = { cv: 'CV and tailoring', story: 'Storytelling', network: 'Network', timing: 'Timing', sponsor: 'Sponsorship' }
-const WEEKLY_GOAL = 5
+// a rejection after a phone screen was still a reply
+const replied = (a) => RESPONDED.has(a.stage) || (a.stage === 'rejected' && a.rejected_at_stage === 'screening')
+const KIND = { cv: 'CV and tailoring', story: 'Storytelling', network: 'Network', timing: 'Timing', sponsor: 'Sponsorship', lessons: 'Lessons from rejections' }
 const FAST_DAYS = 2
 
 const monday = (iso) => {
@@ -25,6 +29,8 @@ const monday = (iso) => {
 const daysBetween = (from, to) => Math.round((parseDay(to) - parseDay(from)) / 86400000)
 
 function WeeklyProgress({ s }) {
+  const week = s.habits.this_week
+  const goal = week.goal.applications
   const thisWeek = monday(isoDay(today()))
   const weeks = []
   for (let i = 6; i >= 0; i--) {
@@ -35,10 +41,9 @@ function WeeklyProgress({ s }) {
   const byWeek = Object.fromEntries(weeks.map((w) => [w, { applied: 0, replies: 0 }]))
   for (const a of s.applications) {
     const w = byWeek[monday(a.applied_on)]
-    if (w) { w.applied += 1; w.replies += RESPONDED.has(a.stage) ? 1 : 0 }
+    if (w) { w.applied += 1; w.replies += replied(a) ? 1 : 0 }
   }
-  const max = Math.max(WEEKLY_GOAL, ...Object.values(byWeek).map((w) => w.applied))
-  const now = byWeek[thisWeek]
+  const max = Math.max(goal, ...Object.values(byWeek).map((w) => w.applied))
   const fast = s.applications.filter((a) => monday(a.applied_on) === thisWeek && a.posted_on && daysBetween(a.posted_on, a.applied_on) <= FAST_DAYS).length
 
   return (
@@ -47,10 +52,14 @@ function WeeklyProgress({ s }) {
       <div className="grid cols-2" style={{ marginTop: 14, alignItems: 'end' }}>
         <div className="stack" style={{ gap: 14 }}>
           <div>
-            <div className="row" style={{ alignItems: 'baseline' }}><span style={{ fontSize: 30, fontWeight: 750, color: 'var(--green)' }}>{now.applied}</span><span className="muted">of {WEEKLY_GOAL} applications this week</span></div>
-            <div style={{ marginTop: 6 }}><Meter value={(now.applied / WEEKLY_GOAL) * 100} /></div>
+            <div className="row" style={{ alignItems: 'baseline' }}><span style={{ fontSize: 30, fontWeight: 750, color: 'var(--green)' }}>{week.applications}</span><span className="muted">of {goal} {goal === 1 ? 'application' : 'applications'} with a CV this week</span></div>
+            <div style={{ marginTop: 6 }}><Meter value={(week.applications / goal) * 100} /></div>
           </div>
-          <p className="small muted">{fast} sent within 48 hours of the job being posted.</p>
+          <p className="small muted">
+            {week.goal.practice > 0 && `${week.practice} of ${plural(week.goal.practice, 'mock interview')}. `}
+            {week.without_cv > 0 && `${plural(week.without_cv, 'more application')} logged without a CV, which ${week.without_cv === 1 ? 'does' : 'do'} not count toward the goal. `}
+            {fast} sent within 48 hours of the job being posted.
+          </p>
         </div>
         <div>
           <div className="week-bars" aria-label="Applications per week">
@@ -74,12 +83,16 @@ function WeeklyProgress({ s }) {
   )
 }
 
-function Board({ s, refresh, notify }) {
+function Board({ s, refresh, notify, open, reject }) {
   const [over, setOver] = useState(null)
   const fam = Object.fromEntries(s.role_families.map((f) => [f.id, f.name]))
   const cvs = Object.fromEntries(s.cv_versions.map((c) => [c.id, c.name]))
   const safely = attempt(notify)
-  const setStage = (id, stage) => safely(async () => { await patch(`/api/applications/${id}`, { stage }); await refresh() })
+  // a move to a rejected stage, or between the two, asks where it ended first, so the answer and the
+  // stage always agree; nothing changes until that is answered
+  const setStage = (a, stage) => (REJECTED.has(stage)
+    ? reject(a, stage)
+    : safely(async () => { await patch(`/api/applications/${a.id}`, { stage }); await refresh() }))
   const remove = (a) => {
     if (!window.confirm(`Delete the application to ${a.company}?`)) return
     safely(async () => { await del(`/api/applications/${a.id}`); await refresh(); notify('Application deleted') })
@@ -87,10 +100,12 @@ function Board({ s, refresh, notify }) {
   const drop = (e, col) => {
     e.preventDefault()
     setOver(null)
-    const id = e.dataTransfer.getData('text/plain')
-    const app = s.applications.find((a) => a.id === id)
-    if (app && !col.stages.includes(app.stage)) setStage(id, col.stages[0])
+    const app = s.applications.find((a) => a.id === e.dataTransfer.getData('text/plain'))
+    if (!app || col.stages.includes(app.stage)) return
+    if (col.key === 'rejected') reject(app) // the Rejected column holds both stages: the answer decides which
+    else setStage(app, col.stages[0])
   }
+  const keep = (e) => e.stopPropagation() // a control inside a card does not open the card
 
   return (
     <div className="board">
@@ -101,27 +116,34 @@ function Board({ s, refresh, notify }) {
             onDragOver={(e) => { e.preventDefault(); setOver(col.key) }} onDragLeave={() => setOver(null)} onDrop={(e) => drop(e, col)}>
             <div className="col-head">{col.label}<span className="n">{cards.length}</span></div>
             {cards.map((a) => (
-              <article key={a.id} className="app-card" draggable onDragStart={(e) => e.dataTransfer.setData('text/plain', a.id)}>
+              <article key={a.id} className="app-card" draggable onDragStart={(e) => e.dataTransfer.setData('text/plain', a.id)}
+                onClick={() => open(a.id)} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) open(a.id) }}
+                tabIndex={0} aria-label={`${a.role} at ${a.company}: open every detail`}>
                 <div className="top">
                   <span className="logo">{a.company[0].toUpperCase()}</span>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div className="role">{a.role}</div>
                     <div className="co">{a.company}</div>
                   </div>
-                  <button className="icon-btn" aria-label={`Delete application to ${a.company}`} onClick={() => remove(a)}><Trash2 size={14} /></button>
+                  <button className="icon-btn" aria-label={`Delete application to ${a.company}`} onClick={(e) => { keep(e); remove(a) }}><Trash2 size={14} /></button>
                 </div>
-                {fam[a.role_family_id] && <div className="foot"><span className="chip">{fam[a.role_family_id]}</span></div>}
-                <div className="foot">{cvs[a.cv_version_id] ? `${cvs[a.cv_version_id]} CV, ` : ''}via {a.source}</div>
+                {(fam[a.role_family_id] || isDue(s, a)) && (
+                  <div className="foot">
+                    {isDue(s, a) && <span className="chip warn"><BellRing size={12} />Follow up</span>}
+                    {fam[a.role_family_id] && <span className="chip">{fam[a.role_family_id]}</span>}
+                  </div>
+                )}
+                <div className="foot">{cvs[a.cv_version_id] ? `${cvs[a.cv_version_id]} CV` : 'No CV recorded'}, via {a.source}</div>
                 {(a.job_url || a.sponsor_licence != null) && (
                   <div className="foot">
                     {a.sponsor_licence != null && <span className={`chip ${a.sponsor_licence ? 'good' : ''}`}>{a.sponsor_licence ? 'On the sponsor register' : 'Not found on the register'}</span>}
-                    {a.job_url && <a className="small" href={a.job_url} target="_blank" rel="noopener noreferrer">View advert</a>}
+                    {a.job_url && <a className="small" href={a.job_url} target="_blank" rel="noopener noreferrer" onClick={keep}>View advert</a>}
                   </div>
                 )}
                 <div className="foot">
                   <span>{fmtDate(a.applied_on)}</span>
                   <span className="spacer" />
-                  <select value={a.stage} onChange={(e) => setStage(a.id, e.target.value)} aria-label={`Stage for ${a.company}`}>
+                  <select value={a.stage} onClick={keep} onChange={(e) => setStage(a, e.target.value)} aria-label={`Stage for ${a.company}`}>
                     {s.options.stages.map((k) => <option key={k} value={k}>{STAGE_LABEL[k]}</option>)}
                   </select>
                 </div>
@@ -163,6 +185,7 @@ function AddApplication({ s, refresh, notify, close }) {
         <button className="btn" type="submit">Add</button>
         <button className="btn ghost" type="button" onClick={close}>Cancel</button>
       </div>
+      {!form.cv_version_id && <p className="small muted" style={{ marginTop: 8 }}>Without a CV version this application is still logged, but it does not count toward your weekly goal.</p>}
       <ErrorRetry error={error} />
     </form>
   )
@@ -186,16 +209,46 @@ function Bars({ title, rows }) {
   )
 }
 
-export default function Applications({ s, refresh, go, notify }) {
+// The latest lesson from each rejection, newest first
+function Learned({ s, go, open }) {
+  const rejected = s.applications.filter((a) => REJECTED.has(a.stage))
+  if (!rejected.length) return null
+  const lessons = rejected.filter((a) => a.lesson).sort((x, y) => (y.lesson.made_on || '').localeCompare(x.lesson.made_on || '')).slice(0, 5)
+  return (
+    <section className="card section">
+      <h2>What you have learned</h2>
+      <p className="sub">One change from each rejection, newest first. When three point to the same thing, it appears under What to fix.</p>
+      {lessons.length === 0 && <p className="muted">No lessons yet. Open a rejected application and say where it ended to get one.</p>}
+      <div className="list">
+        {lessons.map((a) => (
+          <div key={a.id} className="finding">
+            <div>
+              <span className="kind">{a.role}, {a.company}{a.rejected_at_stage && `: ended ${ENDED_PHRASE[a.rejected_at_stage]}`}</span>
+              <p className="act">{a.lesson.one_change}</p>
+              <p className="ev">{a.lesson.likely_reason} <button className="linkish small" onClick={() => open(a.id)}>Open</button></p>
+            </div>
+            <button className="btn ghost small" onClick={() => go(a.lesson.page)}>{LESSON_LINK[a.lesson.page]}</button>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+export default function Applications({ s, refresh, go, focus, notify }) {
   const [adding, setAdding] = useState(false)
+  const [openId, setOpenId] = useState(focus.appId || null)
+  const [rejecting, setRejecting] = useState(null) // {app, from}: the questions asked before a card becomes Rejected
   const st = s.stats
   const review = useAction(() => post('/api/ai/diagnosis'))
   const r = review.result
   const empty = s.applications.length === 0
+  const opened = s.applications.find((a) => a.id === openId)
+  const reject = (a, target = null) => setRejecting({ app: a, from: a.stage, target })
 
   return (
     <>
-      <PageHead title="Applications" lede="Every application with its role family, CV version, source and stage. Drag a card when you hear back; the tracker uses this to tell you what to fix.">
+      <PageHead title="Applications" lede="Every application with its CV version, source, stage and history. Drag a card when you hear back; click it for every detail. The tracker uses this to tell you what to fix.">
         {!empty && <button className="btn" onClick={() => setAdding(true)}><Plus size={16} />Add application</button>}
       </PageHead>
       {adding && <AddApplication s={s} refresh={refresh} notify={notify} close={() => setAdding(false)} />}
@@ -210,7 +263,8 @@ export default function Applications({ s, refresh, go, notify }) {
       ) : (
         <>
           <WeeklyProgress s={s} />
-          <div className="section"><Board s={s} refresh={refresh} notify={notify} /></div>
+          {s.follow_ups_due.length > 0 && <div className="section"><FollowUps s={s} refresh={refresh} notify={notify} onOpen={setOpenId} /></div>}
+          <div className="section"><Board s={s} refresh={refresh} notify={notify} open={setOpenId} reject={reject} /></div>
 
           <section className="card section">
             <div className="row">
@@ -247,6 +301,8 @@ export default function Applications({ s, refresh, go, notify }) {
             </div>
           </section>
 
+          <Learned s={s} go={go} open={setOpenId} />
+
           <div className="section-head section"><h2>Insights</h2><p>{st.funnel.applied} applications, {pct(st.funnel.response_rate)} reply rate, {st.funnel.interviews} interviews, {st.funnel.offers} offers.</p></div>
           <div className="grid cols-2">
             <Bars title="Reply rate by role family" rows={st.by_family} />
@@ -256,6 +312,9 @@ export default function Applications({ s, refresh, go, notify }) {
           </div>
         </>
       )}
+
+      {opened && !rejecting && <ApplicationPanel key={opened.id} app={opened} s={s} refresh={refresh} go={go} notify={notify} close={() => setOpenId(null)} onReject={reject} />}
+      {rejecting && <RejectQuestions app={rejecting.app} from={rejecting.from} target={rejecting.target} refresh={refresh} go={go} close={() => setRejecting(null)} />}
     </>
   )
 }

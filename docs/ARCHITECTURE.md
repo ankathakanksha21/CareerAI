@@ -24,8 +24,8 @@ Every step has a document holding its goal, every decision made for it, the desi
 | 0 | Accounts, saved data, removal of the demo persona | – | Built. Three hand checks left (section 13) | `careerai-step-0-accounts-and-saved-data` |
 | 1 | Deeper onboarding: CV upload, GitHub import, editing achievements, education and work history, story bank | 0 | Built and merged into `main`. The owner's hand checks with a real CV and account are left (section 18) | `careerai-step-1-deeper-onboarding` |
 | 2 | Real jobs from Reed, fit scoring, sponsor register, visa salary facts | 0 | Built and merged into `main`. Some hand checks are left (section 16) | `careerai-step-2-real-jobs` |
-| 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Built on branch `step-3-full-uk-cv`. The owner's hand checks are left (section 20) | `careerai-step-3-full-uk-cv` |
-| 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Designed | `careerai-step-4-tracker-and-habits` |
+| 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Built and merged into `main`. The owner's hand checks are left (section 20) | `careerai-step-3-full-uk-cv` |
+| 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Built on branch `step-4-tracker-and-habits`. The owner's hand checks are left (section 22) | `careerai-step-4-tracker-and-habits` |
 | 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Designed | `careerai-step-5-interview-prep` |
 | 6 | Hidden market: contacts, outreach drafts, saved events, referrals | 4 | Designed | `careerai-step-6-hidden-market` |
 | 7 | Peers: opt-in buddy groups of two or three | 4 | Designed | `careerai-step-7-peers` |
@@ -129,6 +129,15 @@ Minimum versions: Node 20.19 or 22.12 (Vite 8 will not run on older), Python 3.1
 | Every edit to a CV is saved as it is made | Nothing is lost by leaving the page, and a download always matches the screen | One small request per edit, each recounting the pages | – |
 | CV and letter files are made when downloaded and never stored | No personal files at rest; nothing to clean up | A file is made again each time (about 0.15 seconds) | – |
 | A CV made before step 3 can be read, rebuilt or deleted, not edited or downloaded | A half CV with no education, dates or contact details is never sent out as a file | Its job must still be saved to rebuild it | – |
+| Streaks, milestones reached, follow-ups due and the weekly plan are worked out on every read and never stored | They cannot drift from what the user did | A little work on every page load | A user has years of history |
+| Only an application with a CV version recorded counts toward the weekly goal | Rewards the tailored application the product is built around | An application logged without its CV counts only once the CV is added | Users find it too strict |
+| The first goal a user sets applies this week; any later change from the next Monday | A new user is not judged by defaults they never chose, and a week in progress can never be made easier | A user who lowers a goal waits until Monday | – |
+| Where a rejection ended sets the stage (CV stage or phone screen: Rejected; interview or final: Rejected after interview), and a rejection after a phone screen counts as a reply | The stage list and the board stay as they were | One more rule in the reply count | – |
+| A lesson is written when either the CV sent or the job description was recorded; with neither, no AI call | Applications tracked from Jobs often have the advert but no CV; one side is enough to say something useful | A lesson from one side is thinner, and about a CV it never saw it can only guess | Users find those lessons vague |
+| A lesson must be worded as a possibility, may not claim feedback that was not entered, may quote only the inputs, and is written to "you"; checked in code | A guess is never presented as the reason someone was turned down | An honest but unusual wording costs a retry | – |
+| A follow-up draft is written without the user's name; code adds "Dear ..." and "Kind regards" with their name | Nothing personal in the prompt beyond the contact's name | The model cannot choose another sign-off | – |
+| Stage history starts with step 4 | Only real data | Older applications show no history | – |
+| An application at No reply asks for no follow-up | The user has said they have stopped waiting | A reminder set on it is not listed on Home | Users ask for it |
 
 Smaller behaviours worth knowing:
 
@@ -155,6 +164,13 @@ Smaller behaviours worth knowing:
 - File names are plain ASCII ("José Nuñez" gives `Jose-Nunez-CV-Acme.pdf`), because employers' upload forms often mishandle anything else.
 - A CV version's number is never used twice, even after a version is deleted.
 - The model is never sent the user's name, phone number, email, town or LinkedIn address when a CV is written.
+- A new application gets a follow-up date a week after the date applied. Correcting the date applied moves it, until the user has followed up or chosen a date. "Mark as followed up" sets the next one a week after the day it is pressed.
+- An application still at Applied with no stage change for 21 days is listed under Follow-ups due with "Move to No reply". Logging an application late is not a change: the days count from the date applied.
+- Moving a card out of Rejected clears where it ended, the feedback and the lesson. Moving it into Rejected, or from one rejected stage to the other, always asks where it ended first, so the answer and the stage agree. The question starts on an answer that fits: a card already at "Rejected after interview" starts on "after an interview".
+- A lesson is saved only onto the rejection it was written for: if the card was moved out of Rejected or answered again while the model was writing, the lesson is dropped and the page says so.
+- Three lessons that point to the same page become a finding under What to fix.
+- All milestones not yet shown appear in one banner at the top of Home and are marked seen as it appears. Deleting an application can take away a milestone not yet shown; a milestone already shown never comes back.
+- The weekly plan holds at most five tasks, never one for a page this build lacks: no jobs task without a Reed key, no task for a finding that links nowhere.
 
 ## 6. Code map
 
@@ -181,6 +197,7 @@ backend/
   visa.py          salary facts from data/visa_rules.json
   limits.py        per-user daily caps
   analytics.py     tracker stats, diagnosis rules, getting-started checklist. Pure functions
+  habits.py        weeks, goals, the weekly streak, follow-ups due, milestones, the weekly plan. Pure functions
   ai.py            one function per AI task: prompt, output shaping, quote checking
   llm.py           one call path to Bedrock, fallback model, JSON parsing
   voice.py         ElevenLabs token minting and transcript fetch (owner only)
@@ -208,7 +225,10 @@ frontend/src/
                    Visa (sponsor line, salary facts, sources line),
                    CvEditor (one CV: change, save in order), CvSheet (the CV as it prints: edit, reorder, hide, restore),
                    CvSide (pages, keywords, downloads, letter), OldCv (a version from before step 3), EditableText,
-                   ContactForm (contact details; certifications, awards and volunteering)
+                   ContactForm (contact details; certifications, awards and volunteering),
+                   ApplicationPanel (every field of an application, its history, follow-up and lesson),
+                   RejectQuestions (where a rejection ended, feedback, the lesson), FollowUps, ThisWeek (goals, streak), Plan, Milestones
+  tracker.js       the tracker's stage words and small rules, shared by Applications and Home
   pages/           Landing, Auth, Privacy, Onboarding, Home, Profile, Pathways, Jobs, Resume,
                    Interview, Applications, Journal, Account
 app.py             Vercel entry point: the API plus the built frontend
@@ -220,7 +240,7 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 
 | Table | Holds |
 |---|---|
-| `profiles` | One row per user: name, university, course, graduation month, visa type, visa end date, preferred locations, pitch, skills, spoken languages with a level, GitHub username, and for the CV a phone number, town or city, LinkedIn address and lines of certifications, awards and volunteering |
+| `profiles` | One row per user: name, university, course, graduation month, visa type, visa end date, preferred locations, pitch, skills, spoken languages with a level, GitHub username, and for the CV a phone number, town or city, LinkedIn address and lines of certifications, awards and volunteering, and which milestones have been shown |
 | `achievements` | Their own words (`raw`), the UK CV bullet (`uk_version`), skills, outcome, scale, context note, source (voice, paste, cv or github), the job or course it happened in, and for a GitHub project its repository link |
 | `work_history` | Jobs, internships and placements: employer, job title, location, country, start and end month, whether it is current, one line on what the employer does, where the entry came from |
 | `education` | Courses: institution, qualification, subject, start and end month, grade, country. The current course is made from "Your details" and marked `from_details` |
@@ -228,7 +248,9 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 | `saved_jobs` | Jobs the user pasted: title, company, description, AI summary, keywords, matched role family |
 | `cv_versions` | Each CV in full as one document, named "<title>, <company> vN" or "Base CV vN": whether it is a base or a tailored CV, its page count, when it was last edited, who its letter is to. A version made before step 3 is marked format 1 and holds only a paragraph, bullets and a letter |
 | `stories` | STAR stories, linked to their achievement |
-| `applications` | Tracker rows: company, role, family, CV version, source, stage, applied and posted dates, plus link, contact, notes, sponsor licence and follow-up date for step 4 |
+| `applications` | Tracker rows: company, role, family, CV version, source, stage, applied and posted dates, link, the contact's name and how to reach them, notes, sponsor licence, the next follow-up date and when the user last followed up, and for a rejection where it ended, any feedback and the lesson |
+| `application_events` | One row per stage change of an application, with when; the first records its creation. Deleted with the application |
+| `weekly_goals` | The user's weekly goals (applications with a CV, mock interviews), each applying from a Monday. No row means the defaults, 5 and 2 |
 | `journal_entries` | Coach calls, mock interviews and imports (a CV upload, a GitHub import): summary, points, actions, scores, and the transcript or the text that was read |
 | `usage_events` | One row per AI action or voice session: daily limits now, streaks later |
 | `job_listings` (shared) | One row per advert: source and its id, title, employer, who really posted it (employer, agency, or training for an advert that sells a course), location, salary and whether it is annual, description and whether it is the full text, link, posting date, and what the register says about the employer |
@@ -238,7 +260,7 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 | `job_matches` | One user's view of one advert: role family, fit percentage and label, what they show and lack, new, seen, saved or hidden |
 | `schema_migrations` | Which migration files have been applied |
 
-Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`), `006_full_cv`.
+Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`), `006_full_cv`, `007_tracker_habits` (which also gives each open application without one a follow-up date a week after it was sent).
 
 Adverts older than 30 days are deleted on each refresh. A saved job is a copy, so it stays.
 
@@ -252,7 +274,7 @@ A reference from one row to another (for example an application's CV version) is
 
 | Route | Purpose |
 |---|---|
-| `GET /api/state` | Everything the pages need for the signed-in user, plus stats, next steps, guidance content and today's usage |
+| `GET /api/state` | Everything the pages need for the signed-in user, plus stats, next steps, guidance content and today's usage; each application's stage history; `habits` (this week against its goals, the streak and best streak, milestones reached and not yet shown), `plan` (this week's tasks) and `follow_ups_due` |
 | `PUT /api/profile` | Save "Your details" |
 | `DELETE /api/account` | Delete the login and all data |
 | `PATCH`, `DELETE /api/achievements/{id}` | Edit any field but the quote, including the job or course it happened in; remove an achievement |
@@ -275,7 +297,12 @@ A reference from one row to another (for example an application's CV version) is
 | `POST /api/jobs/{match_id}/save`, `/hide`, `/track` | Copy the advert into saved jobs; dismiss it; save it and log an application with its link, posting date and sponsor status |
 | `POST /api/visa-facts` | The offer check: a salary beside the published figures, and a register lookup |
 | `GET /api/internal/refresh-sponsors` | Reload the register. Not for users: needs `Authorization: Bearer <CRON_SECRET>` |
-| `POST`, `PATCH`, `DELETE /api/applications[/{id}]` | Tracker |
+| `POST`, `PATCH`, `DELETE /api/applications[/{id}]` | Tracker. A change of stage is added to the application's history |
+| `POST /api/applications/{id}/reject` | Where it ended and any feedback; sets the stage and returns one lesson, or a notice when neither a CV nor a job description was recorded. The rejection is saved before the model is called. One AI action when there is something to compare |
+| `POST /api/ai/applications/{id}/follow-up` | A follow-up message to copy. One AI action. 400 once the application has ended |
+| `POST /api/applications/{id}/followed-up` | Followed up today: the next follow-up is due in a week |
+| `PUT /api/profile/goals` | Weekly goals: 1 to 30 applications, 0 to 14 mock interviews. The first applies this week, later ones from next Monday |
+| `POST /api/milestones/seen` | Milestones the banner has shown |
 | `GET /api/journal/{id}/transcript` | What was said in that session |
 | `POST /api/ai/achievements` | Transcript or pasted text → achievements and pitch, plus proposed jobs, courses, skills and languages |
 | `POST /api/ai/achievements/upload` | A PDF or Word CV as the raw body → the same. The file is read and dropped |
@@ -306,6 +333,7 @@ Error responses always carry a plain `detail` message the UI shows as-is: 409 a 
 - **Checks in code behind the prompt.** An employer, institution, skill or language is kept only if the text names it. A date is kept only if it is a real month. A rewritten bullet may not carry a number that is in neither the achievement nor the user's note. The same achievement is not saved twice.
 - **Several calls for one action.** An import asks for achievements and for CV facts at the same time; the story bank writes in batches of four. Each counts as one AI action.
 - **A CV: wording only.** `build_cv` returns a profile paragraph, bullets each naming one of the user's achievements, and the user's own skills in two groups. `job_letter` returns the advert's main terms, gaps and the three paragraphs of a letter. Neither is asked for, or trusted with, a fact: employers, dates, courses and grades are copied from the records in code. A bullet for an id that is not the user's is dropped; a reworded bullet that lost, changed or gained a number is replaced by the stored one; a skill that is not the user's is dropped; a keyword that is not in the advert is dropped; a paragraph or letter with a number found nowhere in the candidate's facts is refused and asked for once more.
+- **A lesson and a follow-up.** `rejection_lesson` is given the CV as sent (without its contact line), the job description, where the process ended and any feedback, and says which of them were not recorded. Its reason must be worded as a possibility, it may not claim feedback the user did not enter, a quoted phrase must be in the inputs, and it is written to "you". `follow_up` is given only the role, the company, the date applied and the contact's name; it writes a subject and a body of at most 80 words with no number that is not in those details, and code adds the greeting and the user's own sign-off.
 - **Privacy in logs.** Failures log the task name and the error type only, never prompts or replies. `httpx` request lines are off, because an address can hold what a user typed.
 - **No database connection is held during a model call.** Each AI route reads and counts usage in one short transaction, calls the model, then writes in a second.
 
@@ -335,6 +363,7 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 | What Reed is told | Job titles and locations from the user's target roles. Never a name, an email or anything from their profile |
 | Uploaded files | Read as the raw request body, in memory, at most 4 MB, and dropped. Never written to disk or the database: only the text read from them is kept. The type is decided from the file's first bytes, never its name. Password-protected, damaged and oversized-when-unpacked files are refused before anything reaches the model |
 | Contact details | Phone number, town and LinkedIn address are stored for the CV's contact line and printed there. They, the user's name and their email are never sent to the model |
+| People at employers | An application can hold a contact's name and how to reach them. Only the name is sent to the model, for a follow-up draft. Nothing is ever sent to an employer for the user |
 | Generated files | A CV or cover letter is made in memory for one download, sent with `Cache-Control: no-store`, and not kept anywhere. Its file name is plain ASCII built from the user's name and the company |
 | What GitHub is told | A username the user typed, to list its public repositories and read the READMEs they pick. Usernames and repository names are checked against GitHub's own naming rules before they are put in an address. A repository link is stored only if it is on github.com |
 | The scheduled reload | Refused unless the request carries the secret; refused always when no secret is set. Compared in constant time |
@@ -412,6 +441,9 @@ cd backend && .venv\Scripts\python -m pytest tests
 | `test_cvprint` | What prints and in what order: hidden parts and empty sections left out, dates, the letter's greeting and sign-off, file names |
 | `test_cvpdf`, `test_cvword` | Real files read back: the same text in the same order in both, real text in an embedded font, no tables or headers, heading and list styles, accents and other alphabets, what the PDF cannot draw, page counts, nothing written to disk |
 | `test_repo_cv`, `test_routes_cv` | Building, editing, downloading and deleting a CV with the model replaced: every fact equal to the record, limits, nothing saved on failure, a sent version never changed, one user never reaching another's CV, contact details |
+| `test_habits` | Weeks across Sunday and Monday and the clock changes, goals by the week they applied, the streak in every case the step names, follow-ups due and quiet applications, milestones, the weekly plan's order, cap and pages |
+| `test_repo_habits`, `test_repo_records` | Stage history written once per change and deleted with the application, rejections, lessons, follow-up dates, goals, mock interviews by their London date, milestones seen; one user never reading or changing another's |
+| `test_routes_tracker` | Rejecting with and without anything to compare, a failed or limited lesson keeping the rejection, follow-up drafts sending only what they should, goals, milestones shown once, the state for a new user, and another user reaching none of it |
 
 No test can reach the real model: an AI task that a test did not replace fails loudly. Database tests run against the real database inside transactions that are rolled back, so they leave nothing behind. Because the real register and real adverts are in that database, tests use names that cannot occur in real data and never count whole tables. Run the suite on its own: a second database-heavy job at the same time has caused dropped connections.
 
@@ -452,7 +484,12 @@ No test can reach the real model: an AI task that a test did not replace fails l
 - Nothing checks that a GitHub account is the user's own. Looking up repositories is not limited per user, so heavy use by one person could use up the server's GitHub allowance.
 - An achievement at an employer where the user held two roles is linked to the more recent one; the user can change it.
 - At most 8 achievements come from one CV. A longer CV needs a second upload to pick up the rest.
-- No streaks, milestones or weekly plan yet (step 4); the home page shows a getting-started checklist and tracker findings.
+- Practice counts only a mock interview finished in the app. Practice anywhere else does not count toward the weekly goal.
+- An application counts in the week of its date applied, which the user sets. Weeks before the account existed never count.
+- Stage history starts on 14 October 2026; older applications have none.
+- Follow-up reminders are in the app only: no email or push notification.
+- A lesson is a guess from the CV and the advert. It cannot know why someone was turned down, and says so in its wording.
+- A milestone banner shows once, on Home, and goes when the page's data is next refreshed. If marking it as seen fails, it shows again next time.
 - Networking and Peers are removed until their steps make them real.
 - The user's speech appears in the live transcript per finished sentence, not word by word.
 - Reply rates count recent applications that may not have had time to get a reply.
@@ -654,3 +691,56 @@ The hedge rule, the keyword rules and the last rule were added after the first r
 - **The owner's own earlier CVs.** A made-up one from before this step opened and rebuilt correctly; the owner's real ones have not been opened.
 - **A second account in the browser.** Proved by automated tests only.
 - **Anything on Vercel**: the size of the bundle with the two new packages, and whether the font files are in it.
+
+## 21. The tracker and habits (step 4)
+
+**Every application's whole record.** Clicking a card opens a panel with every field: company, role, the stage with its dated history, the dates applied and posted, the CV version sent (which opens it on Resume), where it was sent, the link, sponsor licence, the follow-up date, the contact's name and how to reach them, notes, and for a rejection the lesson. Each field is saved as it is changed. Every stage change, whether by dragging, by the menu on the card or by a rejection, adds one dated line to `application_events`.
+
+**A lesson from each rejection.** Moving a card to Rejected opens two questions first: where it ended (at the CV stage, after a phone screen, after an interview, after a final interview) and any feedback, in the user's own words. Cancelling leaves the card where it was. `POST /api/applications/{id}/reject` saves the answers and the stage, then, in a separate step with no database connection open, asks the model for one lesson: what may have happened, one change for next time, and which page fixes it (Resume, Interview coach or Profile). The CV is the version recorded with the application; the job description is the application's saved job, or else the job that CV was built for. With neither, no AI call is made and the page says so. If the model fails or the daily limit is reached, the rejection and the answers stay saved and the lesson can be asked for again from the panel.
+
+| Rule for a lesson | Check in code | When it fails |
+|---|---|---|
+| A guess, never a verdict | The likely reason must contain "may", "might", "could", "possibly", "probably", "perhaps", "likely", "seems" or "suggests" | Asked once more, then an error with Retry |
+| No invented feedback | With no feedback entered, the reason may not mention feedback, and neither part may say "they said", "you were told" or similar. Suggesting the user ask for feedback is allowed | The same |
+| Quotes are real | A phrase in quotation marks in the reason, double or single, straight or curly, must appear in the feedback, the CV or the advert; in the suggested change, a phrase in double quotes must. Single quotes in the change are how the model suggests new wording ("such as 'Presented findings to senior managers'") and are allowed. An apostrophe ("you're", "employer's") is not a quotation mark | The same |
+| No advert, no description of it | With no job description recorded, the reason may not mention the advert | The same |
+| Written to the user | "The candidate" is refused | The same |
+| A page that exists | Anything but resume, interview or profile becomes resume for a CV-stage rejection, interview for the rest | Normalised |
+
+The last three rules came from the real model on 14 October 2026, which wrote "The candidate may have lacked..." and, with no CV recorded, still wrote about "your CV". That second case is allowed: refusing it would leave every application tracked without a CV with no lesson, and the reason is still a possibility.
+
+**Follow-ups.** A new application is given a follow-up date a week after the date applied. Home and Applications list those whose date has come, and those still at Applied after 21 days with no stage change, with "Move to No reply". "Draft a follow-up" asks the model for a subject and a short body from the role, company, date applied and contact's name only; code adds "Dear <name>," (or "Dear Hiring Manager,") and "Kind regards," with the user's own name, after removing any greeting or sign-off the model wrote itself. The real model put "Dear Priya," on the same line as the body and ended with "Best wishes" after the last sentence; both are handled. Nothing is sent for the user: the message is copied.
+
+**Goals and the streak.** A week runs Monday to Sunday in London. It is met when applications with a CV version recorded reach that week's application goal and finished mock interviews reach its practice goal. The streak is the run of met weeks ending last week, plus this week once it is met; a week in progress never breaks it, and weeks before the account existed do not count. Goals live in `weekly_goals`, each from a Monday: the first a user sets applies to this week, later changes from the next Monday, so a past or current week is always judged by the goal it started with. A mock interview's week is decided by its London date, so one at 00:30 on a Monday in summer (23:30 UTC on Sunday) belongs to the new week.
+
+**Milestones.** First application; 10, 25 and 50 applications; first reply, interview and offer (a card counts if it is at that stage now or passed through it); first mock interview; six STAR stories; four and eight weeks in a row. Worked out from the data each time; `profiles.milestones_seen` records which have been shown.
+
+**The weekly plan.** At most five tasks, built by rules in this order: follow-ups due; each tracker finding that links to a page; new matching jobs from the last 48 hours; applications still needed for the goal; mock interviews still needed; stories still needed to reach six; achievements without a number. A task that is done is simply not built again. Nothing in the plan comes from the model.
+
+**The home page**, top to bottom: the milestone banner when there is one, the next best step, this week against the goals with the streak and Edit goals, the weekly plan, follow-ups due, getting started while it is unfinished, and beside them the visa countdown and the search totals.
+
+**What you have learned.** Applications lists the latest lessons, newest first. Three lessons pointing to the same page make a finding under What to fix.
+
+## 22. Verification record for step 4
+
+| Check | Result | Date |
+|---|---|---|
+| Automated backend suite | 1,341 passed, 0 skipped, against the real database | 14 Oct 2026 |
+| Frontend | Lints with no errors and no new warnings; builds | 14 Oct 2026 |
+| Migration `007_tracker_habits` | Applied to the real database; open applications without a follow-up date were given one | 14 Oct 2026 |
+| Real model, one call per AI task (`live_check.py`) | 28 of 28 passed: the 24 from before and 4 new (a lesson with feedback, without feedback, without an advert; a follow-up draft), 1 to 3 seconds each. After the review fixes the three lesson checks passed twice more, 6 of 6 with no retry | 14 Oct 2026 |
+| Real output read by eye | Eight lessons: each hedged, specific to the CV and advert, and using the feedback only when it was given; the first ones spoke of "the candidate", fixed. Seven drafts: about 50 to 65 words, one ask, the right date and contact; the first ones lost their body to a greeting on the same line or kept a second sign-off, fixed | 14 Oct 2026 |
+| Home and Applications against the real backend and model, as a temporary user whose data was never saved | The panel showed every field; notes, date posted and link saved and were still there after a reload. A card moved Applied, Phone screen, Interview, Offer showed each change with its date, and Offer showed nothing to follow up. Dropping a card on Rejected asked the two questions without moving it, and Cancel left it at Applied; answered "after an interview" with feedback, it gave a lesson about this job's CV and the feedback, which also appeared under What you have learned and in the panel. A card with no CV or advert gave the fixed message and made no AI call. A real follow-up draft was addressed to the contact, dated right and signed with the user's name; Mark as followed up moved the date a week on and took it off Follow-ups due. Setting goals of 1 and 0 made the week met and the streak 1, and took the goal tasks off the plan. Three milestones showed in one banner and not again after a reload; two more reached later showed once each. Open CV opened the version that was sent. Move to No reply worked from Home. At phone width the panel filled the screen with no sideways scroll | 14 Oct 2026 |
+| Defects that check found, each fixed test first | An application logged late never counted as quiet; Move to No reply left a follow-up due; "1 of 1 applications" | 14 Oct 2026 |
+| A fresh review of the whole branch (a separate reviewer on the most capable model) | Ready to merge with fixes; no critical findings. Fixed, each with a test or a browser check that failed first: a quote in single quotes escaped the quote check; the question form started a card already at "Rejected after interview" on "at the CV stage", and could undo a rejected stage picked from the menu; Cancel did nothing once Save was pressed, and a lesson could land on a card moved out of Rejected meanwhile; a greeting such as "Hello!" took the first clause of a draft with it, and a closing "Many thanks for..." sentence was cut; Escape lost an edit not yet saved, and one refused edit reset every field; "Ended at the cv stage"; the "Also worth fixing" card, dropped from Home without a recorded reason, is back. The same checks were then repeated on the pages as a temporary user | 14 Oct 2026 |
+| The database afterwards | No trace of the temporary user | 14 Oct 2026 |
+
+**Not yet verified:**
+
+- **A signed-in session.** The pages were driven without the login screen, through a temporary check page that was then removed.
+- **The owner's own applications.** The migration gave the open ones a follow-up date a week after they were sent, so they will show as due at once; they have not been looked at.
+- **Dragging a card with a real mouse.** Drops were driven with simulated drag events and the stage menu.
+- **A second account in the browser** starting at zero (hand check 7). Proved by automated tests only.
+- **Real weeks passing.** Streaks across weeks, the weeks the clocks change, milestones at 10, 25 and 50 applications and streaks of 4 and 8 weeks are proved by tests with set dates, not by living through them.
+- **How the pages look**, beyond the panel at phone width.
+- **Anything on Vercel.**

@@ -10,7 +10,7 @@ pytestmark = pytest.mark.db
 TABLES = ("profiles", "achievements", "role_families", "saved_jobs", "cv_versions", "stories",
           "applications", "journal_entries", "usage_events", "schema_migrations",
           "job_listings", "job_searches", "job_search_results", "sponsors", "reference_meta", "job_matches",
-          "work_history", "education")
+          "work_history", "education", "application_events", "weekly_goals")
 
 
 def test_apply_all_is_idempotent(conn):
@@ -259,3 +259,67 @@ def test_cv_kind_and_format_checked(conn, user_a, column, value):
     _version(conn, user_a, kind="base", format_version=2)
     with pytest.raises(psycopg.errors.CheckViolation):
         _version(conn, user_a, **{column: value})
+
+
+# ---------- 007_tracker_habits: stage history, weekly goals, rejection answers ----------
+
+def _application(conn, user, **kw):
+    fields = {"company": "Zzqx Holdings Ltd", "role": "Role A", "source": "Other"} | kw
+    return conn.execute(f"insert into applications (user_id, {', '.join(fields)}) values (%s, {', '.join(['%s'] * len(fields))}) returning *",
+                        (user, *fields.values())).fetchone()
+
+
+def _event(conn, user, application_id, to_stage="applied"):
+    conn.execute("insert into application_events (user_id, application_id, to_stage) values (%s, %s, %s)", (user, application_id, to_stage))
+
+
+def _goal(conn, user, effective_from=date(2026, 10, 12), applications=5, practice=2):
+    conn.execute("insert into weekly_goals (user_id, effective_from, applications, practice) values (%s, %s, %s, %s)",
+                 (user, effective_from, applications, practice))
+
+
+def test_new_tables_cascade_on_user_delete(conn, user_a):
+    application = _application(conn, user_a)["id"]
+    _event(conn, user_a, application)
+    _goal(conn, user_a)
+    conn.execute("delete from auth.users where id = %s", (user_a,))
+    assert _count(conn, "application_events", "user_id", user_a) == 0
+    assert _count(conn, "weekly_goals", "user_id", user_a) == 0
+
+
+def test_events_deleted_with_their_application(conn, user_a):
+    application = _application(conn, user_a)["id"]
+    _event(conn, user_a, application)
+    _event(conn, user_a, application, "screening")
+    conn.execute("delete from applications where id = %s", (application,))
+    assert _count(conn, "application_events", "application_id", application) == 0
+
+
+def test_goal_must_start_on_a_monday(conn, user_a):
+    _goal(conn, user_a, effective_from=date(2026, 10, 12))  # a Monday
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _goal(conn, user_a, effective_from=date(2026, 10, 13))
+
+
+@pytest.mark.parametrize("applications, practice", [(0, 2), (31, 2), (5, -1), (5, 15)])
+def test_goal_bounds(conn, user_a, applications, practice):
+    _goal(conn, user_a, applications=1, practice=0)  # the smallest goal allowed
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _goal(conn, user_a, effective_from=date(2026, 10, 19), applications=applications, practice=practice)
+
+
+def test_rejected_at_stage_checked(conn, user_a):
+    for stage in ("cv", "screening", "interview", "final"):
+        _application(conn, user_a, stage="rejected", rejected_at_stage=stage)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _application(conn, user_a, stage="rejected", rejected_at_stage="offer")
+
+
+def test_new_application_columns_start_empty(conn, user_a):
+    row = _application(conn, user_a)
+    assert (row["contact_name"], row["rejected_at_stage"], row["feedback_received"], row["lesson"], row["last_followed_up_on"]) == (None,) * 5
+
+
+def test_milestones_seen_defaults_to_empty(conn, user_a):
+    row = conn.execute("insert into profiles (user_id, full_name) values (%s, 'Test Person') returning milestones_seen", (user_a,)).fetchone()
+    assert row["milestones_seen"] == []

@@ -1011,3 +1011,233 @@ def test_gaps_are_written_to_the_user(model):
     calls = model(LETTER)
     cv_letter()
     assert "addressed to the candidate as 'you'" in calls[0]["system"]
+
+
+# ---------- the lesson from a rejection (step 4) ----------
+
+ADVERT = {"title": "Zzqx Analyst", "company": "Zzqx Holdings Ltd", "description": "We need strong SQL and stakeholder reporting. " * 3}
+CV_TEXT = "Graduate analyst.\nBuilt a Python dashboard used by 40 staff.\nPython\nExcel"
+GOOD_LESSON = {"likely_reason": "The CV may not have shown the SQL the advert asked for.",
+               "one_change": "Put the SQL from your dashboard project in its first bullet.", "page": "resume"}
+
+
+def lesson(**kw):
+    return ai.rejection_lesson(**(dict(job=ADVERT, cv_text=CV_TEXT, ended_at="cv", feedback="") | kw))
+
+
+def test_lesson_returns_its_three_parts(model):
+    model(GOOD_LESSON)
+    assert lesson() == GOOD_LESSON
+
+
+def test_lesson_stated_as_fact_is_retried_then_refused(model):
+    certain = GOOD_LESSON | {"likely_reason": "The CV did not show SQL."}
+    calls = model(certain, certain)
+    with pytest.raises(ai.AIError):
+        lesson()
+    assert len(calls) == 2
+    model(certain, GOOD_LESSON)
+    assert lesson() == GOOD_LESSON
+
+
+def test_lesson_needs_a_reason_and_a_change(model):
+    empty = GOOD_LESSON | {"one_change": " "}
+    model(empty, empty)
+    with pytest.raises(ai.AIError):
+        lesson()
+
+
+@pytest.mark.parametrize("part, wording", [
+    ("likely_reason", "Their feedback suggests the SQL may have looked thin."),
+    ("one_change", "As they said, put SQL first."),
+    ("one_change", "You were told the CV may be too long, so cut it."),
+])
+def test_lesson_repeating_feedback_that_was_never_given_is_refused(model, part, wording):
+    invented = GOOD_LESSON | {part: wording}
+    model(invented, invented)
+    with pytest.raises(ai.AIError):
+        lesson(feedback="")
+
+
+def test_lesson_may_use_feedback_that_was_given(model):
+    using = GOOD_LESSON | {"likely_reason": "Their feedback suggests the SQL may have looked thin."}
+    model(using)
+    assert lesson(feedback="We wanted more SQL experience.") == using
+
+
+def test_lesson_may_suggest_asking_for_feedback(model):
+    asking = GOOD_LESSON | {"one_change": "Ask for feedback next time, and put SQL first."}
+    model(asking)
+    assert lesson() == asking
+
+
+def test_lesson_quote_must_be_in_the_inputs(model):
+    made_up = GOOD_LESSON | {"likely_reason": 'The advert asked for "five years of Tableau", which the CV may not show.'}
+    model(made_up, made_up)
+    with pytest.raises(ai.AIError):
+        lesson()
+    real = GOOD_LESSON | {"likely_reason": "The advert asked for “strong SQL”, which the CV may not show."}
+    model(real)
+    assert lesson() == real
+    from_feedback = GOOD_LESSON | {"likely_reason": 'They may have meant it when they said "not enough SQL".'}
+    model(from_feedback)
+    assert lesson(feedback="Not enough SQL, sorry.") == from_feedback
+
+
+@pytest.mark.parametrize("quoted", ["'five years of Tableau'", "‘five years of Tableau’"])
+def test_lesson_single_quoted_phrase_must_be_in_the_inputs(model, quoted):
+    # found in review: British single quotes skipped the check
+    made_up = GOOD_LESSON | {"likely_reason": f"The advert asked for {quoted}, which your CV may not show."}
+    model(made_up, made_up)
+    with pytest.raises(ai.AIError):
+        lesson()
+    real = GOOD_LESSON | {"likely_reason": "The advert asked for 'strong SQL', which your CV may not show."}
+    model(real)
+    assert lesson() == real
+
+
+def test_lesson_change_may_suggest_new_wording_in_single_quotes(model):
+    # the real model suggests wording this way ("such as 'Presented performance insights to senior management'");
+    # it is a suggestion, not a quote of anyone, so only the reason's single quotes are checked
+    suggesting = GOOD_LESSON | {"one_change": "Add a line such as 'Presented findings to senior managers', if accurate."}
+    calls = model(suggesting)
+    assert lesson() == suggesting and len(calls) == 1
+
+
+def test_lesson_apostrophes_are_not_quotes(model):
+    plain = GOOD_LESSON | {"likely_reason": "The employer's advert may have wanted SQL that your CV didn't show, and you're close."}
+    model(plain)
+    assert lesson() == plain
+
+
+def test_lesson_without_advert_may_not_describe_it(model):
+    describing = GOOD_LESSON | {"likely_reason": "The job description may have wanted more SQL."}
+    model(describing, describing)
+    with pytest.raises(ai.AIError):
+        lesson(job=None)
+    model(describing)
+    assert lesson() == describing  # with an advert recorded it may
+
+
+def test_lesson_written_to_you_not_about_the_candidate(model):
+    # the real model wrote "The candidate may have lacked..." on 14 October 2026
+    third_person = GOOD_LESSON | {"likely_reason": "The candidate may not have shown enough SQL."}
+    calls = model(third_person, third_person)
+    with pytest.raises(ai.AIError):
+        lesson()
+    assert "'you'" in calls[0]["system"]
+
+
+def test_lesson_without_cv_may_still_say_what_it_should_have_shown(model):
+    # with no CV recorded the real model always wrote about the CV; worded as a possibility that is a fair guess,
+    # and refusing it would leave every application tracked without a CV with no lesson at all
+    guess = GOOD_LESSON | {"likely_reason": "Your CV may not have shown the SQL the advert asked for."}
+    model(guess)
+    assert lesson(cv_text="") == guess
+
+
+@pytest.mark.parametrize("ended_at, page, expected", [("cv", "Resume", "resume"), ("cv", "linkedin", "resume"), ("cv", "your CV", "resume"),
+                                                      ("interview", "", "interview"), ("final", "Interview coach", "interview"),
+                                                      ("screening", "PROFILE", "profile")])
+def test_lesson_page_normalised(model, ended_at, page, expected):
+    model(GOOD_LESSON | {"page": page})
+    assert lesson(ended_at=ended_at)["page"] == expected
+
+
+def test_lesson_prompt_says_what_was_recorded_and_what_was_not(model):
+    calls = model(GOOD_LESSON | {"likely_reason": "The CV may not have shown enough SQL."})
+    lesson(job=None, ended_at="final")
+    prompt = calls[0]["user"]
+    assert "No job description was recorded" in prompt and "No feedback was given" in prompt
+    assert "Built a Python dashboard used by 40 staff." in prompt and "after a final interview" in prompt
+    calls = model(GOOD_LESSON | {"likely_reason": "The advert may have wanted more SQL than they saw."})
+    lesson(cv_text="", feedback="We wanted more SQL.")
+    prompt = calls[0]["user"]
+    assert "No CV was recorded" in prompt and "We need strong SQL" in prompt and "We wanted more SQL." in prompt
+
+
+# ---------- a follow-up draft (step 4) ----------
+
+GOOD_DRAFT = {"subject": "Zzqx Analyst application",
+              "body": "I applied for the Zzqx Analyst role on 7 October 2026 and wanted to check whether you need anything else from me. "
+                      "I remain very interested in the role. Could you let me know when you expect to make a decision?"}
+
+
+def draft(**kw):
+    return ai.follow_up(**(dict(role="Zzqx Analyst", company="Zzqx Holdings Ltd", applied_on=date(2026, 10, 7),
+                                contact_name="Zzqx Person", sender="Test Person") | kw))
+
+
+def test_draft_wrapped_with_greeting_and_name(model):
+    model(GOOD_DRAFT)
+    assert draft() == {"subject": GOOD_DRAFT["subject"],
+                       "message": f"Dear Zzqx Person,\n\n{GOOD_DRAFT['body']}\n\nKind regards,\nTest Person"}
+    model(GOOD_DRAFT)
+    assert draft(contact_name="  ")["message"].startswith("Dear Hiring Manager,\n\n")
+
+
+def test_users_name_never_sent(model):
+    calls = model(GOOD_DRAFT)
+    draft(sender="Zzqx Sendername")
+    sent = calls[0]["system"] + calls[0]["user"]
+    assert "Zzqx Sendername" not in sent
+    assert all(part in sent for part in ("Zzqx Person", "Zzqx Analyst", "Zzqx Holdings Ltd", "7 October 2026"))
+
+
+def test_draft_over_80_words_retried(model):
+    calls = model(GOOD_DRAFT | {"body": "I am writing to follow up on my application. " * 10}, GOOD_DRAFT)
+    assert GOOD_DRAFT["body"] in draft()["message"] and len(calls) == 2
+
+
+@pytest.mark.parametrize("placeholder", ["[Your name]", "<date>", "{company}"])
+def test_draft_with_placeholder_retried(model, placeholder):
+    calls = model(GOOD_DRAFT | {"body": f"Thank you for considering me, {placeholder}."}, GOOD_DRAFT)
+    assert placeholder not in draft()["message"] and len(calls) == 2
+
+
+def test_draft_with_invented_number_retried(model):
+    calls = model(GOOD_DRAFT | {"body": "I applied on 7 October 2026 and bring 3 years of SQL."}, GOOD_DRAFT)
+    assert "3 years" not in draft()["message"] and len(calls) == 2
+
+
+def test_draft_numbers_from_role_and_company_allowed(model):
+    named = {"subject": "Analyst 2 application", "body": "I applied for Analyst 2 at Zzqx 360 on 7 October 2026. Is there any news?"}
+    model(named)
+    assert named["body"] in draft(role="Analyst 2", company="Zzqx 360")["message"]
+
+
+def test_draft_greeting_on_the_same_line_as_the_body_removed(model):
+    # as the real model wrote it on 14 October 2026: greeting and body in one line
+    model(GOOD_DRAFT | {"body": f"Dear Zzqx, {GOOD_DRAFT['body']}"})
+    assert draft()["message"] == f"Dear Zzqx Person,\n\n{GOOD_DRAFT['body']}\n\nKind regards,\nTest Person"
+
+
+@pytest.mark.parametrize("ending", [" Best wishes", " Kind regards, [Your name]", " Many thanks,\nZzqx"])
+def test_draft_sign_off_at_the_end_of_the_body_removed(model, ending):
+    # as the real model wrote it on 14 October 2026: "...any update you can share. Best wishes"
+    model(GOOD_DRAFT | {"body": GOOD_DRAFT["body"] + ending})
+    assert draft()["message"] == f"Dear Zzqx Person,\n\n{GOOD_DRAFT['body']}\n\nKind regards,\nTest Person"
+
+
+def test_draft_short_greeting_ending_in_a_mark_keeps_the_first_sentence(model):
+    # found in review: "Hello! I wanted to..., which I sent" lost everything up to the first comma
+    model(GOOD_DRAFT | {"body": "Hello! " + GOOD_DRAFT["body"]})
+    assert draft()["message"] == f"Dear Zzqx Person,\n\n{GOOD_DRAFT['body']}\n\nKind regards,\nTest Person"
+
+
+def test_draft_closing_sentence_of_thanks_is_kept(model):
+    body = GOOD_DRAFT["body"] + " Many thanks for considering my application."
+    model(GOOD_DRAFT | {"body": body})
+    assert f"\n\n{body}\n\nKind regards," in draft()["message"]
+
+
+def test_draft_starting_mid_sentence_is_retried(model):
+    calls = model(GOOD_DRAFT | {"body": "which I sent on 7 October 2026. Is there any news?"}, GOOD_DRAFT)
+    assert GOOD_DRAFT["body"] in draft()["message"] and len(calls) == 2
+
+
+def test_draft_own_greeting_and_sign_off_removed(model):
+    framed = GOOD_DRAFT | {"body": f"Dear Zzqx Person,\n\n{GOOD_DRAFT['body']}\n\nKind regards,\n[Your name]"}
+    model(framed)
+    message = draft()["message"]
+    assert message == f"Dear Zzqx Person,\n\n{GOOD_DRAFT['body']}\n\nKind regards,\nTest Person"

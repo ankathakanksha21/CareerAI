@@ -1,5 +1,9 @@
 import { Check } from 'lucide-react'
 import { Meter, PageHead, VISA_LABEL, daysUntil, fmtDate, plural } from '../ui'
+import FollowUps from '../components/FollowUps'
+import Milestones from '../components/Milestones'
+import Plan from '../components/Plan'
+import ThisWeek from '../components/ThisWeek'
 
 function VisaCard({ profile }) {
   const days = daysUntil(profile.visa_end_date)
@@ -14,10 +18,29 @@ function VisaCard({ profile }) {
   )
 }
 
-export default function Home({ s, go }) {
+function GettingStarted({ s, go }) {
+  const done = s.next_steps.filter((x) => x.done).length
+  if (done === s.next_steps.length) return null
+  return (
+    <section className="card">
+      <div className="row"><h2>Getting started</h2><span className="spacer" /><span className="small muted">{done} of {s.next_steps.length} done</span></div>
+      <div style={{ margin: '10px 0 16px' }}><Meter value={(done / s.next_steps.length) * 100} /></div>
+      <div className="list">
+        {s.next_steps.map((t) => (
+          <div key={t.id} className={`task ${t.done ? 'done' : ''}`}>
+            <span className={`tickbox ${t.done ? 'on' : ''}`} aria-label={t.done ? 'Done' : 'Not done yet'}>{t.done && <Check size={13} strokeWidth={3} />}</span>
+            <div><div className="t">{t.text}</div><div className="why">{t.why}</div></div>
+            {!t.done && <button className="btn ghost small" onClick={() => go(t.page)}>Open</button>}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+export default function Home({ s, go, refresh, notify }) {
   const finding = s.stats.findings[0]
   const step = s.next_steps.find((x) => !x.done)
-  const done = s.next_steps.filter((x) => x.done).length
   const f = s.stats.funnel
   const fresh = s.jobs.fresh
   // jobs just posted come first, since they go stale; then what the tracker found; then the next getting-started step
@@ -26,12 +49,14 @@ export default function Home({ s, go }) {
     : finding
       ? { text: finding.action, why: finding.evidence, label: finding.link?.label, page: finding.link?.page }
       : step && { text: step.text, why: step.why, label: 'Open', page: step.page }
-  // a finding that is not the headline is listed below it
-  const others = fresh > 0 ? s.stats.findings : s.stats.findings.slice(1)
+  // findings that are neither the next best step nor a task on the plan, such as one with no page to fix it on
+  const planned = new Set(s.plan.map((t) => t.id))
+  const others = (fresh > 0 ? s.stats.findings : s.stats.findings.slice(1)).filter((x) => !planned.has(`finding-${x.id}`))
 
   return (
     <>
       <PageHead title={`This week, ${s.profile.first_name}`} lede="What to do next in your search, and why." />
+      <Milestones s={s} />
 
       {next && (
         <section className="card tint next-step">
@@ -46,21 +71,10 @@ export default function Home({ s, go }) {
 
       <div className="grid split" style={{ marginTop: 16 }}>
         <div className="stack">
-          {done < s.next_steps.length && (
-            <section className="card">
-              <div className="row"><h2>Getting started</h2><span className="spacer" /><span className="small muted">{done} of {s.next_steps.length} done</span></div>
-              <div style={{ margin: '10px 0 16px' }}><Meter value={(done / s.next_steps.length) * 100} /></div>
-              <div className="list">
-                {s.next_steps.map((t) => (
-                  <div key={t.id} className={`task ${t.done ? 'done' : ''}`}>
-                    <span className={`tickbox ${t.done ? 'on' : ''}`} aria-label={t.done ? 'Done' : 'Not done yet'}>{t.done && <Check size={13} strokeWidth={3} />}</span>
-                    <div><div className="t">{t.text}</div><div className="why">{t.why}</div></div>
-                    {!t.done && <button className="btn ghost small" onClick={() => go(t.page)}>Open</button>}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+          <ThisWeek s={s} refresh={refresh} notify={notify} />
+          <Plan s={s} go={go} />
+          <FollowUps s={s} refresh={refresh} notify={notify} onOpen={(id) => go('applications', null, { appId: id })} />
+          <GettingStarted s={s} go={go} />
           {others.length > 0 && (
             <section className="card">
               <div className="row"><h2>Also worth fixing</h2><span className="spacer" /><button className="linkish small" onClick={() => go('applications')}>Applications</button></div>

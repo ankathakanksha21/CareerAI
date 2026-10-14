@@ -30,7 +30,7 @@ def test_every_route_but_config_needs_a_token():
             r = anonymous.request(method, url, json={})
             assert r.status_code == 401, f"{method} {path} answered {r.status_code} without a token"
             checked += 1
-    assert checked >= 34
+    assert checked >= 39
 
 
 def test_config_is_public_and_has_no_secret(monkeypatch):
@@ -90,6 +90,14 @@ def test_application_crud(client):
     assert client.delete(f"/api/applications/{a['id']}").status_code == 204
     again = client.delete(f"/api/applications/{a['id']}")
     assert again.status_code == 404 and again.json()["detail"] == GONE
+
+
+def test_application_contact_name_and_how_to_reach_them(client):
+    a = client.post("/api/applications", json=APP | {"contact_name": "Zzqx Person", "contact": "zzqx@example.test"}).json()
+    assert (a["contact_name"], a["contact"]) == ("Zzqx Person", "zzqx@example.test")
+    patched = client.patch(f"/api/applications/{a['id']}", json={"contact_name": "Other Zzqx"}).json()
+    assert (patched["contact_name"], patched["contact"]) == ("Other Zzqx", "zzqx@example.test")
+    assert client.patch(f"/api/applications/{a['id']}", json={"contact_name": "x" * 121}).status_code == 422
 
 
 @pytest.mark.parametrize("change", [{"source": "Carrier pigeon"}, {"stage": "hired"}, {"company": ""}, {"role": " "}])

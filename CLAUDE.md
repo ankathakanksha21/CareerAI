@@ -20,6 +20,7 @@ The product is built in numbered steps, 0 to 7. Each step has its own document i
 - **An uploaded file is read in memory and dropped.** Never written to disk or the database; only the text read from it is kept. A CV or cover letter file is likewise made in memory for one download and never stored.
 - **A CV's facts are copied, never written by the AI.** Employers, job titles, dates, institutions, qualifications, grades and contact details on a CV come from the stored records. The model writes wording only, and code checks what it returns (`ai.build_cv`, `cvbuild.build`).
 - **A CV that was sent never changes.** An edit to a version an application points at is saved as a new version.
+- **Habits are worked out, never stored.** Streaks, milestones reached, follow-ups due and the weekly plan are computed from the user's own rows on every read (`habits.py`). Only the inputs are stored: stage history, goals, and which milestones were shown.
 - **What a user types never goes in an address.** A name, a salary or a username travels in the request body, so it stays out of server logs.
 - **Everything that costs money is limited per user per day** (`limits.py`).
 - **The menu shows only features that genuinely work.** Every page has an empty state with one clear action.

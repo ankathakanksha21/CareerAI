@@ -27,8 +27,11 @@ export default function Privacy({ go, signedIn }) {
           <li>Your work history, education, skills and languages, once you confirm them.</li>
           <li>Your phone number, town or city and LinkedIn address, if you add them for your CV, and any certifications, awards or volunteering you list. They are printed on your CVs. Your name, email and these contact details are not sent to the AI when a CV is written.</li>
           <li>Your GitHub username, if you import projects, and the public description and README of the repositories you pick.</li>
-          <li>Job descriptions you add, which matched jobs you save or dismiss, and the applications you log.</li>
-          <li>Content the AI writes for you: achievements, CVs, cover letters, interview stories and feedback.</li>
+          <li>Job descriptions you add, which matched jobs you save or dismiss, and the applications you log: each one's stage changes with their dates, notes, follow-up dates, and the name and contact details of anyone you dealt with there.</li>
+          <li>When an application is rejected, where it ended and any feedback you type. To write a lesson from it, the CV you sent, the job description, where it ended and that feedback are sent to the AI. Your name and contact details are not.</li>
+          <li>To draft a follow-up, only the role, the company, the date you applied and your contact's name are sent to the AI. How to reach them and your own name are not; your name is added to the draft afterwards. Nothing is ever sent to an employer for you.</li>
+          <li>Your weekly goals and which milestones you have already been shown. Streaks and the weekly plan are worked out from your data each time and not stored.</li>
+          <li>Content the AI writes for you: achievements, CVs, cover letters, interview stories, feedback and lessons from rejections.</li>
           <li>The wording of each CV and cover letter you build or edit. The Word and PDF files are made when you download them and are not kept.</li>
           <li>A count of how many AI actions and voice calls you use each day.</li>
         </ul>

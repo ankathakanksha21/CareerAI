@@ -5,7 +5,7 @@ Rows come back as plain dicts: ids as str, dates as datetime.date, timestamps as
 import json
 import re
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 from psycopg.types.json import Jsonb
 
@@ -365,8 +365,13 @@ def delete_story(conn, user_id, story_id) -> bool:
 # ---------- applications ----------
 
 APPLICATION_FIELDS = ("company", "role", "role_family_id", "cv_version_id", "saved_job_id", "source", "stage",
-                      "applied_on", "posted_on", "job_url", "contact", "notes", "sponsor_licence", "follow_up_on")
+                      "applied_on", "posted_on", "job_url", "contact_name", "contact", "notes", "sponsor_licence", "follow_up_on")
 _REFERENCES = {"role_family_id": "role_families", "cv_version_id": "cv_versions", "saved_job_id": "saved_jobs"}
+REJECTED = ("rejected", "rejected_after_interview")
+CLOSED = ("offer", *REJECTED)  # an application that has ended: nothing to follow up
+FOLLOW_UP_DAYS = 7
+# Where a rejection ended, as the user answers it, and the stage that sets
+ENDED_AT = {"cv": "rejected", "screening": "rejected", "interview": "rejected_after_interview", "final": "rejected_after_interview"}
 
 
 def _application_values(conn, user_id, fields: dict) -> dict:
@@ -380,20 +385,84 @@ def list_applications(conn, user_id) -> list[dict]:
     return _rows(conn.execute("select * from applications where user_id = %s order by applied_on desc, created_at desc, id", (user_id,)))
 
 
+def _record_stage(conn, user_id, app_id, from_stage: str | None, to_stage: str) -> None:
+    conn.execute("insert into application_events (user_id, application_id, from_stage, to_stage) values (%s, %s, %s, %s)",
+                 (user_id, app_id, from_stage, to_stage))
+
+
 def add_application(conn, user_id, fields: dict) -> dict:
+    """Log an application, with the first line of its history. An open application with no
+    follow-up date is given one a week after applying."""
     # a field left out, or given as None where the column has a default (stage, applied_on), takes the default
     values = {k: v for k, v in _application_values(conn, user_id, fields).items() if v is not None}
     columns = ["user_id", *values]
-    return _row(conn.execute(
+    row = _row(conn.execute(
         f"insert into applications ({', '.join(columns)}) values ({', '.join(['%s'] * len(columns))}) returning *",
         (user_id, *values.values())).fetchone())
+    if row["follow_up_on"] is None and row["stage"] not in CLOSED:
+        row = _row(conn.execute("update applications set follow_up_on = applied_on + %s::int where id = %s and user_id = %s returning *",
+                                (FOLLOW_UP_DAYS, row["id"], user_id)).fetchone())
+    _record_stage(conn, user_id, row["id"], None, row["stage"])
+    return row
 
 
 def update_application(conn, user_id, app_id, fields: dict) -> dict | None:
+    """Change only the fields given. A new stage adds a line to the history; leaving a rejected
+    stage clears what the rejection recorded. A suggested follow-up date that was never acted on
+    moves with a corrected application date."""
     values = _application_values(conn, user_id, fields)
+    before = _row(conn.execute("select * from applications where id = %s and user_id = %s for update", (app_id, user_id)).fetchone())
+    if before is None:
+        return None
+    stage = values.get("stage") or before["stage"]
+    if before["stage"] in REJECTED and stage not in REJECTED:
+        values |= {"rejected_at_stage": None, "feedback_received": None, "lesson": None}
+    suggested = before["applied_on"] + timedelta(days=FOLLOW_UP_DAYS)
+    if (values.get("applied_on") and "follow_up_on" not in values and before["last_followed_up_on"] is None
+            and before["follow_up_on"] == suggested):
+        values["follow_up_on"] = values["applied_on"] + timedelta(days=FOLLOW_UP_DAYS)
     assignments = ", ".join([f"{k} = %s" for k in values] + ["updated_at = now()"])
-    return _row(conn.execute(f"update applications set {assignments} where id = %s and user_id = %s returning *",
-                             (*values.values(), app_id, user_id)).fetchone())
+    row = _row(conn.execute(f"update applications set {assignments} where id = %s and user_id = %s returning *",
+                            (*values.values(), app_id, user_id)).fetchone())
+    if stage != before["stage"]:
+        _record_stage(conn, user_id, app_id, before["stage"], stage)
+    return row
+
+
+def get_application(conn, user_id, app_id) -> dict | None:
+    return _row(conn.execute("select * from applications where id = %s and user_id = %s", (app_id, user_id)).fetchone())
+
+
+def list_application_events(conn, user_id) -> list[dict]:
+    """Every stage change of the user's applications, each with its London date, in order."""
+    return _rows(conn.execute(
+        "select application_id, from_stage, to_stage, at, (at at time zone 'Europe/London')::date as day "
+        "from application_events where user_id = %s order by application_id, at, id", (user_id,)))
+
+
+def reject_application(conn, user_id, app_id, *, ended_at: str, feedback: str) -> dict | None:
+    """Record a rejection: the stage its answer implies, where it ended, any feedback given. A
+    lesson written for an earlier answer is cleared, since it may no longer fit."""
+    if update_application(conn, user_id, app_id, {"stage": ENDED_AT[ended_at]}) is None:
+        return None
+    return _row(conn.execute(
+        "update applications set rejected_at_stage = %s, feedback_received = %s, lesson = null, updated_at = now() "
+        "where id = %s and user_id = %s returning *", (ended_at, feedback.strip() or None, app_id, user_id)).fetchone())
+
+
+def set_lesson(conn, user_id, app_id, lesson: dict, *, ended_at: str) -> dict | None:
+    """Save a lesson onto the rejection it was written for. None if the application is not this
+    user's, or has left Rejected or been answered differently since: the lesson would not fit."""
+    return _row(conn.execute(
+        "update applications set lesson = %s, updated_at = now() where id = %s and user_id = %s "
+        "and stage = any(%s) and rejected_at_stage = %s returning *", (Jsonb(lesson), app_id, user_id, list(REJECTED), ended_at)).fetchone())
+
+
+def mark_followed_up(conn, user_id, app_id, today: date) -> dict | None:
+    """The user followed up today: the next follow-up is due a week from now."""
+    return _row(conn.execute(
+        "update applications set last_followed_up_on = %s, follow_up_on = %s, updated_at = now() "
+        "where id = %s and user_id = %s returning *", (today, today + timedelta(days=FOLLOW_UP_DAYS), app_id, user_id)).fetchone())
 
 
 def application_for_job(conn, user_id, saved_job_id) -> dict | None:
@@ -426,10 +495,52 @@ def add_journal_entry(conn, user_id, *, type: str, title: str, with_whom: str, s
          Jsonb(scores) if scores is not None else None, transcript)).fetchone())
 
 
+def practice_days(conn, user_id) -> list[date]:
+    """The London date of each finished mock interview: what counts as practice for the weekly goal."""
+    rows = conn.execute("select (created_at at time zone 'Europe/London')::date as day from journal_entries "
+                        "where user_id = %s and type = 'interview' order by created_at", (user_id,)).fetchall()
+    return [r["day"] for r in rows]
+
+
 def get_journal_transcript(conn, user_id, entry_id) -> str | None:
     """What was said in that session, or None if the entry is not this user's or has no transcript."""
     row = conn.execute("select transcript from journal_entries where id = %s and user_id = %s", (entry_id, user_id)).fetchone()
     return row["transcript"] if row else None
+
+
+# ---------- weekly goals and milestones ----------
+
+def list_goals(conn, user_id) -> list[dict]:
+    """Every goal the user has set, each applying from its Monday, oldest first."""
+    return _rows(conn.execute("select effective_from, applications, practice from weekly_goals where user_id = %s "
+                              "order by effective_from", (user_id,)))
+
+
+def set_goal(conn, user_id, *, effective_from: date, applications: int, practice: int) -> dict:
+    """Set the goal from one Monday. A second change before that Monday replaces the first."""
+    return _row(conn.execute(
+        "insert into weekly_goals (user_id, effective_from, applications, practice) values (%s, %s, %s, %s) "
+        "on conflict (user_id, effective_from) do update set applications = excluded.applications, practice = excluded.practice, "
+        "created_at = now() returning effective_from, applications, practice",
+        (user_id, effective_from, applications, practice)).fetchone())
+
+
+def account_started(conn, user_id) -> date | None:
+    """The London date the user's profile was made: weeks before it count neither for nor against a streak."""
+    row = conn.execute("select (created_at at time zone 'Europe/London')::date as day from profiles where user_id = %s",
+                       (user_id,)).fetchone()
+    return row["day"] if row else None
+
+
+def mark_milestones_seen(conn, user_id, ids: list[str]) -> list[str]:
+    """Add milestones to those already shown, keeping their order. Returns the whole list."""
+    row = conn.execute("select milestones_seen from profiles where user_id = %s for update", (user_id,)).fetchone()
+    if row is None:
+        return []
+    seen = list(row["milestones_seen"])
+    seen += [i for i in dict.fromkeys(ids) if i not in seen]
+    conn.execute("update profiles set milestones_seen = %s where user_id = %s", (Jsonb(seen), user_id))
+    return seen
 
 
 # ---------- work history and education ----------

@@ -12,8 +12,9 @@ const BASE = '' // the picker's first choice: a CV for no particular job
 
 export default function Resume({ s, focus, refresh, go, notify }) {
   const recent = s.cv_versions[0]
-  const [target, setTarget] = useState(focus.jobId || (recent ? recent.saved_job_id || BASE : s.saved_jobs[0]?.id || BASE))
-  const [openId, setOpenId] = useState(null)    // a version the user picked or just made; otherwise the newest for the target
+  const asked = focus.cvId && s.cv_versions.find((c) => c.id === focus.cvId) // opened from an application
+  const [target, setTarget] = useState(asked ? asked.saved_job_id || BASE : focus.jobId || (recent ? recent.saved_job_id || BASE : s.saved_jobs[0]?.id || BASE))
+  const [openId, setOpenId] = useState(asked ? asked.id : null) // a version the user picked or just made; otherwise the newest for the target
   const [fresh, setFresh] = useState(null)      // the version as the editor last saved it, ahead of the next full refresh
   const [session, setSession] = useState(0)     // a new number starts the editor afresh on another CV
   const [adding, setAdding] = useState(false)

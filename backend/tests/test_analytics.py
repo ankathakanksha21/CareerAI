@@ -246,3 +246,50 @@ def test_reed_is_a_source_and_counts_as_a_job_board():
     apps = [app(source="Referral", stage="interview") for _ in range(2)] + [app(source="Reed") for _ in range(10)]
     network = finding(analytics.compute(apps, FAMILIES, [], []), "network")
     assert network and "Job boards: 0 of 10" in network["evidence"]
+
+
+# ---------- step 4: rejections after a phone screen, and lessons that repeat ----------
+
+def lesson(page: str, change: str = "Lead with the SQL project.", made_on: str = "2026-10-10") -> dict:
+    return {"likely_reason": "The CV may not have shown enough SQL.", "one_change": change, "page": page, "made_on": made_on}
+
+
+def rejected(company: str, page: str, **kw) -> dict:
+    return app(stage="rejected", rejected_at_stage="cv", company=company, lesson=lesson(page, **kw))
+
+
+def test_rejection_after_screen_counts_as_reply():
+    funnel = analytics.compute([app(stage="rejected", rejected_at_stage="screening")], [], [], [])["funnel"]
+    assert (funnel["responses"], funnel["interviews"]) == (1, 0)
+
+
+def test_rejection_at_cv_is_not_a_reply():
+    funnel = analytics.compute([app(stage="rejected", rejected_at_stage="cv"), app(stage="rejected")], [], [], [])["funnel"]
+    assert funnel["responses"] == 0
+
+
+def test_three_lessons_on_one_page_make_a_finding():
+    apps = [rejected("Zzqx One", "resume", change="Change one", made_on="2026-10-01"),
+            rejected("Zzqx Three", "resume", change="Change three", made_on="2026-10-09"),
+            rejected("Zzqx Two", "resume", change="Change two", made_on="2026-10-05")]
+    found = finding(analytics.compute(apps, [], [], []), "lessons-resume")
+    assert found["type"] == "lessons" and found["severity"] == 3
+    assert found["title"] == "3 of your rejections point to your CV"
+    assert found["action"] == "Change three"  # the latest lesson's change
+    assert all(name in found["evidence"] for name in ("Zzqx One", "Zzqx Two", "Zzqx Three"))
+    assert found["link"]["page"] == "resume"
+
+
+def test_two_lessons_make_no_finding():
+    apps = [rejected("Zzqx One", "interview"), rejected("Zzqx Two", "interview"), app(stage="rejected", company="Zzqx Three")]
+    assert finding(analytics.compute(apps, [], [], []), "lessons-interview") is None
+
+
+def test_lessons_on_applications_no_longer_rejected_do_not_count():
+    apps = [rejected(name, "resume") | {"stage": "screening"} for name in ("Zzqx One", "Zzqx Two", "Zzqx Three")]
+    assert finding(analytics.compute(apps, [], [], []), "lessons-resume") is None
+
+
+def test_lessons_on_different_pages_do_not_combine():
+    apps = [rejected("Zzqx One", "resume"), rejected("Zzqx Two", "interview"), rejected("Zzqx Three", "profile")]
+    assert [f for f in analytics.compute(apps, [], [], [])["findings"] if f["type"] == "lessons"] == []
