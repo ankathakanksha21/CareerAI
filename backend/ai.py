@@ -652,6 +652,119 @@ def explain_diagnosis(findings: list, stats: dict, profile: dict) -> dict:
     return _run("diagnosis", system, user, template, 900, required=("headline", "one_change"))
 
 
+# 8b. What one rejection may teach
+ENDED_LABEL = {"cv": "at the CV stage", "screening": "after a phone screen", "interview": "after an interview",
+               "final": "after a final interview"}
+LESSON_PAGES = ("resume", "interview", "profile")
+POSSIBLE = {"may", "might", "could", "possibly", "probably", "perhaps", "likely", "seems", "seem", "suggest", "suggests"}
+# What the employer said, claimed when the user entered no feedback
+CLAIMED_FEEDBACK = re.compile(r"\b(they|the employer|the recruiter|the interviewer|the panel|the hiring manager)\s+"
+                              r"(said|told|mentioned|noted|felt|wrote)\b|\byou were told\b|\baccording to (them|the employer)\b", re.I)
+ADVERT_WORDS = re.compile(r"\b(advert|advertisement|job description|job posting|listing)\b", re.I)
+THIRD_PERSON = re.compile(r"\bthe candidate\b", re.I)
+QUOTED = re.compile(r"[\"“”]([^\"“”]{3,})[\"“”]")
+
+
+def _lesson_page(value, ended_at: str) -> str:
+    text = str(value).lower()
+    for page in LESSON_PAGES:
+        if page in text:
+            return page
+    if re.search(r"\bcv\b", text):
+        return "resume"
+    return "resume" if ended_at == "cv" else "interview"
+
+
+def rejection_lesson(*, job: dict | None, cv_text: str, ended_at: str, feedback: str) -> dict:
+    """One rejection: why it may have happened and one change for next time, from the CV that was
+    sent, the job description, where it ended and any feedback. The reason is worded as a
+    possibility; feedback the user did not enter is never claimed, and a quote must come from the inputs."""
+    system = (
+        "You are a UK careers coach helping a candidate learn from one rejection. Compare the CV they sent with the job "
+        "description, given where the process ended and any feedback, and suggest the single most useful change for next time. "
+        "Nobody can know why they were rejected, so word the likely reason as a possibility (may, might, could), never as a fact. "
+        "Never invent feedback: if none was given, do not say what the employer said or thought. Quote only words that appear "
+        "in the inputs. If no job description was recorded, do not describe what the advert asked for; if no CV was recorded, "
+        "you cannot know what it said, so say only what it may not have shown. Write to the candidate as 'you'."
+    )
+    user = (
+        f"It ended {ENDED_LABEL[ended_at]}.\n"
+        + (f'Feedback from the employer: "{feedback}"\n' if feedback else "No feedback was given.\n")
+        + (_advert(job) if job else "No job description was recorded.\n\n")
+        + (f"CV sent:\n{cv_text}\n\n" if cv_text else "No CV was recorded.\n\n")
+        + 'Return {"likely_reason":str (one or two sentences, worded as a possibility),'
+          '"one_change":str (one specific change for the next application, tied to this CV and job),'
+          '"page":"resume"|"interview"|"profile" (resume: the CV\'s wording or tailoring; interview: answers and practice; '
+          'profile: experience or evidence the candidate still needs)}'
+    )
+    sources = " ".join(_words(" ".join([feedback, cv_text, job["title"] if job else "", (job or {}).get("description") or ""])))
+
+    def honest(data: dict) -> bool:
+        reason, change = data["likely_reason"], data["one_change"]
+        if not POSSIBLE & set(_words(reason)):
+            return False
+        if not feedback and (re.search(r"\bfeedback\b", reason, re.I) or CLAIMED_FEEDBACK.search(reason) or CLAIMED_FEEDBACK.search(change)):
+            return False
+        if job is None and ADVERT_WORDS.search(reason):
+            return False
+        if THIRD_PERSON.search(reason) or THIRD_PERSON.search(change):
+            return False
+        return all(f" {' '.join(_words(q))} " in f" {sources} " for q in QUOTED.findall(f"{reason} {change}"))
+
+    template = {"likely_reason": "", "one_change": "", "page": ""}
+    data = _run("lesson", system, user, template, 700, required=("likely_reason", "one_change"), check=honest)
+    return {"likely_reason": data["likely_reason"].strip(), "one_change": data["one_change"].strip(),
+            "page": _lesson_page(data["page"], ended_at)}
+
+
+# 8c. A follow-up message to copy
+FOLLOW_UP_WORDS = 80  # the body; with the greeting and sign-off the message stays under 90
+GREETING = re.compile(r"\s*(dear|hello|hi)\b[^,\n]*(,|\n|$)\s*", re.I)  # "Dear Priya," with or without the body on the same line
+SIGN_OFF = re.compile(r"\s*(kind regards|best regards|warm regards|regards|best wishes|many thanks|thanks|thank you|"
+                      r"yours sincerely|yours faithfully|sincerely|best)\s*,?\s*$", re.I)
+# a sign-off after the last sentence, on the same line, with anything after it: "...can share. Best wishes"
+TRAILING_SIGN_OFF = re.compile(r"(?<=[.!?])\s+(kind regards|best regards|warm regards|regards|best wishes|many thanks|"
+                               r"yours sincerely|yours faithfully|sincerely)\b.*$", re.I | re.S)
+PLACEHOLDER = re.compile(r"[\[\]<>{}]")
+
+
+def _message_body(text: str) -> str:
+    """The body of a message the model framed itself: its greeting and sign-off are dropped,
+    since code adds the user's own."""
+    match = GREETING.match(text)
+    lines = text[match.end() if match else 0:].strip().splitlines()
+    for i, line in enumerate(lines):
+        if SIGN_OFF.fullmatch(line):
+            lines = lines[:i]
+            break
+    return TRAILING_SIGN_OFF.sub("", "\n".join(lines).strip()).strip()
+
+
+def follow_up(*, role: str, company: str, applied_on: date, contact_name: str, sender: str) -> dict:
+    """A short follow-up for the user to copy. Only the role, company, date applied and the
+    contact's name are sent; the greeting and the user's own name are added here."""
+    applied, contact = cv.long_date(applied_on), contact_name.strip()
+    system = (
+        "Write a short follow-up message from a candidate to an employer about an application they sent. UK tone: polite, "
+        "warm and brief, with one clear ask, such as an update on the timeline, and no pressure. Use only the details given "
+        "and invent nothing about the candidate or the role. Write the body only, with no greeting and no sign-off, "
+        f"in at most {FOLLOW_UP_WORDS} words, and no placeholders in brackets."
+    )
+    user = (f"Role: {role}\nCompany: {company}\nDate applied: {applied}\n"
+            f"Written to: {contact or 'the hiring manager (no name known)'}\n\n"
+            'Return {"subject":str (a short email subject line),"body":str}')
+    allowed = _numbers(f"{applied} {role} {company}")
+
+    def usable(data: dict) -> bool:
+        body = _message_body(data["body"])
+        return (bool(body) and len(body.split()) <= FOLLOW_UP_WORDS and not PLACEHOLDER.search(body + data["subject"])
+                and _numbers(body + " " + data["subject"]) <= allowed)
+
+    data = _run("follow up", system, user, {"subject": "", "body": ""}, 500, required=("subject", "body"), check=usable)
+    return {"subject": data["subject"].strip(),
+            "message": f"Dear {contact or 'Hiring Manager'},\n\n{_message_body(data['body'])}\n\nKind regards,\n{sender}"}
+
+
 # 9. Job adverts against the candidate's achievements
 MAX_REQUIREMENTS = 6
 ADVERT_CHARS = 2500

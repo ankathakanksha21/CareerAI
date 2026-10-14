@@ -6,7 +6,7 @@ To run only some checks, name them:      python scripts/live_check.py cv github 
 (every check whose name contains one of the words is run)."""
 import sys
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -175,6 +175,19 @@ def _build_ok(built: tuple) -> bool:
             and bool(content["cover_letter"]["why_them"]) and bool(content["keywords"]["terms"]) and content["contact"]["phone"] == "07700 900123")
 
 
+LESSON_CV = "\n".join([a["uk_version"] for a in CV_ACHIEVEMENTS] + CV_SKILLS)
+
+
+def _lesson_ok(r: dict) -> bool:
+    return r["page"] in ai.LESSON_PAGES and bool(r["likely_reason"]) and bool(r["one_change"])
+
+
+def _draft_ok(r: dict) -> bool:
+    message = r["message"]
+    return (bool(r["subject"]) and message.startswith("Dear Priya Shah,\n\n") and message.endswith("Kind regards,\nSample Candidate")
+            and len(message.split()) < 90)
+
+
 CHECKS = [
     ("achievements", lambda: ai.extract_achievements(BACKGROUND, PROFILE), lambda r: len(r["items"]) >= 1),
     # "You said" quotes must survive the check against the text, or the proof-of-hearing feature shows nothing
@@ -210,6 +223,13 @@ CHECKS = [
     ("improve with a number", lambda: ai.improve(NO_NUMBER, "about 15 depot managers used it every week"), lambda r: "15" in r["uk_version"]),
     ("improve adds no number", lambda: ai.improve(NO_NUMBER, "make it read better"), lambda r: not _digits(r["uk_version"])),
     ("story bank of four", lambda: ai.story_bank(FOUR), lambda r: set(r) == {1, 2, 3, 4} and len({s["competency"] for s in r.values()}) >= 2),
+    # step 4: a lesson worded as a possibility that never claims feedback nobody gave; a follow-up with only the details given
+    ("lesson, with feedback", lambda: ai.rejection_lesson(job=JOB, cv_text=LESSON_CV, ended_at="interview",
+                                                          feedback="We went with someone with more stakeholder experience."), _lesson_ok),
+    ("lesson, no feedback", lambda: ai.rejection_lesson(job=JOB, cv_text=LESSON_CV, ended_at="cv", feedback=""), _lesson_ok),
+    ("lesson, no advert", lambda: ai.rejection_lesson(job=None, cv_text=LESSON_CV, ended_at="screening", feedback=""), _lesson_ok),
+    ("follow-up draft", lambda: ai.follow_up(role=JOB["title"], company=JOB["company"], applied_on=date.today() - timedelta(days=7),
+                                             contact_name="Priya Shah", sender="Sample Candidate"), _draft_ok),
 ]
 
 
