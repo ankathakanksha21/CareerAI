@@ -12,6 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import ai  # noqa: E402
+import cv  # noqa: E402
+import cvbuild  # noqa: E402
 import intake  # noqa: E402
 import jobs  # noqa: E402
 
@@ -130,6 +132,49 @@ def _facts_ok(r: dict) -> bool:
             and len(r["skills"]) >= 4 and {x["language"]: x["level"] for x in r["languages"]} == {"English": "Fluent", "Hindi": "Native"})
 
 
+# Step 3. A candidate with one job, the current course, three achievements at the job and one GitHub
+# project. The CV body must only choose and reword: every bullet for a real achievement with its
+# numbers intact, and no skill the candidate does not have.
+CV_JOBS = [{"id": "j1", "employer": "Zzqx Holdings Ltd", "job_title": "Systems Engineer", "location": "Pune", "country": "India",
+            "start_month": date(2023, 7, 1), "end_month": date(2025, 8, 1), "is_current": False,
+            "employer_context": "A logistics company with 40 depots across India."}]
+CV_COURSES = [{"id": "c1", "institution": "Zzqx City University", "qualification": "MSc", "subject": "Data Science",
+               "start_month": date(2025, 9, 1), "end_month": date(2026, 9, 1), "grade": "Merit", "country": "United Kingdom"}]
+CV_ACHIEVEMENTS = [a | {"work_history_id": "j1", "education_id": None, "source": "cv", "source_url": None} for a in FOUR[:3]] + [
+    FOUR[3] | {"work_history_id": None, "education_id": None, "source": "github", "source_url": "https://github.com/sample-candidate/mess-feedback"}]
+CV_SKILLS = ["SQL", "Python", "Excel", "Flask", "Power BI"]
+CV_WHOLE_PROFILE = CV_PROFILE | {"graduation_date": date(2026, 9, 1), "skills": CV_SKILLS, "additional": [], "phone": "07700 900123",
+                                 "city": "Leeds", "linkedin_url": "linkedin.com/in/sample-candidate", "github_username": "sample-candidate",
+                                 "languages": [{"language": "English", "level": "Fluent"}, {"language": "Hindi", "level": "Native"}]}
+_OWN = {a["id"]: a for a in CV_ACHIEVEMENTS}
+
+
+def _body_ok(r: dict) -> bool:
+    bullets, listed = r["bullets"], r["skills"]["technical"] + r["skills"]["tools"]
+    return (bool(r["profile"]) and len(bullets) >= 3 and all(b["achievement_id"] in _OWN for b in bullets)
+            and all(_digits(_OWN[b["achievement_id"]]["uk_version"]) <= _digits(b["text"]) for b in bullets)
+            and any(b["text"] != _OWN[b["achievement_id"]]["uk_version"] for b in bullets)  # rewording survives the number rule
+            and bool(listed) and set(listed) <= set(CV_SKILLS))
+
+
+def _letter_ok(r: dict) -> bool:
+    return (all(r["cover_letter"].values()) and len(r["keywords"]) >= 3
+            and all(cv.has_term(k, f"{JOB['title']} {DESCRIPTION}") for k in r["keywords"]))
+
+
+def _whole_build() -> tuple:
+    return cvbuild.build(profile=CV_WHOLE_PROFILE, email="sample.candidate@example.test", education=CV_COURSES, work_history=CV_JOBS,
+                         achievements=CV_ACHIEVEMENTS, job=JOB, today=date.today())
+
+
+def _build_ok(built: tuple) -> bool:
+    content, pages = built
+    job = content["work"][0]
+    return (pages <= 2 and (job["employer"], job["start_month"], job["end_month"]) == ("Zzqx Holdings Ltd", "2023-07-01", "2025-08-01")
+            and len(job["bullets"]) >= 2 and len(content["projects"]) == 1 and content["projects"][0]["link"] == "github.com/sample-candidate/mess-feedback"
+            and bool(content["cover_letter"]["why_them"]) and bool(content["keywords"]["terms"]) and content["contact"]["phone"] == "07700 900123")
+
+
 CHECKS = [
     ("achievements", lambda: ai.extract_achievements(BACKGROUND, PROFILE), lambda r: len(r["items"]) >= 1),
     # "You said" quotes must survive the check against the text, or the proof-of-hearing feature shows nothing
@@ -138,8 +183,13 @@ CHECKS = [
      lambda r: any(p["you_said"] for p in r["strengths"] + r["fixes"])),
     ("families", lambda: ai.suggest_families(ACHIEVEMENTS, PROFILE), lambda r: len(r["families"]) >= 2),
     ("job summary", lambda: ai.summarise_job("Data Analyst", "a UK retailer", DESCRIPTION, ["Data Analyst", "BI Analyst"]), lambda r: bool(r["summary"])),
-    ("tailor", lambda: ai.tailor(JOB, ACHIEVEMENTS, PROFILE), lambda r: len(r["bullets"]) >= 1 and bool(r["cover_letter"]["why_them"])),
     ("star", lambda: ai.star(ACHIEVEMENTS[0]), lambda r: bool(r["action"])),
+    # step 3: the model writes wording only; ids, numbers and skills are checked against what it was given
+    ("cv body, tailored", lambda: ai.build_cv(CV_WHOLE_PROFILE, CV_COURSES, CV_JOBS, CV_ACHIEVEMENTS, CV_SKILLS, JOB), _body_ok),
+    ("cv body, base", lambda: ai.build_cv(CV_WHOLE_PROFILE, CV_COURSES, CV_JOBS, CV_ACHIEVEMENTS, CV_SKILLS), _body_ok),
+    ("cover letter", lambda: ai.job_letter(JOB, CV_WHOLE_PROFILE, CV_COURSES, CV_JOBS, CV_ACHIEVEMENTS), _letter_ok),
+    # what one build costs the user in waiting: both calls side by side, assembled and counted as a PDF
+    ("cv build, whole", _whole_build, _build_ok),
     ("interview feedback", lambda: ai.interview_feedback(INTERVIEW, JOB, PROFILE, "Behavioural round"), lambda r: bool(r["summary"])),
     ("tone decode", lambda: ai.tone("Not bad at all.", "decode"), lambda r: bool(r["meaning"])),
     ("tone rewrite", lambda: ai.tone("I am the best candidate you will ever meet.", "rewrite"), lambda r: bool(r["rewrite"])),

@@ -17,7 +17,9 @@ The product is built in numbered steps, 0 to 7. Each step has its own document i
 - **Every user's data is private.** Every database function takes `(conn, user_id, ...)` and filters by it. Every new table and route gets a test proving account B cannot read or change account A's rows.
 - **FastAPI is the only gateway to data.** The browser uses Supabase for login only.
 - **No database connection held open across an AI, voice or other outside call.**
-- **An uploaded file is read in memory and dropped.** Never written to disk or the database; only the text read from it is kept.
+- **An uploaded file is read in memory and dropped.** Never written to disk or the database; only the text read from it is kept. A CV or cover letter file is likewise made in memory for one download and never stored.
+- **A CV's facts are copied, never written by the AI.** Employers, job titles, dates, institutions, qualifications, grades and contact details on a CV come from the stored records. The model writes wording only, and code checks what it returns (`ai.build_cv`, `cvbuild.build`).
+- **A CV that was sent never changes.** An edit to a version an application points at is saved as a new version.
 - **What a user types never goes in an address.** A name, a salary or a username travels in the request body, so it stays out of server logs.
 - **Everything that costs money is limited per user per day** (`limits.py`).
 - **The menu shows only features that genuinely work.** Every page has an empty state with one clear action.
@@ -47,6 +49,7 @@ cd backend && .venv\Scripts\python scripts/live_check.py    # one real call per 
 cd backend && .venv\Scripts\python scripts/refresh_sponsors.py   # reload the gov.uk sponsor register
 cd backend && .venv\Scripts\python scripts/reed_check.py   # one real Reed search; prints the reply's shape
 cd backend && .venv\Scripts\python scripts/cv_check.py path\to\cv.pdf   # what a CV file reads as (local only)
+cd backend && .venv\Scripts\python scripts/page_check.py C:\an\empty\folder   # the PDF's page count beside Word's own (needs Word)
 cd backend && .venv\Scripts\python -m uvicorn main:app --reload --port 8000
 cd frontend && npm run dev                                  # http://localhost:5173
 cd frontend && npm run lint && npm run build

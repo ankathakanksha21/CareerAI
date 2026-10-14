@@ -240,3 +240,30 @@ def test_set_family_targeted_none_for_other_user(conn, user_a, user_b):
     f = repo.sync_families(conn, user_a, [fam()])[0]
     assert repo.set_family_targeted(conn, user_b, f["id"], True) is None
     assert repo.list_families(conn, user_a)[0]["targeted"] is False
+
+
+# ---------- contact details and the lines of "Additional information" (step 3) ----------
+
+def test_contact_details_saved_and_trimmed(conn, user_a, user_b):
+    repo.get_or_create_profile(conn, user_b, "Other Person")
+    saved = repo.set_contact(conn, user_a, phone=" 07700 900123 ", city=" Zzqxtown ", linkedin_url=" linkedin.com/in/test-person ")
+    assert (saved["phone"], saved["city"], saved["linkedin_url"]) == ("07700 900123", "Zzqxtown", "linkedin.com/in/test-person")
+    assert saved["user_id"] == user_a and "first_name" in saved
+    theirs = repo.get_or_create_profile(conn, user_b, "")
+    assert (theirs["phone"], theirs["city"], theirs["linkedin_url"]) == ("", "", "")
+    cleared = repo.set_contact(conn, user_a, phone="", city="", linkedin_url="")
+    assert (cleared["phone"], cleared["city"], cleared["linkedin_url"]) == ("", "", "")
+
+
+def test_contact_details_leave_the_rest_of_the_profile_alone(conn, user_a):
+    repo.update_profile(conn, user_a, **DETAILS)
+    saved = repo.set_contact(conn, user_a, phone="07700 900123", city="Zzqxtown", linkedin_url="")
+    assert (saved["full_name"], saved["university"], saved["locations"]) == ("Test Person", "University A", ["London", "Remote"])
+
+
+def test_additional_lines_trimmed_without_blanks_or_repeats(conn, user_a, user_b):
+    repo.get_or_create_profile(conn, user_b, "Other Person")
+    saved = repo.set_additional(conn, user_a, [" Zzqx Cloud Practitioner (2025) ", "", "Volunteer tutor", "zzqx cloud practitioner (2025)", "  "])
+    assert saved["additional"] == ["Zzqx Cloud Practitioner (2025)", "Volunteer tutor"]
+    assert repo.get_or_create_profile(conn, user_b, "")["additional"] == []
+    assert repo.set_additional(conn, user_a, [])["additional"] == []

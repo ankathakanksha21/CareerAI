@@ -11,8 +11,6 @@ PROFILE = {"full_name": "Test Person", "course": "MSc Course A", "university": "
            "visa_type": "student", "visa_end_date": date(2027, 1, 31)}
 ACHIEVEMENTS = [{"id": "a1", "title": "Thing one", "uk_version": "Built X for 40 users", "skills": ["SQL"], "outcome": "40 users"}]
 JOB = {"title": "Role A", "company": "Company A", "description": "Analyse data and report findings. " * 5, "keywords": ["SQL"]}
-TAILORED = {"profile": "P", "bullets": [{"text": "Built X", "achievement_id": "a1"}], "keywords": ["SQL"],
-            "cover_letter": {"why_them": "A", "why_you": "B", "what_you_deliver": "C"}, "gaps": []}
 TONE = {"meaning": "m", "how_to_respond": "h", "warmth": "neutral"}
 
 
@@ -46,8 +44,9 @@ def test_run_retries_once_on_malformed_json(model):
 
 
 def test_run_retries_once_on_missing_required(model):
-    calls = model({"bullets": []}, TAILORED)
-    assert ai.tailor(JOB, ACHIEVEMENTS, PROFILE)["bullets"][0]["text"] == "Built X"
+    story = {"title": "t", "competency": "c", "situation": "s", "task": "t", "action": "a", "result": "r", "strength": "strong", "tip": ""}
+    calls = model(story | {"situation": " "}, story)
+    assert ai.star(ACHIEVEMENTS[0])["action"] == "a"
     assert len(calls) == 2
 
 
@@ -156,26 +155,6 @@ def test_summarise_job_family_must_be_known(model):
 def test_summarise_job_family_uses_the_callers_spelling(model):
     model({"summary": "s", "keywords": ["SQL"], "family": " data analyst"})
     assert ai.summarise_job("Role A", "Company A", "desc", ["Data Analyst"])["family"] == "Data Analyst"
-
-
-def test_tailor_requires_bullets_and_letter(model):
-    no_letter = {k: v for k, v in TAILORED.items() if k != "cover_letter"}
-    model(no_letter, no_letter)
-    with pytest.raises(ai.AIError):
-        ai.tailor(JOB, ACHIEVEMENTS, PROFILE)
-
-
-def test_tailor_unknown_achievement_id_blanked(model):
-    model(TAILORED | {"bullets": [{"text": "Built X", "achievement_id": "a1"}, {"text": "Did Z", "achievement_id": "zzz"}, {"text": " "}]})
-    assert ai.tailor(JOB, ACHIEVEMENTS, PROFILE)["bullets"] == [
-        {"text": "Built X", "achievement_id": "a1"}, {"text": "Did Z", "achievement_id": ""}]
-
-
-def test_tailor_prompt_truncates_long_description(model):
-    calls = model(TAILORED)
-    ai.tailor(JOB | {"description": "x" * 10000}, ACHIEVEMENTS, PROFILE)
-    assert "x" * 6000 in calls[0]["user"]
-    assert "x" * 6001 not in calls[0]["user"]
 
 
 @pytest.mark.parametrize("given,expected", [("strong", "strong"), (" Strong ", "strong"), ("needs a number", "needs a number"), ("excellent", "needs detail"), ("", "needs detail")])
@@ -772,3 +751,263 @@ def test_github_does_not_pass_on_the_prompts_placeholder(model):
 def test_improve_does_not_pass_on_the_prompts_placeholder(model):
     model({"uk_version": "Built a weekly delivery delays report for depot managers", "outcome": PLACEHOLDER, "scale": ""})
     assert ai.improve(WEAK, "")["outcome"] == "Add a number"
+
+
+# ---------- the full CV: what the model may and may not decide ----------
+
+DAY = date(2026, 10, 14)
+CV_PROFILE = PROFILE | {"phone": "07700 900123", "city": "Zzqxtown", "linkedin_url": "linkedin.com/in/test-person",
+                        "github_username": "zzqx-test", "graduation_date": date(2026, 9, 1)}
+CV_JOBS = [{"id": "j1", "employer": "Zzqx Holdings Ltd", "job_title": "Data Analyst", "location": "Pune", "country": "India",
+            "start_month": date(2023, 7, 1), "end_month": date(2025, 8, 1), "is_current": False}]
+CV_COURSES = [{"id": "c1", "institution": "Zzqx City University", "qualification": "MSc", "subject": "Data Science",
+               "end_month": date(2026, 9, 1), "grade": "Merit"}]
+CV_ACHIEVEMENTS = [
+    {"id": "a1", "title": "Delays report", "uk_version": "Built a weekly delays report in SQL used by 15 managers, cutting late deliveries by 8%",
+     "skills": ["SQL", "Excel"], "outcome": "8% fewer late deliveries", "scale": "15 managers", "raw": "about fifteen depot managers used it",
+     "work_history_id": "j1", "education_id": None},
+    {"id": "a2", "title": "Bus times", "uk_version": "Built a bus arrival model in Python", "skills": ["Python"], "outcome": "", "scale": "",
+     "work_history_id": None, "education_id": "c1"},
+    {"id": "a3", "title": "Society treasurer", "uk_version": "Managed a society budget", "skills": [], "outcome": "", "scale": "",
+     "work_history_id": None, "education_id": None},
+]
+CV_SKILLS = ["SQL", "Excel", "Python", "Power BI"]
+FAITHFUL = "Built a weekly SQL delays report for 15 managers that cut late deliveries by 8%"
+BODY = {"profile": "Data analyst with over 2 years of experience in logistics reporting.",
+        "bullets": [{"achievement_id": "a1", "text": FAITHFUL}], "skills": {"technical": ["SQL"], "tools": ["Excel"]}}
+LETTER = {"keywords": ["data"], "gaps": [], "cover_letter": {"why_them": "Your reporting team.", "why_you": "I built a report for 15 managers.",
+                                                             "what_you_deliver": "A weekly findings report."}}
+
+
+def cv_body(job=JOB):
+    return ai.build_cv(CV_PROFILE, CV_COURSES, CV_JOBS, CV_ACHIEVEMENTS, CV_SKILLS, job, today=DAY)
+
+
+def cv_letter(job=JOB):
+    return ai.job_letter(job, CV_PROFILE, CV_COURSES, CV_JOBS, CV_ACHIEVEMENTS)
+
+
+def test_build_cv_returns_only_wording(model):
+    model(BODY | {"work": [{"employer": "Invented Ltd"}], "education": [{"grade": "Distinction"}]})
+    out = cv_body()
+    assert out == {"profile": BODY["profile"], "bullets": [{"achievement_id": "a1", "text": FAITHFUL}],
+                   "skills": {"technical": ["SQL"], "tools": ["Excel"]}}
+
+
+def test_build_cv_drops_a_bullet_for_an_unknown_id(model):
+    model(BODY | {"bullets": [{"achievement_id": "zzz", "text": "Ran a team of 40"}, {"achievement_id": "a1", "text": FAITHFUL},
+                              {"achievement_id": "", "text": "Did something"}]})
+    assert cv_body()["bullets"] == [{"achievement_id": "a1", "text": FAITHFUL}]
+
+
+def test_build_cv_keeps_one_bullet_per_achievement(model):
+    model(BODY | {"bullets": [{"achievement_id": "a1", "text": FAITHFUL}, {"achievement_id": " a1 ", "text": "The same thing again for 15 managers, 8%"},
+                              {"achievement_id": "a2", "text": "Modelled bus arrivals in Python"}]})
+    assert [b["achievement_id"] for b in cv_body()["bullets"]] == ["a1", "a2"]
+
+
+@pytest.mark.parametrize("wording", [
+    "Built a weekly SQL delays report for 50 managers, cutting late deliveries by 8%",        # a number changed
+    "Built a weekly SQL delays report for depot managers, cutting late deliveries by 8%",     # a number dropped
+    "Built a weekly SQL delays report for 15 managers in 3 depots, cutting late deliveries by 8%",  # a number added
+    "Built a weekly SQL delays report for fifteen managers, cutting late deliveries by 8%",   # a number respelled: not exactly as stored
+    "   ",
+])
+def test_a_bullet_that_does_not_keep_the_numbers_falls_back_to_the_stored_one(model, wording):
+    model(BODY | {"bullets": [{"achievement_id": "a1", "text": wording}]})
+    assert cv_body()["bullets"] == [{"achievement_id": "a1", "text": CV_ACHIEVEMENTS[0]["uk_version"]}]
+
+
+def test_a_faithful_rewording_is_kept(model):
+    model(BODY | {"bullets": [{"achievement_id": "a1", "text": FAITHFUL}, {"achievement_id": "a2", "text": "Modelled bus arrival times in Python"}]})
+    assert [b["text"] for b in cv_body()["bullets"]] == [FAITHFUL, "Modelled bus arrival times in Python"]
+
+
+def test_a_bullet_may_use_a_number_held_elsewhere_in_the_achievement(model):
+    model(BODY | {"bullets": [{"achievement_id": "a1", "text": FAITHFUL + " (15 depot managers)"}]})
+    assert cv_body()["bullets"][0]["text"].endswith("(15 depot managers)")
+
+
+def test_skills_only_from_the_users_own_in_their_spelling(model):
+    model(BODY | {"skills": {"technical": ["sql", "Tableau", " PYTHON "], "tools": ["power bi", "Kubernetes", ""]}})
+    assert cv_body()["skills"] == {"technical": ["SQL", "Python"], "tools": ["Power BI"]}
+
+
+def test_a_skill_in_both_groups_is_listed_once(model):
+    model(BODY | {"skills": {"technical": ["SQL", "Excel", "sql"], "tools": ["Excel", "Power BI"]}})
+    assert cv_body()["skills"] == {"technical": ["SQL", "Excel"], "tools": ["Power BI"]}
+
+
+def test_skills_of_the_wrong_shape_give_empty_groups(model):
+    model(BODY | {"skills": ["SQL", "Excel"]})
+    assert cv_body()["skills"] == {"technical": [], "tools": []}
+
+
+def test_paragraph_with_an_invented_number_is_asked_for_again_then_fails(model):
+    invented = BODY | {"profile": "Data analyst with 7 years of experience."}
+    calls = model(invented, BODY)
+    assert cv_body()["profile"] == BODY["profile"] and len(calls) == 2
+    calls = model(invented, invented)
+    with pytest.raises(ai.AIError):
+        cv_body()
+    assert len(calls) == 2
+
+
+def test_a_number_the_advert_asks_for_is_not_the_candidates(model):
+    asks = JOB | {"description": "You need 5 years of experience in reporting. " * 3}
+    claims = BODY | {"profile": "Data analyst with 5 years of experience."}
+    model(claims, claims)
+    with pytest.raises(ai.AIError):
+        cv_body(asks)
+
+
+@pytest.mark.parametrize("reply", [BODY | {"profile": " "}, BODY | {"bullets": []}])
+def test_build_cv_needs_a_paragraph_and_a_bullet(model, reply):
+    model(reply, reply)
+    with pytest.raises(ai.AIError):
+        cv_body()
+
+
+def test_build_cv_with_no_usable_bullet_fails(model):
+    model(BODY | {"bullets": [{"achievement_id": "zzz", "text": "Ran a team"}]})
+    with pytest.raises(ai.AIError):
+        cv_body()
+
+
+def test_build_cv_prompt_has_no_name_or_contact_details(model):
+    calls = model(BODY)
+    cv_body()
+    prompt = calls[0]["system"] + calls[0]["user"]
+    for private in ("Test Person", "07700", "Zzqxtown", "linkedin", "zzqx-test", "visa"):
+        assert private not in prompt, private
+
+
+def test_build_cv_prompt_says_where_each_achievement_happened(model):
+    calls = model(BODY)
+    cv_body()
+    user = calls[0]["user"]
+    assert "job: Data Analyst at Zzqx Holdings Ltd" in user and "project on the course at Zzqx City University" in user
+    assert '"where": "project"' in user and '"length": "2 years 2 months"' in user and '"from": "2023-07"' in user
+    assert "MSc Course A at University A" in user and '"Power BI"' in user
+
+
+def test_build_cv_prompt_states_the_rules(model):
+    calls = model(BODY)
+    cv_body()
+    system = calls[0]["system"]
+    assert "Use only the facts given" in system and "Never add an employer, a date, a qualification, a skill, a tool or a number" in system
+    assert "Keep every number exactly as the achievement writes it" in system and "two A4 pages" in system
+    assert "tailored to one job" in system and "Job description:" in calls[0]["user"]
+
+
+def test_base_cv_prompt_names_no_job(model):
+    calls = model(BODY)
+    cv_body(None)
+    assert "Job description" not in calls[0]["user"] and "Company:" not in calls[0]["user"]
+    assert "for any job in the field" in calls[0]["system"] and "tailored" not in calls[0]["system"]
+
+
+def test_build_cv_prompt_cuts_a_long_advert(model):
+    calls = model(BODY)
+    cv_body(JOB | {"description": "x" * 10000})
+    assert "x" * 6000 in calls[0]["user"] and "x" * 6001 not in calls[0]["user"]
+
+
+def test_keywords_must_be_in_the_advert(model):
+    model(LETTER | {"keywords": ["data", "Tableau", " Report findings. ", "DATA", "", "analyse data and report findings and much more besides this"]})
+    assert cv_letter()["keywords"] == ["data", "Report findings"]
+
+
+def test_at_most_twelve_keywords(model):
+    words = [f"zzqx{n}" for n in range(30)]
+    model(LETTER | {"keywords": words})
+    assert cv_letter(JOB | {"description": " ".join(words)})["keywords"] == words[:12]
+
+
+def test_letter_needs_all_three_paragraphs(model):
+    partial = LETTER | {"cover_letter": {"why_them": "A", "why_you": "B", "what_you_deliver": " "}}
+    calls = model(partial, partial)
+    with pytest.raises(ai.AIError):
+        cv_letter()
+    assert len(calls) == 2
+    model(partial, LETTER)
+    assert cv_letter()["cover_letter"] == LETTER["cover_letter"]
+
+
+def test_letter_with_an_invented_number_fails(model):
+    invented = LETTER | {"cover_letter": LETTER["cover_letter"] | {"why_you": "I saved 99 hours a week."}}
+    model(invented, invented)
+    with pytest.raises(ai.AIError):
+        cv_letter()
+
+
+def test_letter_may_use_the_candidates_numbers_and_the_jobs_title(model):
+    reply = LETTER | {"cover_letter": {"why_them": "The Level 3 Analyst role suits me.", "why_you": "I cut late deliveries by 8% for 15 managers.",
+                                       "what_you_deliver": "A weekly report."}}
+    model(reply)
+    assert cv_letter(JOB | {"title": "Level 3 Analyst"})["cover_letter"]["why_you"] == "I cut late deliveries by 8% for 15 managers."
+
+
+def test_gaps_are_trimmed_and_capped(model):
+    model(LETTER | {"gaps": [" No Tableau yet ", "", "a", "b", "c", "d", "e"]})
+    assert cv_letter()["gaps"] == ["No Tableau yet", "a", "b", "c", "d"]
+
+
+def test_job_letter_prompt_cuts_a_long_advert_and_names_nobody(model):
+    calls = model(LETTER)
+    cv_letter(JOB | {"description": "x" * 10000})
+    prompt = calls[0]["system"] + calls[0]["user"]
+    assert "x" * 6000 in prompt and "x" * 6001 not in prompt
+    for private in ("Test Person", "07700", "Zzqxtown", "linkedin", "zzqx-test", "visa"):
+        assert private not in prompt, private
+    assert "job: Data Analyst at Zzqx Holdings Ltd" in prompt and "MSc Course A at University A" in prompt
+
+
+@pytest.mark.parametrize("wording, kept", [
+    ("Built a weekly SQL delays report for 15 managers, cutting late deliveries by about 8%", True),
+    ("Built a weekly SQL delays report for 15 managers, cutting late deliveries by roughly 8%", True),   # another hedge will do
+    ("Built a weekly SQL delays report for 15 managers, cutting late deliveries by 8%", False),          # "about 8%" became a flat 8%
+])
+def test_a_bullet_that_drops_a_hedge_falls_back_to_the_stored_one(model, wording, kept):
+    hedged = CV_ACHIEVEMENTS[0] | {"uk_version": "Built a weekly delays report in SQL used by 15 managers, cutting late deliveries by about 8%"}
+    model(BODY | {"bullets": [{"achievement_id": "a1", "text": wording}]})
+    out = ai.build_cv(CV_PROFILE, CV_COURSES, CV_JOBS, [hedged, *CV_ACHIEVEMENTS[1:]], CV_SKILLS, JOB, today=DAY)
+    assert out["bullets"][0]["text"] == (wording if kept else hedged["uk_version"])
+
+
+def test_build_cv_prompt_forbids_strengthening_a_claim(model):
+    calls = model(BODY)
+    cv_body()
+    assert "Do not strengthen a claim" in calls[0]["system"] and "about" in calls[0]["system"]
+
+
+def test_build_cv_is_told_what_not_to_claim(model):
+    calls = model(BODY, BODY)
+    ai.build_cv(CV_PROFILE, CV_COURSES, CV_JOBS, CV_ACHIEVEMENTS, CV_SKILLS, JOB, DAY, avoid=["Tableau", "dbt"])
+    cv_body()
+    assert "nothing in the candidate's facts shows them: Tableau, dbt" in calls[0]["system"] and "Do not say or imply" in calls[0]["system"]
+    assert "Tableau" not in calls[1]["system"] and "nothing in the candidate's facts shows" not in calls[1]["system"]
+
+
+def test_build_cv_prompt_limits_the_paragraph_to_what_the_facts_show(model):
+    calls = model(BODY)
+    cv_body()
+    assert "It may claim only what the candidate's facts show" in calls[0]["system"] and "leave it out" in calls[0]["system"]
+
+
+def test_filler_words_are_not_keywords(model):
+    advert = JOB | {"description": "Strong Excel skills and SQL experience are essential. Tableau is desirable. You will build reports."}
+    model(LETTER | {"keywords": ["SQL", "experience", "Desirable", "build", "skills", "Excel skills", "Tableau", "essential"]})
+    assert cv_letter(advert)["keywords"] == ["SQL", "Excel skills", "Tableau"]
+
+
+def test_a_keyword_is_at_most_three_words(model):
+    advert = JOB | {"description": "A degree in a quantitative subject, SQL and stakeholder management skills. Automate recurring reports."}
+    model(LETTER | {"keywords": ["degree in a quantitative subject", "SQL", "stakeholder management", "Automate recurring reports", "stakeholder management skills too"]})
+    assert cv_letter(advert)["keywords"] == ["SQL", "stakeholder management", "Automate recurring reports"]
+
+
+def test_gaps_are_written_to_the_user(model):
+    calls = model(LETTER)
+    cv_letter()
+    assert "addressed to the candidate as 'you'" in calls[0]["system"]

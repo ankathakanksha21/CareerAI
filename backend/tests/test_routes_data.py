@@ -23,14 +23,14 @@ def test_every_route_but_config_needs_a_token():
         if not path.startswith("/api") or path == "/api/config":
             continue
         url = path.replace("{conversation_id}", "conv_1")
-        for name in ("id", "app_id", "job_id", "family_id", "achievement_id", "entry_id", "match_id", "story_id"):
+        for name in ("id", "app_id", "job_id", "family_id", "achievement_id", "entry_id", "match_id", "story_id", "version_id"):
             url = url.replace("{" + name + "}", str(uuid.uuid4()))
         assert "{" not in url, f"unfilled path parameter in {path}"
         for method in route.methods - {"HEAD", "OPTIONS"}:
             r = anonymous.request(method, url, json={})
             assert r.status_code == 401, f"{method} {path} answered {r.status_code} without a token"
             checked += 1
-    assert checked >= 28
+    assert checked >= 34
 
 
 def test_config_is_public_and_has_no_secret(monkeypatch):
@@ -52,6 +52,7 @@ def test_state_for_new_user(client):
     for key in ("achievements", "work_history", "education", "role_families", "saved_jobs", "cv_versions", "stories", "applications", "journal"):
         assert s[key] == []
     assert s["profile"]["skills"] == [] and s["profile"]["languages"] == [] and s["profile"]["github_username"] is None
+    assert (s["profile"]["phone"], s["profile"]["city"], s["profile"]["linkedin_url"], s["profile"]["additional"]) == ("", "", "", [])
     assert len(s["next_steps"]) == 6 and not any(x["done"] for x in s["next_steps"])
     assert s["usage"] == {"ai": {"used": 0, "limit": 40}, "voice": {"used": 0, "limit": 3}}
     assert s["stats"]["findings"] == [] and s["stats"]["funnel"]["applied"] == 0

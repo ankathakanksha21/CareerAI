@@ -233,3 +233,29 @@ def test_entry_defaults(conn, user_a):
     assert job["is_current"] is False and job["source"] == "manual" and job["start_month"] is None and job["employer_context"] == ""
     course = conn.execute("select * from education where id = %s", (_course(conn, user_a),)).fetchone()
     assert course["from_details"] is False and course["source"] == "manual" and course["grade"] == ""
+
+
+# ---------- 006_full_cv: contact details, and what kind of CV a version is ----------
+
+def test_profile_cv_defaults(conn, user_a):
+    row = conn.execute("insert into profiles (user_id, full_name) values (%s, 'Test Person') returning phone, city, linkedin_url, additional",
+                       (user_a,)).fetchone()
+    assert (row["phone"], row["city"], row["linkedin_url"], row["additional"]) == ("", "", "", [])
+
+
+def _version(conn, user, **kw):
+    fields = {"name": "Role A, Zzqx Holdings Ltd v1", "content": "{}"} | kw
+    return conn.execute(f"insert into cv_versions (user_id, {', '.join(fields)}) values (%s, {', '.join(['%s'] * len(fields))}) returning *",
+                        (user, *fields.values())).fetchone()
+
+
+def test_cv_version_defaults(conn, user_a):
+    row = _version(conn, user_a)  # as a version made before this step was stored
+    assert (row["kind"], row["format_version"], row["pages"], row["edited_at"], row["contact_name"]) == ("tailored", 1, None, None, "")
+
+
+@pytest.mark.parametrize("column, value", [("kind", "other"), ("format_version", 3)])
+def test_cv_kind_and_format_checked(conn, user_a, column, value):
+    _version(conn, user_a, kind="base", format_version=2)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _version(conn, user_a, **{column: value})

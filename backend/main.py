@@ -3,19 +3,21 @@ modules, return JSON. Every route except /api/config needs a signed-in user and 
 only that user's rows."""
 import hmac
 import logging
+import re
 from datetime import date, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 import ai
 import analytics
 import content
+import cvbuild
 import cvfile
 import db
 import github
@@ -112,6 +114,7 @@ def get_state(user: CurrentUser):
         profile = repo.get_or_create_profile(conn, user.id, user.name)
         state = repo.load_state(conn, user.id)
         state["achievements"] = [_achievement(a) for a in state["achievements"]]
+        state["cv_versions"] = [_version(v) for v in state["cv_versions"]]
         usage = limits.usage(conn, user.id)
         job_counts = repo.job_counts(conn, user.id, since, fresh_since)
         market = jobs.market(repo.family_market(conn, user.id, since))
@@ -382,6 +385,58 @@ def put_skills(body: SkillsIn, user: CurrentUser):
         return repo.set_skills(conn, user.id, body.skills, [x.model_dump() for x in body.languages]) | {"email": user.email}
 
 
+BAD_PHONE = "Enter a phone number using digits, spaces and + ( ) - only."
+BAD_LINKEDIN = "Enter your LinkedIn address, for example linkedin.com/in/your-name."
+LINKEDIN = re.compile(r"(?:https?://)?(?:www\.)?((?:[a-z]{2,3}\.)?linkedin\.com)(/[\w\-.~%/+@]+)", re.I)
+
+
+def _linkedin(value: str) -> str:
+    """A LinkedIn address as a CV prints it: on linkedin.com, with no scheme, no "www." and nothing after the path."""
+    if not value:
+        return ""
+    found = LINKEDIN.fullmatch(value.split("?")[0].split("#")[0].rstrip("/"))
+    if not found:
+        raise ValueError(BAD_LINKEDIN)
+    return f"{found[1].lower()}{found[2]}"
+
+
+class ContactIn(BaseModel):
+    """The contact line of a CV. All optional: the name and the email come from the account."""
+    phone: Text(40, 0) = ""
+    city: Text(80, 0) = ""
+    linkedin_url: Text(200, 0) = ""
+
+    @field_validator("phone")
+    @classmethod
+    def phone_characters(cls, value: str) -> str:
+        if not re.fullmatch(r"[0-9+() .\-]*", value):
+            raise ValueError(BAD_PHONE)
+        return value
+
+    @field_validator("linkedin_url")
+    @classmethod
+    def on_linkedin(cls, value: str) -> str:
+        return _linkedin(value)
+
+
+@app.put("/api/profile/contact")
+def put_contact(body: ContactIn, user: CurrentUser):
+    with db.transaction() as conn:
+        repo.get_or_create_profile(conn, user.id, user.name)
+        return repo.set_contact(conn, user.id, **body.model_dump()) | {"email": user.email}
+
+
+class AdditionalIn(BaseModel):
+    lines: Annotated[list[Text(200, 0)], Field(max_length=12)]  # certifications, awards, volunteering: one line each
+
+
+@app.put("/api/profile/additional")
+def put_additional(body: AdditionalIn, user: CurrentUser):
+    with db.transaction() as conn:
+        repo.get_or_create_profile(conn, user.id, user.name)
+        return repo.set_additional(conn, user.id, body.lines) | {"email": user.email}
+
+
 # What an import found, as the user confirmed it. An entry with an id adds to one they already
 # have; one without is new. Each carries the new achievements that happened there.
 class Found(BaseModel):
@@ -438,6 +493,86 @@ def confirm_facts(body: FactsIn, user: CurrentUser):
                     "education": repo.list_entries(conn, user.id, "education"), "profile": profile | {"email": user.email}}
     except psycopg.errors.CheckViolation as e:
         raise _months_refused(e)
+
+
+# ---------- CVs ----------
+# A CV is built by POST /api/ai/cv (with the other AI routes, below), then edited, downloaded
+# and deleted here. Its facts are the user's records; only wording, order and what is shown change.
+
+OLD_FORMAT = "This CV was made before full CVs. Rebuild it to edit or download it."
+CV_IN_USE = "This CV is attached to an application. Remove it from the application first."
+NO_LETTER = "A base CV has no cover letter."
+BASE_CV = "Base CV"
+
+
+def _version(row: dict) -> dict:
+    """A CV version as the pages get it: with the characters its PDF cannot show."""
+    full = row["format_version"] == 2
+    return row | {"unsupported": cvbuild.unsupported(row["content"], row["contact_name"]) if full else ""}
+
+
+def _full_cv(row: dict) -> dict:
+    """A version that holds the whole document. One made before full CVs can only be read, rebuilt or deleted."""
+    if row["format_version"] != 2:
+        raise HTTPException(422, OLD_FORMAT)
+    return row
+
+
+def _cv_records(conn, user: User) -> dict:
+    """Everything of the user's that a CV is made from."""
+    return {"profile": repo.get_or_create_profile(conn, user.id, user.name), "email": user.email,
+            "education": repo.list_entries(conn, user.id, "education"), "work_history": repo.list_entries(conn, user.id, "work_history"),
+            "achievements": repo.list_achievements(conn, user.id)}
+
+
+class CvEdit(BaseModel):
+    content: dict                             # the CV as edited: its wording, order and what is hidden are kept, never a fact
+    contact_name: Text(120, 0) | None = None  # who the cover letter is to; left out: as it was
+    refresh_facts: bool = False               # copy employers, dates, courses and contact details from the profile again
+
+
+@app.patch("/api/cv-versions/{version_id}")
+def update_cv(version_id: UUID, body: CvEdit, user: CurrentUser):
+    """Save an edit. A version an application was sent with never changes: the edit is saved as a
+    new version instead, and the answer says which one it replaced on screen."""
+    with db.transaction() as conn:
+        stored = _full_cv(_found(repo.get_cv_version(conn, user.id, str(version_id))))
+        records = _cv_records(conn, user)
+    content, pages = cvbuild.revise(stored["content"], body.content, **records, refresh=body.refresh_facts)
+    contact_name = stored["contact_name"] if body.contact_name is None else body.contact_name
+    with db.transaction() as conn:
+        if repo.cv_version_in_use(conn, user.id, stored["id"]):  # asked now, not earlier: it may have been sent a moment ago
+            saved = repo.add_cv_version(conn, user.id, saved_job_id=stored["saved_job_id"], role_family_id=stored["role_family_id"],
+                                        base_name=re.sub(r" v\d+$", "", stored["name"]), content=content, kind=stored["kind"], pages=pages,
+                                        contact_name=contact_name)
+            return _version(saved) | {"replaced": stored["id"]}
+        saved = _found(repo.update_cv_version(conn, user.id, stored["id"], content=content, pages=pages, contact_name=contact_name))
+        return _version(saved) | {"replaced": None}
+
+
+@app.delete("/api/cv-versions/{version_id}", status_code=204)
+def delete_cv(version_id: UUID, user: CurrentUser):
+    with db.transaction() as conn:
+        deleted = repo.delete_cv_version(conn, user.id, str(version_id))
+    if deleted is None:
+        raise HTTPException(404, GONE)
+    if not deleted:
+        raise HTTPException(409, CV_IN_USE)
+    return Response(status_code=204)
+
+
+@app.get("/api/cv-versions/{version_id}/download")
+def download_cv(version_id: UUID, user: CurrentUser, kind: Annotated[Literal["docx", "pdf"], Query(alias="format")],
+                part: Literal["cv", "letter"] = "cv"):
+    """The CV or its cover letter as a Word or PDF file, made now from the saved version and not kept."""
+    with db.transaction() as conn:
+        version = _full_cv(_found(repo.get_cv_version(conn, user.id, str(version_id))))
+        today = repo.today(conn)
+    if part == "letter" and not version["content"].get("cover_letter"):
+        raise HTTPException(422, NO_LETTER)
+    data, name = cvbuild.file(version["content"], version["contact_name"], part, kind, today)
+    return Response(data, media_type=cvbuild.MEDIA[kind],
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
 
 # ---------- applications ----------
@@ -928,22 +1063,27 @@ def add_job(body: JobIn, user: CurrentUser):
                             keywords=summary["keywords"], role_family_id=family_id)
 
 
-class JobRef(BaseModel):
-    job_id: UUID
+class CvIn(BaseModel):
+    job_id: UUID | None = None  # none: a base CV from the whole profile
 
 
-@app.post("/api/ai/tailor")
-def ai_tailor(body: JobRef, user: CurrentUser):
+@app.post("/api/ai/cv")
+def ai_cv(body: CvIn, user: CurrentUser):
+    """Build a CV: for one saved job, with a cover letter, or a base CV for no job. The model
+    writes the profile paragraph, picks and rewords bullets and sorts skills; every fact is copied
+    from the user's records. One AI action; nothing is saved unless every call succeeds."""
     with db.transaction() as conn:
-        job = _found(repo.get_job(conn, user.id, str(body.job_id)))
-        achievements = repo.list_achievements(conn, user.id)
-    if not achievements:
+        job = _found(repo.get_job(conn, user.id, str(body.job_id))) if body.job_id else None
+        records = _cv_records(conn, user)
+        today = repo.today(conn)
+    if not records["achievements"]:
         raise HTTPException(400, "Build your profile first.")
-    profile = _start_ai(user, "tailor")
-    tailored = ai.tailor(job, achievements, profile)
+    _start_ai(user, "cv")
+    content, pages = cvbuild.build(**records, job=job, today=today)
     with db.transaction() as conn:
-        return repo.add_cv_version(conn, user.id, saved_job_id=job["id"], role_family_id=job["role_family_id"],
-                                   base_name=f"{job['title']}, {job['company']}", content=tailored)
+        return _version(repo.add_cv_version(
+            conn, user.id, saved_job_id=job["id"] if job else None, role_family_id=job["role_family_id"] if job else None,
+            base_name=f"{job['title']}, {job['company']}" if job else BASE_CV, content=content, kind="tailored" if job else "base", pages=pages))
 
 
 class AchievementRef(BaseModel):

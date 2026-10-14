@@ -2,7 +2,7 @@ import { BriefcaseBusiness, Compass, FileText, Mic } from 'lucide-react'
 import { Brand } from '../ui'
 
 const FEATURES = [
-  { icon: FileText, title: 'UK-standard CV and cover letter', body: 'Your experience rewritten in the words UK recruiters scan for, then tailored to each job you choose.' },
+  { icon: FileText, title: 'UK-standard CV and cover letter', body: 'A complete two-page UK CV built from your own records and tailored to each job you choose. Edit it on screen, then download it as Word or PDF.' },
   { icon: Mic, title: 'Interview practice', body: 'Voice mock interviews for HR screens, behavioural rounds and job-specific questions, with feedback on your answers.' },
   { icon: BriefcaseBusiness, title: 'Application tracker', body: 'A board for every application, and a plain answer to what is not working.' },
   { icon: Compass, title: 'Career pathways and jobs', body: 'Role families that fit your background, then current adverts for them, each compared with your profile and checked against the gov.uk sponsor register.' },
