@@ -40,8 +40,8 @@ def edit(pack: dict, changes: dict) -> dict:
     """The pack with the user's changes: their pitch, their right-to-work line, the questions they
     ticked (at most three) and the interview type. ValueError for ticks or a type that cannot be."""
     changed = copy.deepcopy(pack)
-    if "pitch" in changes:
-        changed["pitch"], changed["pitch_edited"] = changes["pitch"], True
+    if "pitch" in changes:  # an emptied pitch is not the user's own: the next rebuild writes one again
+        changed["pitch"], changed["pitch_edited"] = changes["pitch"], bool(changes["pitch"].strip())
     if "right_to_work" in changes:
         changed["right_to_work"], changed["right_to_work_edited"] = changes["right_to_work"], True
     if "ticked" in changes:
@@ -55,6 +55,14 @@ def edit(pack: dict, changes: dict) -> dict:
             raise ValueError("not an interview type")
         changed["interview_type"] = changes["interview_type"]
     return changed
+
+
+def fill_right_to_work(pack: dict, profile: dict) -> dict:
+    """The pack with today's right-to-work line when it has none and the user has not written or
+    cleared one, so visa details added after the pack was built show without rebuilding it."""
+    if pack.get("right_to_work") or pack.get("right_to_work_edited"):
+        return pack
+    return pack | {"right_to_work": right_to_work(profile)}
 
 
 def rebuild(old: dict, new: dict) -> dict:

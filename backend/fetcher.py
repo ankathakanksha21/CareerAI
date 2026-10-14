@@ -30,9 +30,14 @@ MAX_REDIRECTS = 3
 MAX_EXTRA_PAGES = 5        # pages read besides the home page
 USEFUL = re.compile(r"about|careers?|jobs|values|culture|mission|who[- ]we[- ]are|what[- ]we[- ]do|our[- ]story|news|press", re.I)
 NOT_PAGES = re.compile(r"\.(pdf|docx?|xlsx?|pptx?|zip|jpe?g|png|gif|svg|webp|mp4|mp3)$", re.I)
-WEBSITE_HIDDEN = ("head", "nav", "header", "footer", "form", "noscript", "template", "svg")
+# Form controls are hidden, not forms: older sites (ASP.NET) wrap the whole page in one form
+WEBSITE_HIDDEN = ("head", "nav", "header", "footer", "noscript", "template", "svg", "button", "select", "textarea")
 HTML_TYPES = ("text/html", "application/xhtml+xml")
 META_CHARSET = re.compile(rb"""<meta[^>]+charset\s*=\s*["']?([A-Za-z0-9_\-]+)""", re.I)
+# IPv6 ranges that carry an IPv4 address inside them (NAT64, IPv4-compatible, IPv4-translated):
+# refused outright rather than trusting what they lead to
+EMBEDS_IPV4 = tuple(ipaddress.ip_network(n) for n in ("64:ff9b::/96", "64:ff9b:1::/48", "::/96", "::ffff:0:0:0/96"))
+MOJIBAKE_SHARE = 0.01  # a page that is mostly UTF-8 with a stray bad byte is still read as UTF-8
 HOST = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
 
 
@@ -60,8 +65,15 @@ def _literal(host: str):
 
 
 def _public(address) -> bool:
-    if address.version == 6 and address.ipv4_mapped:
-        address = address.ipv4_mapped
+    if address.version == 6:
+        if address.ipv4_mapped:
+            address = address.ipv4_mapped
+        elif any(address in network for network in EMBEDS_IPV4):
+            return False
+        else:
+            inner = address.sixtofour or (address.teredo[1] if address.teredo else None)
+            if inner and not inner.is_global:
+                return False
     return address.is_global and not address.is_multicast
 
 
@@ -107,54 +119,61 @@ def _address(host: str, port: int) -> str:
     return str(addresses[0])
 
 
-def _send(client: httpx.Client, url: str) -> httpx.Response:
+def _send(client: httpx.Client, url: str, deadline: float) -> httpx.Response:
     """One GET to the checked address of the URL's host, as a stream. No redirects followed."""
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username is not None:
-        raise Refused("address")
+    if time.monotonic() > deadline:
+        raise Refused("timeout")
     try:
+        parts = urlsplit(url)
         port = parts.port
     except ValueError:
         raise Refused("address") from None
+    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username is not None:
+        raise Refused("address")
     if port not in (None, 80, 443):
         raise Refused("address")
     host = parts.hostname
     address = _address(host, port or (443 if parts.scheme == "https" else 80))
     netloc = f"[{address}]" if ":" in address else address
     target = urlunsplit((parts.scheme, netloc + (f":{port}" if port else ""), parts.path or "/", parts.query, ""))
-    request = client.build_request("GET", target, headers={"Host": host, "User-Agent": USER_AGENT,
+    # uncompressed, so the size limit applies to what arrives rather than to what it expands into
+    request = client.build_request("GET", target, headers={"Host": host, "User-Agent": USER_AGENT, "Accept-Encoding": "identity",
                                                             "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"},
                                    extensions={"sni_hostname": host})
     try:
         return client.send(request, stream=True)
     except httpx.TimeoutException:
         raise Refused("timeout") from None
-    except httpx.HTTPError:
+    except (httpx.HTTPError, ValueError):
         raise Refused("unreachable") from None
 
 
-def _open(client: httpx.Client, url: str, robots: dict | None) -> tuple[httpx.Response, str]:
+def _open(client: httpx.Client, url: str, robots: dict | None, deadline: float) -> tuple[httpx.Response, str]:
     """Follow up to MAX_REDIRECTS redirects, checking every hop. Returns the final response and address."""
     for _ in range(MAX_REDIRECTS + 1):
         if robots is not None and not _allowed(url, robots):
             raise Refused("robots")
-        response = _send(client, url)
+        response = _send(client, url, deadline)
         if not response.is_redirect:
             return response, url
         response.close()
-        url = urljoin(url, response.headers.get("location", ""))
+        try:
+            url = urljoin(url, response.headers.get("location", ""))
+        except ValueError:  # a malformed address is a refusal, never a crash
+            raise Refused("address") from None
     raise Refused("redirects")
 
 
-def _read(response: httpx.Response, limit: int, started: float) -> bytes:
-    """The decoded body, at most `limit` bytes; a page still arriving after TIMEOUT_S is given up."""
+def _read(response: httpx.Response, limit: int, deadline: float) -> bytes:
+    """The body, at most `limit` bytes; a page still arriving at the deadline is given up. The clock
+    is read after every piece that arrives, so a page sent a little at a time cannot run on."""
     body = bytearray()
     try:
-        for chunk in response.iter_bytes(chunk_size=65_536):
+        for chunk in response.iter_bytes():
             body += chunk
             if len(body) >= limit:
                 break
-            if time.monotonic() - started > TIMEOUT_S:
+            if time.monotonic() > deadline:
                 raise Refused("timeout")
     except httpx.TimeoutException:
         raise Refused("timeout") from None
@@ -166,18 +185,22 @@ def _read(response: httpx.Response, limit: int, started: float) -> bytes:
 
 
 def _decode(response: httpx.Response, body: bytes) -> str:
+    """The page's text in the encoding it declares; with none, UTF-8 unless the bytes plainly are not
+    (then Windows-1252). A character cut at the size limit, or one stray byte, never turns the whole
+    page into mojibake."""
     charset = response.charset_encoding
     if not charset:
         found = META_CHARSET.search(body[:4096])
         charset = found.group(1).decode() if found else None
-    for encoding in (charset, "utf-8", "cp1252"):
-        if not encoding:
-            continue
+    if charset:
         try:
-            return body.decode(encoding)
-        except (LookupError, UnicodeDecodeError):
-            continue
-    return body.decode("utf-8", errors="replace")
+            return body.decode(charset, errors="replace")
+        except LookupError:
+            pass
+    text = body.decode("utf-8", errors="replace")
+    if text.count("\ufffd") <= max(1, len(text) * MOJIBAKE_SHARE):
+        return text
+    return body.decode("cp1252", errors="replace")
 
 
 # ---------- robots.txt ----------
@@ -193,17 +216,17 @@ def _allowed(url: str, robots: dict) -> bool:
 
 
 def _robots(origin: str) -> RobotFileParser | bool:
-    started = time.monotonic()
+    deadline = time.monotonic() + TIMEOUT_S
     try:
         with _client() as client:
-            response, _ = _open(client, origin + "/robots.txt", None)
+            response, _ = _open(client, origin + "/robots.txt", None, deadline)
             if 400 <= response.status_code < 500:
                 response.close()
                 return True   # no robots.txt: everything is allowed
             if response.status_code != 200:
                 response.close()
                 return False  # the server could not say: read nothing
-            text = _decode(response, _read(response, ROBOTS_BYTES, started))
+            text = _decode(response, _read(response, ROBOTS_BYTES, deadline))
     except Refused as e:
         if e.reason in ("address", "unreachable"):
             raise  # the host itself cannot or may not be reached
@@ -245,9 +268,9 @@ class _Page(HTMLParser):
 
 def fetch(url: str, robots: dict) -> dict:
     """One page as {url (after redirects), title, text, links: [(href, link text)]}, or Refused."""
-    started = time.monotonic()
+    deadline = time.monotonic() + TIMEOUT_S
     with _client() as client:
-        response, final = _open(client, url, robots)
+        response, final = _open(client, url, robots, deadline)
         if response.status_code != 200:
             response.close()
             raise Refused("status")
@@ -255,12 +278,23 @@ def fetch(url: str, robots: dict) -> dict:
         if kind not in HTML_TYPES:
             response.close()
             raise Refused("not_html")
-        html = _decode(response, _read(response, MAX_BYTES, started))
+        html = _decode(response, _read(response, MAX_BYTES, deadline))
     found = _Page()
     found.feed(html)
     found.close()
     return {"url": final, "title": " ".join(found.title.split()), "text": textify.text(html, WEBSITE_HIDDEN)[:MAX_BYTES],
             "links": found.links}
+
+
+def _attempt(address: str, robots: dict) -> dict | str:
+    """A page with some text, or the reason it was not read ("empty" for a page with no text)."""
+    try:
+        page = fetch(address, robots)
+    except Refused as e:
+        return e.reason
+    except (ValueError, httpx.InvalidURL):
+        return "address"
+    return page if page["text"].strip() else "empty"
 
 
 def _site_host(host: str) -> str:
@@ -272,14 +306,17 @@ def site(home: str) -> tuple[list[dict], list[str]]:
     careers, values, news and the like, as [{url, title, text}], with the reason each page that
     could not be read was refused. Never raises."""
     robots = {}
-    try:
-        first = fetch(home, robots)
-    except Refused as e:
-        return [], [e.reason]
+    first = _attempt(home, robots)
+    if isinstance(first, str):
+        return [], [first]
     host = _site_host(urlsplit(first["url"]).hostname or "")
     wanted, seen = [], {first["url"].rstrip("/")}
     for href, label in first["links"]:
-        parts = urlsplit(urljoin(first["url"], href))
+        try:
+            parts = urlsplit(urljoin(first["url"], href))
+            parts.port  # a malformed address raises here rather than later
+        except ValueError:
+            continue
         if parts.scheme not in ("http", "https") or _site_host(parts.hostname or "") != host or NOT_PAGES.search(parts.path):
             continue
         address = urlunsplit((parts.scheme, parts.netloc, parts.path or "/", "", ""))
@@ -290,11 +327,6 @@ def site(home: str) -> tuple[list[dict], list[str]]:
         if len(wanted) == MAX_EXTRA_PAGES:
             break
 
-    def attempt(address):
-        try:
-            return fetch(address, robots)
-        except Refused as e:
-            return e.reason
-    results = together(attempt, wanted)
+    results = together(lambda address: _attempt(address, robots), wanted)
     pages = [{k: p[k] for k in ("url", "title", "text")} for p in [first, *results] if isinstance(p, dict)]
     return pages, [r for r in results if isinstance(r, str)]

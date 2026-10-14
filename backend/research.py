@@ -8,6 +8,7 @@ given only numbered passages of what was fetched and must cite one for each stat
 FRESH_DAYS, found by its lookup key."""
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import date
 from urllib.parse import urlsplit
 
@@ -16,7 +17,6 @@ import companies_house
 import fetcher
 import sponsors
 import websearch
-from parallel import together
 
 log = logging.getLogger("research")
 
@@ -33,6 +33,11 @@ WEBSITE_MISSING = {"robots": "their website, which asks automated readers not to
                    "unreachable": "their website, which could not be reached"}
 WEBSITE_UNREAD = "their website, which could not be read"
 FAILURES = (companies_house.CompaniesHouseError, websearch.SearchError, ValueError)
+GATHER_TIMEOUT_S = 30  # all four sources together; one still running then is left out, so the brief is written in time
+# A source missing for one of these reasons may answer next time, so research missing it is shared
+# for RETRY_HOURS, not FRESH_DAYS. A site that forbids readers, or could not be read, stays as it is.
+TRANSIENT = (MISSING["registry"], MISSING["news"], MISSING["competitors"], WEBSITE_MISSING["timeout"], WEBSITE_MISSING["unreachable"])
+RETRY_HOURS = 1
 
 
 def _host(url: str | None) -> str:
@@ -60,19 +65,24 @@ def gather(*, name: str, number: str | None, website: str | None, today: date) -
         "competitors": lambda: websearch.competitors(name),
     }
 
-    def run(item):
-        source, read = item
-        if read is None:
-            return source, None, False
+    def run(source, read):
         try:
-            return source, read(), False
+            return read(), False
         except FAILURES as e:
             log.warning("research source %s failed: %s", source, type(e).__name__)
-            return source, None, True
-    results = {source: (value, failed) for source, value, failed in together(run, list(work.items()))}
+            return None, True
+    pool = ThreadPoolExecutor(max_workers=len(work))
+    futures = {source: pool.submit(run, source, read) for source, read in work.items() if read}
+    wait(futures.values(), timeout=GATHER_TIMEOUT_S)
+    pool.shutdown(wait=False, cancel_futures=True)  # a source still running is not waited for
+    late = {source for source, future in futures.items() if not future.done()}
+    for source in late:
+        log.warning("research source %s took too long", source)
+    results = {source: (None, False) for source in work} | {
+        source: future.result() if source not in late else (None, True) for source, future in futures.items()}
 
     missing = [MISSING[s] for s in ("registry",) if results["registry"][1]]
-    pages, problems = results["website"][0] or ([], [])
+    pages, problems = results["website"][0] or ([], ["timeout"] if "website" in late else [])
     if website and not pages:
         missing.append(WEBSITE_MISSING.get(problems[0] if problems else "", WEBSITE_UNREAD))
     missing += [MISSING[s] for s in ("news", "competitors") if results[s][1]]

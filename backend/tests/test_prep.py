@@ -105,3 +105,23 @@ def test_for_interviewer_caps_lengths():
 def test_for_interviewer_with_an_empty_brief():
     c = prep.content(written=WRITTEN, brief={"facts": [], "missing": [], "notice": "x"}, researched_at="x", interview_type="video", right_to_work="")
     assert prep.for_interviewer(c)["company_brief"] == "Not provided."
+
+
+def test_an_empty_right_to_work_line_is_filled_from_todays_visa_details():
+    empty = content(right_to_work="")
+    filled = prep.fill_right_to_work(empty, {"visa_type": "student", "visa_end_date": date(2027, 1, 30)})
+    assert filled["right_to_work"] == "I am in the UK on a Student visa until 30 January 2027." and empty["right_to_work"] == ""
+
+
+def test_a_line_the_user_wrote_or_cleared_is_left_alone():
+    profile = {"visa_type": "student", "visa_end_date": date(2027, 1, 30)}
+    mine = prep.edit(content(), {"right_to_work": "My line."})
+    assert prep.fill_right_to_work(mine, profile)["right_to_work"] == "My line."
+    cleared = prep.edit(content(), {"right_to_work": ""})
+    assert prep.fill_right_to_work(cleared, profile)["right_to_work"] == ""
+
+
+def test_an_emptied_pitch_is_not_kept_as_the_users_own():
+    cleared = prep.edit(content(), {"pitch": ""})
+    assert cleared["pitch_edited"] is False
+    assert prep.rebuild(cleared, content(pitch="A new pitch."))["pitch"] == "A new pitch."

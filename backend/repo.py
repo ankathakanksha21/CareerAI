@@ -952,10 +952,13 @@ def set_include_senior(conn, user_id, value: bool) -> None:
 
 # ---------- company research (shared public data, no user_id) ----------
 
-def find_company(conn, lookup_key: str, fresh_days: int) -> dict | None:
-    """The research kept under this key, if it is younger than fresh_days."""
-    return _row(conn.execute("select * from companies where lookup_key = %s and researched_at > now() - make_interval(days => %s)",
-                             (lookup_key, fresh_days)).fetchone())
+def find_company(conn, lookup_key: str, fresh_days: int, *, transient=(), retry_hours: float = 1) -> dict | None:
+    """The research kept under this key, if it is younger than fresh_days. Research missing a source
+    for one of the `transient` reasons is used only while it is younger than retry_hours."""
+    return _row(conn.execute(
+        "select * from companies where lookup_key = %s and researched_at > now() - make_interval(days => %s) "
+        "and (researched_at > now() - make_interval(secs => %s) or not (missing ?| %s::text[]))",
+        (lookup_key, fresh_days, retry_hours * 3600, list(transient))).fetchone())
 
 
 def save_company(conn, lookup_key: str, *, name: str, company_number: str | None, website: str | None, registry: dict | None,
@@ -988,15 +991,17 @@ def get_pack(conn, user_id, pack_id) -> dict | None:
     return _row(conn.execute("select * from prep_packs where id = %s and user_id = %s", (pack_id, user_id)).fetchone())
 
 
-def find_pack(conn, user_id, *, saved_job_id=None, application_id=None) -> dict | None:
-    """The pack for a saved job, or for an application that has no saved job."""
+def find_pack(conn, user_id, *, saved_job_id=None, application_id=None, lock: bool = False) -> dict | None:
+    """The pack for a saved job; failing that, the pack an application had before it had a saved job.
+    With lock, the row is held until the transaction ends, so a change cannot be lost between reading and writing."""
+    lock_clause = " for update" if lock else ""
+    row = None
     if saved_job_id:
-        row = conn.execute("select * from prep_packs where user_id = %s and saved_job_id = %s", (user_id, saved_job_id)).fetchone()
-    elif application_id:
-        row = conn.execute("select * from prep_packs where user_id = %s and application_id = %s and saved_job_id is null",
+        row = conn.execute(f"select * from prep_packs where user_id = %s and saved_job_id = %s{lock_clause}",
+                           (user_id, saved_job_id)).fetchone()
+    if row is None and application_id:
+        row = conn.execute(f"select * from prep_packs where user_id = %s and application_id = %s and saved_job_id is null{lock_clause}",
                            (user_id, application_id)).fetchone()
-    else:
-        row = None
     return _row(row)
 
 
@@ -1004,21 +1009,22 @@ def save_pack(conn, user_id, *, saved_job_id, application_id, company_id, role: 
     """Keep a pack: a new one, or the one already kept for that job (or application). A job or
     application that is not the user's is stored as null."""
     job, application = _own(conn, user_id, "saved_jobs", saved_job_id), _own(conn, user_id, "applications", application_id)
-    existing = find_pack(conn, user_id, saved_job_id=job, application_id=application)
-    if existing:
+    existing = find_pack(conn, user_id, saved_job_id=job, application_id=application, lock=True)
+    if existing:  # an application's own pack becomes its job's once the job is linked
         return _row(conn.execute(
-            "update prep_packs set application_id = coalesce(%s, application_id), company_id = %s, role = %s, company = %s, "
-            "content = %s, updated_at = now() where id = %s and user_id = %s returning *",
-            (application, company_id, role, company, _document(content), existing["id"], user_id)).fetchone())
+            "update prep_packs set saved_job_id = coalesce(%s, saved_job_id), application_id = coalesce(%s, application_id), "
+            "company_id = %s, role = %s, company = %s, content = %s, updated_at = now() where id = %s and user_id = %s returning *",
+            (job, application, company_id, role, company, _document(content), existing["id"], user_id)).fetchone())
     return _row(conn.execute(
         "insert into prep_packs (user_id, saved_job_id, application_id, company_id, role, company, content) "
         "values (%s, %s, %s, %s, %s, %s, %s) returning *",
         (user_id, job, application, company_id, role, company, _document(content))).fetchone())
 
 
-def update_pack_content(conn, user_id, pack_id, content: dict) -> dict | None:
-    return _row(conn.execute("update prep_packs set content = %s, updated_at = now() where id = %s and user_id = %s returning *",
-                             (_document(content), pack_id, user_id)).fetchone())
+def merge_pack_content(conn, user_id, pack_id, fields: dict) -> dict | None:
+    """Change only these parts of a pack, in one statement, so two saves made a moment apart both keep their change."""
+    return _row(conn.execute("update prep_packs set content = content || %s, updated_at = now() where id = %s and user_id = %s returning *",
+                             (_document(fields), pack_id, user_id)).fetchone())
 
 
 def delete_pack(conn, user_id, pack_id) -> bool:

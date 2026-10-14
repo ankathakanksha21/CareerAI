@@ -94,7 +94,7 @@ function Sessions({ s, focus, go, refresh, session }) {
 
       <div className="grid cols-2 section">
         <VoiceAgent
-          key={`${type.key}-${jobId}-${pack ? 'pack' : ''}`}
+          key={`${type.key}-${jobId}`}
           agent="interviewer"
           agentLabel="Interviewer"
           userId={session.user.id}

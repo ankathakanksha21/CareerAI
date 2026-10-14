@@ -1555,3 +1555,16 @@ def test_pack_question_reason_starts_with_a_capital(model):
     reply["likely_questions"][0]["why"] = "you built a report for 15 managers"
     got, _ = pack(model, reply)
     assert got["likely_questions"][0]["why"] == "You built a report for 15 managers"
+
+
+
+@pytest.mark.parametrize("text, kept", [("Zzqx employs five thousand people.", False), ("Zzqx works with twenty councils.", False),
+                                        ("Zzqx is one of the larger suppliers.", True), ("Zzqx builds software for one thousand two hundred councils.", False)])
+def test_brief_checks_figures_written_in_words(model, text, kept):
+    statement = said("what_they_do", text, 1)
+    assert brief(model, GOOD, statement) == ([GOOD, statement] if kept else [GOOD])
+
+
+def test_brief_figure_in_words_matching_its_passage_is_kept(model):
+    statement = said("news", "Zzqx opened a second office in Leeds with forty staff.", 2)
+    assert brief(model, statement) == [statement]

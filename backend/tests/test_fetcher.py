@@ -1,4 +1,5 @@
 import gzip
+import time
 
 import httpx
 import pytest
@@ -179,7 +180,7 @@ def test_error_status_is_refused(web):
 def test_text_drops_scripts_navigation_and_footers(web):
     web({"zzqx.test/": ok("<html><head><title>Zzqx | Home</title><script>var x = 1;</script></head><body><header>Menu</header>"
                           "<nav>Products</nav><main><h1>We build bridges</h1><p>Founded by engineers.</p></main>"
-                          "<form>Sign up</form><footer>Cookie policy</footer></body></html>")})
+                          "<form><input name=e><button>Sign up</button></form><footer>Cookie policy</footer></body></html>")})
     got = fetcher.fetch(HOME, {})
     assert got["title"] == "Zzqx | Home"
     assert got["text"] == "We build bridges\nFounded by engineers."
@@ -287,3 +288,83 @@ def test_site_when_the_home_page_fails(web):
 def test_title_is_the_pages_own_not_an_icons(web):
     web({"zzqx.test/": ok('<html><head><title>Zzqx | Home</title></head><body><svg><title>Logo</title></svg><p>Hi</p></body></html>')})
     assert fetcher.fetch(HOME, {})["title"] == "Zzqx | Home"
+
+
+# ---------- what the final review found ----------
+
+def test_a_slow_page_is_given_up_after_the_time_limit(web, monkeypatch):
+    monkeypatch.setattr(fetcher, "TIMEOUT_S", 0.5)
+
+    def drip():
+        for _ in range(40):
+            time.sleep(0.1)
+            yield b"<p>slow</p>"
+    web({"zzqx.test/": lambda request: httpx.Response(200, headers=HTML, content=drip())})
+    started = time.monotonic()
+    with pytest.raises(fetcher.Refused) as e:
+        fetcher.fetch(HOME, {})
+    assert e.value.reason == "timeout" and time.monotonic() - started < 1.5
+
+
+def test_a_page_wrapped_in_one_form_is_read(web):
+    web({"zzqx.test/": ok('<html><body><form id="aspnetForm"><input name="q"><p>We are an NHS trust in Leeds.</p>'
+                          '<button>Search</button><select><option>Menu</option></select><textarea>x</textarea></form></body></html>')})
+    assert fetcher.fetch(HOME, {})["text"] == "We are an NHS trust in Leeds."
+
+
+def test_site_with_an_empty_home_page_says_it_could_not_be_read(web):
+    web({"zzqx.test/": ok("<html><body><script>app()</script></body></html>")})
+    assert fetcher.site(HOME) == ([], ["empty"])
+
+
+def test_site_leaves_out_an_empty_extra_page(web):
+    web({"zzqx.test/": ok(page("Home", links=[("/about", "About"), ("/careers", "Careers")])),
+         "zzqx.test/about": ok("<html><body><div id=root></div></body></html>"), "zzqx.test/careers": ok(page("Careers text"))})
+    pages, problems = fetcher.site(HOME)
+    assert [p["url"] for p in pages] == ["https://zzqx.test/", "https://zzqx.test/careers"] and problems == ["empty"]
+
+
+def test_asks_for_an_uncompressed_page(web):
+    seen = web({"zzqx.test/": ok(page("Hello"))})
+    fetcher.fetch(HOME, {})
+    assert seen[-1].headers["accept-encoding"] == "identity"
+
+
+def test_a_utf8_page_cut_through_a_character_is_not_garbled(web, monkeypatch):
+    monkeypatch.setattr(fetcher, "MAX_BYTES", 11)  # cuts the curly apostrophe in half
+    web({"zzqx.test/": httpx.Response(200, headers={"Content-Type": "text/html"}, content="<p>Caf\u00e9 \u2019s</p>".encode("utf-8"))})
+    text = fetcher.fetch(HOME, {})["text"]
+    assert text.startswith("Caf\u00e9") and "\u00c3" not in text
+
+
+def test_a_long_utf8_page_with_one_stray_byte_is_not_garbled(web):
+    body = ("<p>" + "Caf\u00e9 cr\u00e8me. " * 200 + "</p>").encode("utf-8") + b"\xff" + "<p>The end\u2019s here.</p>".encode("utf-8")
+    web({"zzqx.test/": httpx.Response(200, headers={"Content-Type": "text/html"}, content=body)})
+    text = fetcher.fetch(HOME, {})["text"]
+    assert "\u00c3" not in text and "The end\u2019s here." in text
+
+
+def test_a_latin1_page_with_no_charset_still_reads(web):
+    web({"zzqx.test/": httpx.Response(200, headers={"Content-Type": "text/html"}, content="<p>Caf\u00e9 cr\u00e8me</p>".encode("latin-1"))})
+    assert fetcher.fetch(HOME, {})["text"] == "Caf\u00e9 cr\u00e8me"
+
+
+@pytest.mark.parametrize("addresses", [["64:ff9b::a00:1"], ["::a00:1"], ["::ffff:0:a00:1"], ["2002:a00:1::1"]])
+def test_ipv6_forms_of_a_private_ipv4_address_are_refused(web, addresses):
+    web({"zzqx.test/": ok(page("Hello"))}, names={"zzqx.test": addresses})
+    with pytest.raises(fetcher.Refused) as e:
+        fetcher.fetch(HOME, {})
+    assert e.value.reason == "address"
+
+
+def test_a_malformed_redirect_is_refused_not_raised(web):
+    web({"zzqx.test/": httpx.Response(302, headers={"Location": "http://[zz/"})})
+    with pytest.raises(fetcher.Refused):
+        fetcher.fetch(HOME, {})
+    assert fetcher.site(HOME) == ([], ["address"])
+
+
+def test_a_malformed_link_is_skipped(web):
+    web({"zzqx.test/": ok(page("Home", links=[("http://[zz/about", "About us"), ("/careers", "Careers")])),
+         "zzqx.test/careers": ok(page("Careers text"))})
+    assert [p["url"] for p in fetcher.site(HOME)[0]] == ["https://zzqx.test/", "https://zzqx.test/careers"]

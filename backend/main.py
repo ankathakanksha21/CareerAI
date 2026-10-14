@@ -1383,7 +1383,8 @@ def _research(user: User, *, name: str, number: str | None, website: str | None,
     now, which uses one of the day's research allowance."""
     key = research.lookup_key(name=name, number=number, website=website)
     with db.transaction() as conn:
-        kept = None if again else repo.find_company(conn, key, research.FRESH_DAYS)
+        kept = None if again else repo.find_company(conn, key, research.FRESH_DAYS, transient=research.TRANSIENT,
+                                                    retry_hours=research.RETRY_HOURS)
         if kept:
             return _company(kept, cached=True)
         limits.check_and_record(conn, user.id, "research", f"research {key}")  # every attempt costs searches, so every attempt counts
@@ -1419,9 +1420,11 @@ class PrepIn(BaseModel):
         return self
 
 
-def _pack(row: dict) -> dict:
-    """A pack as the page gets it: with what the mock interviewer is told from it."""
-    return row | {"interviewer": prep.for_interviewer(row["content"])}
+def _pack(row: dict, profile: dict) -> dict:
+    """A pack as the page gets it: with today's right-to-work line if it has none yet, and what the
+    mock interviewer is told from it."""
+    content = prep.fill_right_to_work(row["content"], profile)
+    return row | {"content": content, "interviewer": prep.for_interviewer(content)}
 
 
 @app.post("/api/ai/prep")
@@ -1438,8 +1441,6 @@ def ai_prep(body: PrepIn, user: CurrentUser):
         company = _found(repo.get_company(conn, str(body.company_id)))
         achievements, told = repo.list_achievements(conn, user.id), repo.list_stories(conn, user.id)
         profile = repo.get_or_create_profile(conn, user.id, user.name)
-        existing = repo.find_pack(conn, user.id, saved_job_id=job["id"] if job else None,
-                                  application_id=None if job else application["id"])
     if not achievements:
         raise HTTPException(400, "Build your profile first.")
     _start_ai(user, "prep")
@@ -1451,18 +1452,19 @@ def ai_prep(body: PrepIn, user: CurrentUser):
     made = prep.content(written=written, brief=brief, researched_at=company["researched_at"].isoformat(),
                         interview_type=body.interview_type or prep.default_type(application["stage"] if application else None),
                         right_to_work=prep.right_to_work(profile))
-    if existing:
-        made = prep.rebuild(existing["content"], made)
+    target = {"saved_job_id": job["id"] if job else None, "application_id": application["id"] if application else None}
     with db.transaction() as conn:
-        return _pack(repo.save_pack(conn, user.id, saved_job_id=job["id"] if job else None,
-                                    application_id=application["id"] if application else None,
-                                    company_id=company["id"], role=role, company=employer, content=made))
+        # the pack as it is now, held until it is saved: an edit made while the model was writing is kept
+        current = repo.find_pack(conn, user.id, **target, lock=True)
+        if current:
+            made = prep.rebuild(current["content"], made)
+        return _pack(repo.save_pack(conn, user.id, **target, company_id=company["id"], role=role, company=employer, content=made), profile)
 
 
 @app.get("/api/prep/{pack_id}")
 def get_prep(pack_id: UUID, user: CurrentUser):
     with db.transaction() as conn:
-        return _pack(_found(repo.get_pack(conn, user.id, str(pack_id))))
+        return _pack(_found(repo.get_pack(conn, user.id, str(pack_id))), repo.get_or_create_profile(conn, user.id, user.name))
 
 
 class PrepPatch(BaseModel):
@@ -1482,7 +1484,10 @@ def update_prep(pack_id: UUID, body: PrepPatch, user: CurrentUser):
             changed = prep.edit(pack["content"], body.model_dump(exclude_unset=True))
         except ValueError:
             raise HTTPException(422, BAD_TICKS)
-        return _pack(repo.update_pack_content(conn, user.id, pack["id"], changed))
+        # only what this save changes is written, so another save made a moment earlier keeps its own change
+        fields = {k: v for k, v in changed.items() if v != pack["content"].get(k)}
+        saved = repo.merge_pack_content(conn, user.id, pack["id"], fields) if fields else pack
+        return _pack(saved, repo.get_or_create_profile(conn, user.id, user.name))
 
 
 @app.delete("/api/prep/{pack_id}", status_code=204)

@@ -1,3 +1,4 @@
+import time
 from datetime import date
 
 import pytest
@@ -206,3 +207,22 @@ def test_a_failed_brief_raises(stub):
     stub("company_brief", ai.AIError("brief"))
     with pytest.raises(ai.AIError):
         research.brief("Zzqx", {"registry": None, "pages": PAGES, "news": [], "competitors": [], "missing": []}, TODAY)
+
+
+def test_gather_gives_up_on_a_source_that_takes_too_long(sources, monkeypatch):
+    sources()
+    monkeypatch.setattr(research, "GATHER_TIMEOUT_S", 0.3)
+
+    def slow(home):
+        time.sleep(2)
+        return PAGES, []
+    monkeypatch.setattr(fetcher, "site", slow)
+    started = time.monotonic()
+    got = gather()
+    assert time.monotonic() - started < 1.5
+    assert got["pages"] == [] and got["missing"] == ["their website, which did not answer in time"] and got["news"] == NEWS
+
+
+def test_which_missing_sources_are_only_for_a_moment():
+    assert set(research.TRANSIENT) == {"Companies House", "the news search", "the competitor search",
+                                       "their website, which did not answer in time", "their website, which could not be reached"}

@@ -995,6 +995,14 @@ def _passage_words(p: dict) -> str:
     return f"{p['title']} {p['text']}" + (f" {_long_date(p['published_on'])} {p['published_on'].isoformat()}" if p.get("published_on") else "")
 
 
+BIG_NUMBER_WORDS = {w: v for w, v in NUMBER_WORDS.items() if int(v) >= 10}  # "one" or "two" in a sentence is rarely a figure
+
+
+def _figures(text: str) -> set:
+    """Every figure a statement gives: in digits, or written as a word for ten or more ("forty", "thousand")."""
+    return _numbers(text) | {BIG_NUMBER_WORDS[w] for w in _words(text) if w in BIG_NUMBER_WORDS}
+
+
 def _brief_statement(raw: dict, passages: dict, since: date) -> dict | None:
     """One statement, if code can check it against the passage it cites; otherwise None."""
     section, text = raw["section"].strip().lower(), " ".join(raw["text"].split())
@@ -1005,7 +1013,7 @@ def _brief_statement(raw: dict, passages: dict, since: date) -> dict | None:
     if section == "news" and (p["kind"] != "news" or (p.get("published_on") and p["published_on"] < since)):
         return None
     source_text = _passage_words(p)
-    if not _numbers(text) <= _numbers(source_text, spelled=True):
+    if not _figures(text) <= _numbers(source_text, spelled=True):
         return None  # a figure the page does not give
     if any(not _found_in(q, source_text) for q in DOUBLE_QUOTED.findall(_straight(text))):
         return None  # words put in the company's mouth

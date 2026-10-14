@@ -5,6 +5,8 @@ from datetime import date
 import pytest
 
 import ai
+
+REAL_PREP_PACK = ai.prep_pack  # kept before any test replaces it
 import companies_house
 import db
 import fetcher
@@ -538,3 +540,77 @@ def test_no_connection_held_during_research_or_pack(client, outside, conn, user_
 
 def state(client) -> dict:
     return client.get("/api/state").json()
+
+
+
+# ---------- what the final review found ----------
+
+def test_an_edit_made_while_the_pack_is_rewritten_is_kept(client, outside, conn, user_a, monkeypatch):
+    pack, _ = built(client, outside, conn, user_a)
+
+    def meanwhile(**kw):  # the user saves their pitch while the model is writing
+        repo.merge_pack_content(conn, user_a, pack["id"], {"pitch": "Typed during the refresh.", "pitch_edited": True})
+        return written(pitch="The model's new pitch.")
+    monkeypatch.setattr(ai, "prep_pack", meanwhile)
+    again = build(client, pack["company_id"], job_id=pack["saved_job_id"]).json()
+    assert again["content"]["pitch"] == "Typed during the refresh." and again["content"]["pitch_edited"] is True
+
+
+def test_a_save_made_from_an_old_copy_keeps_the_others(client, outside, conn, user_a, monkeypatch):
+    pack, _ = built(client, outside, conn, user_a)
+    stale = repo.get_pack(conn, user_a, pack["id"])
+    client.patch(f"/api/prep/{pack['id']}", json={"pitch": "Mine."})
+    with monkeypatch.context() as m:
+        m.setattr(repo, "get_pack", lambda *a, **k: stale)  # a second save read the pack before the first was written
+        client.patch(f"/api/prep/{pack['id']}", json={"ticked": [1]})
+    got = client.get(f"/api/prep/{pack['id']}").json()["content"]
+    assert (got["pitch"], got["ticked"]) == ("Mine.", [1])
+
+
+def test_the_right_to_work_line_appears_once_visa_details_are_added(client, outside, conn, user_a):
+    pack, _ = built(client, outside, conn, user_a)
+    conn.execute("update prep_packs set content = jsonb_set(content, '{right_to_work}', '\"\"') where id = %s", (pack["id"],))
+    conn.execute("update profiles set visa_type = 'student', visa_end_date = '2027-01-30' where user_id = %s", (user_a,))
+    assert client.get(f"/api/prep/{pack['id']}").json()["content"]["right_to_work"] == "I am in the UK on a Student visa until 30 January 2027."
+
+
+def test_research_missing_a_source_is_done_again_after_an_hour(client, outside, conn):
+    count = outside(news=websearch.SearchError("down"))
+    first = research(client).json()
+    assert first["missing"] == ["the news search"]
+    assert research(client).json()["cached"] is True  # within the hour
+    conn.execute("update companies set researched_at = now() - interval '2 hours' where id = %s", (first["company_id"],))
+    outside()
+    again = research(client).json()
+    assert again["cached"] is False and again["missing"] == [] and count["news"] >= 1
+
+
+def test_pack_story_matching_only_own_stories(client, outside, conn, user_a, user_b, monkeypatch):
+    a = profile_ready(conn, user_a)
+    mine = repo.add_story(conn, user_a, a["id"], {"title": "My story", "situation": "s", "action": "a", "competencies": ["teamwork"]})
+    theirs = repo.add_story(conn, user_b, profile_ready(conn, user_b)["id"], {"title": "Their story", "situation": "s", "action": "a"})
+    outside()
+    monkeypatch.setattr(ai, "prep_pack", REAL_PREP_PACK)
+    pitch = ("I am finishing an MSc and I like turning data into decisions people can act on every single day. " * 7).strip()
+    questions = [{"question": f"Q{i}?", "competency": "Teamwork", "story_id": sid, "why": "w"}
+                 for i, sid in enumerate(["s1", "s2", theirs["id"], mine["id"], "", "s1", "s1", "s1"])]
+    monkeypatch.setattr(ai, "complete_json", lambda *a, **k: {
+        "talking_points": [{"text": "You build payment software and I built reports.", "fact_id": "f1", "achievement_id": "a1"}],
+        "pitch": pitch, "likely_questions": questions, "questions_to_ask": [{"question": f"Ask {i}?", "fact_id": ""} for i in range(5)]})
+    company = research(client).json()
+    got = build(client, company["company_id"], job_id=job(conn, user_a)["id"]).json()["content"]["likely_questions"]
+    assert [q["story_id"] for q in got] == [mine["id"], None, None, None, None, mine["id"], mine["id"], mine["id"]]
+
+
+def test_an_applications_pack_is_kept_when_its_job_is_linked_later(client, outside, conn, user_a):
+    profile_ready(conn, user_a)
+    outside()
+    company = research(client).json()
+    app = application(conn, user_a)
+    first = build(client, company["company_id"], application_id=app["id"]).json()
+    j = job(conn, user_a)
+    client.patch(f"/api/applications/{app['id']}", json={"saved_job_id": j["id"]})
+    again = build(client, company["company_id"], application_id=app["id"]).json()
+    assert again["id"] == first["id"] and again["saved_job_id"] == j["id"]
+    assert client.delete(f"/api/jobs/{j['id']}").status_code == 204
+    assert len(state(client)["prep_packs"]) == 1
