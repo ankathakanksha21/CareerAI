@@ -5,8 +5,32 @@ description: Use when building, continuing or reviewing step 5 of the CareerAI r
 
 # Step 5: interview preparation
 
-**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Better after step 1 (story bank) and step 4 (application stages). **Size:** medium to large, mostly because of the research.
+**Status:** Built on branch `step-5-interview-prep`, 14 October 2026; not yet merged. **Not finished:** the rest of the final review's fixes and the owner's hand checks. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Better after step 1 (story bank) and step 4 (application stages). **Size:** medium to large, mostly because of the research.
 **REQUIRED:** follow `careerai-building-a-step`.
+
+## Where it stands (14 October 2026)
+
+- Built and committed, tasks 1 to 13 of `docs/superpowers/plans/2026-10-14-step-5-interview-prep.md`. What it does and how is in `docs/ARCHITECTURE.md` section 23; what was verified and what was not is in section 24.
+- Verified by the automated suite, by the real-model checks, by real research of one company through Tavily and its own website, and by running the Prep packs tab, story coverage and an application's Prepare button against the real backend and model as a temporary user whose data was never saved.
+- **Still open:** four fixes from the final review and three of its minor points re-graded as important, listed in ARCHITECTURE section 24.
+- **Left for the owner:** the hand checks below with their own login, including printing a pack and a mock interview that uses one. The live Companies House key is now set.
+
+## Changed at build time (14 October 2026)
+
+Where what was built differs from the sections below, this table is what is true.
+
+| Change | Why | Decided by |
+|---|---|---|
+| Research and the pack are two requests (`POST /api/companies/research`, then `POST /api/ai/prep`), not one `POST /api/ai/prep` | Each fits the 120-second limit; the page shows progress between them | Owner, with the plan |
+| The company search is `POST /api/companies/search` with the name in the body | `CLAUDE.md`: what a user types never goes in an address | Owner, with the plan |
+| Research is kept by Companies House number (or normalised name) together with the website's host | A wrong website typed by one user never changes another user's brief | Owner, with the plan |
+| A pack keeps its own copy of the brief | Another user refreshing the company never changes it | Owner, with the plan |
+| `DELETE /api/prep/{id}` added | A user can remove a pack | Owner, with the plan |
+| Reading, editing and deleting a stored pack work without the research settings; only search, research, building and refresh need them | A user's own data never depends on an outside service being set up | Build-time ruling |
+| The pitch is three paragraphs of 110 to 260 words (planned 150 to 260), and the page says "About a minute to 90 seconds spoken" | The real model writes about 120 to 140 words even when asked for 180 to 230 | Build-time ruling |
+| A news or competitor result is used only if it names the company (the first word of its name) | The browser check showed results about another company reaching the brief | Build-time ruling |
+| A story the model gives no competencies takes its one-word label when that is exactly one of the eight | The same rule the migration uses for existing stories; no extra call | Build-time ruling |
+| The pitch may use figures from the company facts as well as the user's records and the advert | The real model's pitch quoted a company figure ("140 shops") and was refused | Build-time ruling |
 
 ## Goal
 
