@@ -16,6 +16,9 @@ import cv  # noqa: E402
 import cvbuild  # noqa: E402
 import intake  # noqa: E402
 import jobs  # noqa: E402
+import companies_house  # noqa: E402
+import research  # noqa: E402
+from config import research_configured  # noqa: E402
 
 PROFILE = {"full_name": "Sample Candidate", "course": "MSc Data Science", "university": "a UK university",
            "visa_type": "student", "visa_end_date": date(2027, 1, 31)}
@@ -188,6 +191,64 @@ def _draft_ok(r: dict) -> bool:
             and len(message.split()) < 90)
 
 
+# step 5: passages in the shape research numbers them, about a made-up retailer
+TODAY = date.today()
+PASSAGES = [
+    {"n": 1, "kind": "website", "url": "https://northwind.example/", "title": "Northwind Goods | Home", "published_on": None,
+     "text": "Northwind Goods runs 140 homeware shops across the UK and an online store. We have been trading since 1987."},
+    {"n": 2, "kind": "website", "url": "https://northwind.example/about", "title": "About us", "published_on": None,
+     "text": "Our values: Put customers first. Be straightforward. Look after each other. Around 6,000 colleagues work in our shops, "
+             "distribution centres and our head office in Leeds."},
+    {"n": 3, "kind": "website", "url": "https://northwind.example/careers", "title": "Careers", "published_on": None,
+     "text": "Our data team builds the forecasts that decide what goes on every shelf. Graduates join a two-year rotation."},
+    {"n": 4, "kind": "news", "url": "https://news.example/northwind-app", "title": "Northwind launches click and collect app",
+     "published_on": TODAY - timedelta(days=60), "text": "Northwind Goods has launched a click and collect app for its 140 shops."},
+    {"n": 5, "kind": "news", "url": "https://news.example/northwind-old", "title": "Northwind opens first shop",
+     "published_on": TODAY - timedelta(days=900), "text": "Northwind Goods opened a shop in York."},
+    {"n": 6, "kind": "competitors", "url": "https://compare.example/homeware", "title": "UK homeware retailers compared", "published_on": None,
+     "text": "Northwind Goods competes with Larkspur Home and Fenwick Living for mid-priced homeware."},
+]
+FACTS = [{"id": f"f{i}", "section": s, "text": t} for i, (s, t) in enumerate([
+    ("what_they_do", "Northwind Goods runs 140 homeware shops across the UK and an online store."),
+    ("values", "Northwind says it puts customers first."),
+    ("products", "Its data team builds the forecasts that decide what goes on every shelf."),
+    ("news", "Northwind launched a click and collect app."),
+    ("competitors", "Northwind competes with Larkspur Home and Fenwick Living.")], start=1)]
+STORIES = [{"id": "story-1", "title": "The delays report", "competencies": ["problem_solving"], "situation": "Deliveries were often late.",
+            "task": "Find out why.", "action": "I built a weekly report in SQL and walked the managers through it.", "result": "Late deliveries fell by about 8%."},
+           {"id": "story-2", "title": "Merging the spreadsheets", "competencies": [], "situation": "Three teams kept separate sheets.",
+            "task": "Save the weekly copying.", "action": "I wrote a Python script and agreed the columns with each team.", "result": "About 5 hours a week saved."}]
+
+
+def _brief_ok(statements: list) -> bool:
+    sections = {x["section"] for x in statements}
+    return len(sections) >= 3 and all(1 <= x["source"] <= len(PASSAGES) and x["source"] != 5 for x in statements if x["section"] == "news")
+
+
+def _real_research() -> dict:
+    """A real well-known employer through Companies House, its website and the search service. Needs the research keys."""
+    if not research_configured():
+        return {"skipped": True}
+    match = companies_house.search("Monzo Bank")[0]
+    gathered = research.gather(name="Monzo", number=match["number"], website="https://monzo.com/", today=TODAY)
+    return research.brief("Monzo", gathered, TODAY) | {"pages": len(gathered["pages"]), "news": len(gathered["news"])}
+
+
+def _real_ok(r: dict) -> bool:
+    if r.get("skipped"):
+        print("  (research keys not set: skipped, not counted)", flush=True)
+        return True
+    print(f"  {r['pages']} pages, {r['news']} news results, {len(r['facts'])} lines, missing: {r['missing']}", flush=True)
+    year_ago = (TODAY - timedelta(days=365)).isoformat()
+    return (len({f["section"] for f in r["facts"]}) >= 3 and all(f["url"].startswith("https://") for f in r["facts"])
+            and all(f["published_on"] is None or f["published_on"] >= year_ago for f in r["facts"] if f["section"] == "news"))
+
+
+def _pack_ok(r: dict) -> bool:
+    return (bool(r["talking_points"]) and 110 <= len(r["pitch"].split()) <= 260 and len(r["likely_questions"]) >= 5
+            and all(q["story_id"] in (None, "story-1", "story-2") for q in r["likely_questions"]) and len(r["questions_to_ask"]) >= 3)
+
+
 CHECKS = [
     ("achievements", lambda: ai.extract_achievements(BACKGROUND, PROFILE), lambda r: len(r["items"]) >= 1),
     # "You said" quotes must survive the check against the text, or the proof-of-hearing feature shows nothing
@@ -230,6 +291,12 @@ CHECKS = [
     ("lesson, no advert", lambda: ai.rejection_lesson(job=None, cv_text=LESSON_CV, ended_at="screening", feedback=""), _lesson_ok),
     ("follow-up draft", lambda: ai.follow_up(role=JOB["title"], company=JOB["company"], applied_on=date.today() - timedelta(days=7),
                                              contact_name="Priya Shah", sender="Sample Candidate"), _draft_ok),
+    # step 5: every statement cites a passage it is checked against; old news is never kept; the pack points only at the user's stories
+    ("company brief", lambda: ai.company_brief("Northwind Goods", PASSAGES, TODAY), _brief_ok),
+    ("company research, real", _real_research, _real_ok),
+    ("prep pack", lambda: ai.prep_pack(job=JOB, brief=FACTS, achievements=ACHIEVEMENTS, stories=STORIES, profile=PROFILE), _pack_ok),
+    ("tag stories", lambda: ai.tag_stories(STORIES), lambda r: set(r) <= {"story-1", "story-2"} and len(r) >= 1),
+    ("star competencies", lambda: ai.star(ACHIEVEMENTS[0]), lambda r: len(r["competencies"]) >= 1),
 ]
 
 

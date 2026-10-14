@@ -33,3 +33,11 @@ def test_coach_no_longer_asks_for_what_the_form_collected():
 
 def test_both_agents_carry_the_user_id():
     assert "user_id" in COACH[2] and "user_id" in INTERVIEWER[2]
+
+
+def test_interviewer_prompt_uses_the_pack():
+    prompt, _first, placeholders = INTERVIEWER
+    assert "{{company_brief}}" in prompt and "{{likely_questions}}" in prompt
+    assert placeholders["company_brief"] == "Not provided." and placeholders["likely_questions"] == "None given."
+    assert "ask your three questions from them" in prompt
+

@@ -361,7 +361,9 @@ def test_load_state_only_own_rows(conn, user_a, user_b):
     repo.add_journal_entry(conn, user_a, type="coach", title="t", with_whom="w", summary="s", points=[], actions=[])
     repo.add_entry(conn, user_a, "work_history", {"employer": "Zzqx Holdings Ltd"})
     repo.add_entry(conn, user_a, "education", {"institution": "University of Zzqx"})
-    keys = {"achievements", "work_history", "education", "role_families", "saved_jobs", "cv_versions", "stories", "applications", "journal"}
+    repo.save_pack(conn, user_a, saved_job_id=j["id"], application_id=None, company_id=None, role="Role A", company="Zzqx", content={})
+    keys = {"achievements", "work_history", "education", "role_families", "saved_jobs", "cv_versions", "stories", "applications", "journal",
+            "prep_packs"}
     mine, theirs = repo.load_state(conn, user_a), repo.load_state(conn, user_b)
     assert set(mine) == set(theirs) == keys
     assert all(len(mine[k]) == 1 for k in keys)
@@ -411,3 +413,19 @@ def test_achievements_without_story(conn, user_a, user_b):
     repo.add_achievements(conn, user_b, [ITEM], "paste")
     assert [x["id"] for x in repo.achievements_without_story(conn, user_a)] == [bare["id"]]
     assert len(repo.achievements_without_story(conn, user_b)) == 1
+
+
+def test_story_competencies_saved_and_edited(conn, user_a):
+    a = repo.add_achievements(conn, user_a, [ITEM], "paste")[0]
+    s = repo.add_story(conn, user_a, a["id"], STORY | {"competencies": ["teamwork"]})
+    assert s["competencies"] == ["teamwork"]
+    assert repo.update_story(conn, user_a, s["id"], {"competencies": ["setback", "deadlines"]})["competencies"] == ["setback", "deadlines"]
+    assert repo.add_story(conn, user_a, a["id"], STORY)["competencies"] == []  # a story written without any
+
+
+def test_set_competencies_only_touches_own_stories(conn, user_a, user_b):
+    _, mine = story(conn, user_a)
+    _, theirs = story(conn, user_b)
+    assert repo.set_story_competencies(conn, user_a, {mine["id"]: ["leadership"], theirs["id"]: ["teamwork"]}) == 1
+    assert repo.get_story(conn, user_a, mine["id"])["competencies"] == ["leadership"]
+    assert repo.get_story(conn, user_b, theirs["id"])["competencies"] == []

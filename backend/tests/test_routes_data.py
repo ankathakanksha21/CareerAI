@@ -23,7 +23,7 @@ def test_every_route_but_config_needs_a_token():
         if not path.startswith("/api") or path == "/api/config":
             continue
         url = path.replace("{conversation_id}", "conv_1")
-        for name in ("id", "app_id", "job_id", "family_id", "achievement_id", "entry_id", "match_id", "story_id", "version_id"):
+        for name in ("id", "app_id", "job_id", "family_id", "achievement_id", "entry_id", "match_id", "story_id", "version_id", "pack_id"):
             url = url.replace("{" + name + "}", str(uuid.uuid4()))
         assert "{" not in url, f"unfilled path parameter in {path}"
         for method in route.methods - {"HEAD", "OPTIONS"}:
@@ -49,15 +49,16 @@ def test_state_for_new_user(client):
     s = client.get("/api/state").json()
     assert s["details_complete"] is False
     assert s["profile"]["full_name"] == "Test Person" and s["profile"]["first_name"] == "Test" and s["profile"]["email"] == "a@example.test"
-    for key in ("achievements", "work_history", "education", "role_families", "saved_jobs", "cv_versions", "stories", "applications", "journal"):
+    for key in ("achievements", "work_history", "education", "role_families", "saved_jobs", "cv_versions", "stories", "applications", "journal",
+                "prep_packs"):
         assert s[key] == []
     assert s["profile"]["skills"] == [] and s["profile"]["languages"] == [] and s["profile"]["github_username"] is None
     assert (s["profile"]["phone"], s["profile"]["city"], s["profile"]["linkedin_url"], s["profile"]["additional"]) == ("", "", "", [])
     assert len(s["next_steps"]) == 6 and not any(x["done"] for x in s["next_steps"])
-    assert s["usage"] == {"ai": {"used": 0, "limit": 40}, "voice": {"used": 0, "limit": 3}}
+    assert s["usage"] == {"ai": {"used": 0, "limit": 40}, "voice": {"used": 0, "limit": 3}, "research": {"used": 0, "limit": 5}}
     assert s["stats"]["findings"] == [] and s["stats"]["funnel"]["applied"] == 0
     assert "Company site" in s["options"]["sources"] and "applied" in s["options"]["stages"]
-    assert set(s["config"]) == {"llm", "voice", "jobs"}
+    assert set(s["config"]) == {"llm", "voice", "jobs", "prep"}
     assert s["jobs"] == {"new": 0, "fresh": 0} and s["market"] == {}
 
 

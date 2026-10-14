@@ -16,24 +16,28 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstra
 
 import ai
 import analytics
+import companies_house
 import content
 import cv
 import cvbuild
 import cvfile
 import db
+import fetcher
 import github
 import habits
 import intake
 import jobs
 import limits
+import prep
 import reed
 import repo
+import research
 import sponsors
 import stories
 import visa
 import voice
 from auth import User, current_user
-from config import cron_secret, env, jobs_configured, llm_configured, supabase_url, voice_configured
+from config import cron_secret, env, jobs_configured, llm_configured, research_configured, supabase_url, voice_configured
 from llm import LLMNotConfigured
 from parallel import together
 
@@ -167,8 +171,9 @@ def get_state(user: CurrentUser):
         "usage": usage,
         "jobs": job_counts,   # matching adverts not yet seen, and how many of those were just posted
         "market": market,     # live figures for each targeted role family
-        "options": {"sources": analytics.SOURCES, "stages": analytics.STAGES, "language_levels": ai.LANGUAGE_LEVELS},
-        "config": {"llm": llm_configured(), "jobs": jobs_configured(),
+        "options": {"sources": analytics.SOURCES, "stages": analytics.STAGES, "language_levels": ai.LANGUAGE_LEVELS,
+                    "competencies": [[k, label] for k, label in ai.COMPETENCIES.items()], "interview_types": prep.INTERVIEW_TYPES},
+        "config": {"llm": llm_configured(), "jobs": jobs_configured(), "prep": research_configured() and llm_configured(),
                    "voice": {"onboarding": voice_configured("onboarding"), "interviewer": voice_configured("interviewer")}},
     }
 
@@ -262,6 +267,12 @@ class StoryPatch(BaseModel):
     task: Text(2000, 0) = None
     action: Text(2000, 0) = None
     result: Text(2000, 0) = None
+    competencies: list[Literal[tuple(ai.COMPETENCIES)]] = Field(None, max_length=ai.MAX_COMPETENCIES)
+
+    @field_validator("competencies")
+    @classmethod
+    def _once_each(cls, value):
+        return list(dict.fromkeys(value)) if value is not None else value
 
 
 @app.patch("/api/stories/{story_id}")
@@ -1248,11 +1259,29 @@ def ai_story_bank(user: CurrentUser):
     if not without:
         raise HTTPException(400, "Every achievement already has a story.")
     _start_ai(user, "story bank")
-    written, missed = stories.write(stories.pick(without, len(existing)), sorted({s["competency"] for s in existing if s["competency"]}))
+    covered = sorted({ai.COMPETENCIES[k] for s in existing for k in s["competencies"]})
+    written, missed = stories.write(stories.pick(without, len(existing)), covered)
     with db.transaction() as conn:
         room = stories.BANK - len(repo.list_stories(conn, user.id))  # counted again: another request may have added some meanwhile
         saved = [repo.add_story(conn, user.id, achievement_id, story) for achievement_id, story in written[:max(0, room)]]
     return {"stories": saved, "notice": "Some stories could not be written. Try again to write the rest." if missed else None}
+
+
+@app.post("/api/ai/stories/tag")
+def ai_tag_stories(user: CurrentUser):
+    """Competencies for the user's stories that have none. One AI action."""
+    with db.transaction() as conn:
+        existing = repo.list_stories(conn, user.id)
+    if not existing:
+        raise HTTPException(400, "You have no stories yet.")
+    untagged = [s for s in existing if not s["competencies"]]
+    if not untagged:
+        raise HTTPException(400, "Every story already has competencies.")
+    _start_ai(user, "tag stories")
+    tags = ai.tag_stories(untagged)
+    with db.transaction() as conn:
+        repo.set_story_competencies(conn, user.id, {k: v for k, v in tags.items() if k in {s["id"] for s in untagged}})
+        return {"stories": repo.list_stories(conn, user.id)}
 
 
 class InterviewIn(BaseModel):
@@ -1305,6 +1334,177 @@ def ai_diagnosis(user: CurrentUser):
     profile = _start_ai(user, "diagnosis")
     stats = analytics.compute(state["applications"], state["role_families"], state["cv_versions"], state["stories"])
     return ai.explain_diagnosis(stats["findings"], stats, profile)
+
+
+# ---------- interview prep: company research and prep packs ----------
+# Research reaches Companies House, the employer's website and the search service, so those routes
+# need the research settings. A pack already made can always be read, edited and deleted.
+
+PREP_OFF = "Interview prep is not set up on the server."
+BAD_WEBSITE = "Enter the company's website, for example acme.co.uk."
+BAD_TICKS = "Tick at most three of the questions shown."
+CompanyNumber = Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, pattern=r"^[A-Z0-9]{8}$")]
+
+
+def _prep_on() -> None:
+    if not research_configured():
+        raise HTTPException(503, PREP_OFF)
+
+
+class CompanyName(BaseModel):
+    name: Text(160)
+
+
+@app.post("/api/companies/search")
+def search_companies(body: CompanyName, user: CurrentUser):
+    """Up to five Companies House entries for a name, for the user to pick from. The name travels in the body."""
+    _prep_on()
+    try:
+        return {"matches": companies_house.search(body.name)}
+    except companies_house.CompaniesHouseError as e:
+        raise HTTPException(502, e.message)
+
+
+class ResearchIn(BaseModel):
+    name: Text(160)
+    company_number: CompanyNumber | None = None
+    website: Text(300, 0) = ""
+    not_uk: bool = False
+
+
+def _company(row: dict, cached: bool) -> dict:
+    return {"company_id": row["id"], "name": row["name"], "researched_at": row["researched_at"], "facts": row["facts"],
+            "missing": row["missing"], "notice": None if row["facts"] else research.NOTHING_FOUND.format(name=row["name"]),
+            "cached": cached}
+
+
+def _research(user: User, *, name: str, number: str | None, website: str | None, again: bool = False) -> dict:
+    """A company's brief: the shared one if it is fresh (and `again` is not set), otherwise researched
+    now, which uses one of the day's research allowance."""
+    key = research.lookup_key(name=name, number=number, website=website)
+    with db.transaction() as conn:
+        kept = None if again else repo.find_company(conn, key, research.FRESH_DAYS, transient=research.TRANSIENT,
+                                                    retry_hours=research.RETRY_HOURS)
+        if kept:
+            return _company(kept, cached=True)
+        limits.check_and_record(conn, user.id, "research", f"research {key}")  # every attempt costs searches, so every attempt counts
+        today = repo.today(conn)
+    gathered = research.gather(name=name, number=number, website=website, today=today)
+    found = research.brief(name, gathered, today)
+    with db.transaction() as conn:
+        saved = repo.save_company(conn, key, name=name, company_number=number, website=website, registry=gathered["registry"],
+                                  facts=found["facts"], missing=found["missing"])
+    return _company(saved, cached=False)
+
+
+@app.post("/api/companies/research")
+def research_company(body: ResearchIn, user: CurrentUser):
+    """Research a company the user confirmed, or reuse research of it from the last 14 days."""
+    _prep_on()
+    website = fetcher.website(body.website) if body.website else None
+    if body.website and not website:
+        raise HTTPException(422, BAD_WEBSITE)
+    return _research(user, name=body.name, number=None if body.not_uk else body.company_number, website=website)
+
+
+class PrepIn(BaseModel):
+    job_id: UUID | None = None
+    application_id: UUID | None = None
+    company_id: UUID
+    interview_type: Literal[prep.INTERVIEW_TYPES] | None = None
+
+    @model_validator(mode="after")
+    def _one_target(self):
+        if (self.job_id is None) == (self.application_id is None):
+            raise ValueError("Pick a job or an application.")
+        return self
+
+
+def _pack(row: dict, profile: dict) -> dict:
+    """A pack as the page gets it: with today's right-to-work line if it has none yet, and what the
+    mock interviewer is told from it."""
+    content = prep.fill_right_to_work(row["content"], profile)
+    return row | {"content": content, "interviewer": prep.for_interviewer(content)}
+
+
+@app.post("/api/ai/prep")
+def ai_prep(body: PrepIn, user: CurrentUser):
+    """Build (or rebuild) the pack for a saved job, or for an application: the application's saved job
+    when it has one. One AI action. A rebuild keeps the user's own pitch and right-to-work line."""
+    _prep_on()
+    with db.transaction() as conn:
+        application = _found(repo.get_application(conn, user.id, str(body.application_id))) if body.application_id else None
+        job_id = str(body.job_id) if body.job_id else application["saved_job_id"]
+        job = repo.get_job(conn, user.id, job_id) if job_id else None
+        if body.job_id:
+            _found(job)
+        company = _found(repo.get_company(conn, str(body.company_id)))
+        achievements, told = repo.list_achievements(conn, user.id), repo.list_stories(conn, user.id)
+        profile = repo.get_or_create_profile(conn, user.id, user.name)
+    if not achievements:
+        raise HTTPException(400, "Build your profile first.")
+    _start_ai(user, "prep")
+    role, employer = (job["title"], job["company"]) if job else (application["role"], application["company"])
+    written = ai.prep_pack(job={"title": role, "company": employer, "description": job["description"] if job else ""},
+                           brief=company["facts"], achievements=achievements, stories=told, profile=profile)
+    brief = {"facts": company["facts"], "missing": company["missing"],
+             "notice": None if company["facts"] else research.NOTHING_FOUND.format(name=company["name"])}
+    made = prep.content(written=written, brief=brief, researched_at=company["researched_at"].isoformat(),
+                        interview_type=body.interview_type or prep.default_type(application["stage"] if application else None),
+                        right_to_work=prep.right_to_work(profile))
+    target = {"saved_job_id": job["id"] if job else None, "application_id": application["id"] if application else None}
+    with db.transaction() as conn:
+        # the pack as it is now, held until it is saved: an edit made while the model was writing is kept
+        current = repo.find_pack(conn, user.id, **target, lock=True)
+        if current:
+            made = prep.rebuild(current["content"], made)
+        return _pack(repo.save_pack(conn, user.id, **target, company_id=company["id"], role=role, company=employer, content=made), profile)
+
+
+@app.get("/api/prep/{pack_id}")
+def get_prep(pack_id: UUID, user: CurrentUser):
+    with db.transaction() as conn:
+        return _pack(_found(repo.get_pack(conn, user.id, str(pack_id))), repo.get_or_create_profile(conn, user.id, user.name))
+
+
+class PrepPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pitch: Text(2500, 0) = None
+    right_to_work: Text(300, 0) = None
+    ticked: list[int] = Field(None, max_length=prep.MAX_TICKS)
+    interview_type: Literal[prep.INTERVIEW_TYPES] = None
+
+
+@app.patch("/api/prep/{pack_id}")
+def update_prep(pack_id: UUID, body: PrepPatch, user: CurrentUser):
+    """Save the user's pitch, their right-to-work line, the questions they ticked, or the interview type."""
+    with db.transaction() as conn:
+        pack = _found(repo.get_pack(conn, user.id, str(pack_id)))
+        try:
+            changed = prep.edit(pack["content"], body.model_dump(exclude_unset=True))
+        except ValueError:
+            raise HTTPException(422, BAD_TICKS)
+        # only what this save changes is written, so another save made a moment earlier keeps its own change
+        fields = {k: v for k, v in changed.items() if v != pack["content"].get(k)}
+        saved = repo.merge_pack_content(conn, user.id, pack["id"], fields) if fields else pack
+        return _pack(saved, repo.get_or_create_profile(conn, user.id, user.name))
+
+
+@app.delete("/api/prep/{pack_id}", status_code=204)
+def delete_prep(pack_id: UUID, user: CurrentUser):
+    with db.transaction() as conn:
+        _found(repo.delete_pack(conn, user.id, str(pack_id)))
+    return Response(status_code=204)
+
+
+@app.post("/api/prep/{pack_id}/refresh")
+def refresh_prep(pack_id: UUID, user: CurrentUser):
+    """Research the pack's company again now, whatever is kept. The page then rebuilds the pack."""
+    _prep_on()
+    with db.transaction() as conn:
+        pack = _found(repo.get_pack(conn, user.id, str(pack_id)))
+        company = _found(repo.get_company(conn, pack["company_id"]) if pack["company_id"] else None)
+    return _research(user, name=company["name"], number=company["company_number"], website=company["website"], again=True)
 
 
 # ---------- voice ----------

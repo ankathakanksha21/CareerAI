@@ -472,3 +472,28 @@ textarea.editing { font: inherit; color: inherit; padding: 2px 5px; margin: -3px
 .goal-num { font-size: 28px; font-weight: 750; color: var(--green); letter-spacing: -0.02em; }
 .stats4.streak { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .plan-task { grid-template-columns: 1fr auto; }
+
+/* prep packs */
+.pack-section { display: grid; gap: 10px; }
+.pack-section h3 { font-size: 14px; font-weight: 650; margin-top: 4px; }
+.brief-lines { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
+a.source { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+a.source::before { content: "("; }
+a.source::after { content: ")"; }
+.print-only { display: none; }
+@media print {
+  .side, .tabs, .page-head, .no-print, .pack button, .pack select, .pack textarea, .pack input[type="text"], .toast { display: none !important; }
+  .shell, .main { display: block; padding: 0; margin: 0; }
+  .print-only { display: block; }
+  .card { box-shadow: none; border: 0; padding: 0 0 14px; break-inside: avoid; }
+  .ticked-some .unticked { display: none; }
+  a.source::after { content: ": " attr(href) ")"; }
+}
+
+/* story coverage */
+.coverage { display: grid; gap: 0; margin-top: 10px; }
+.coverage-row { display: grid; grid-template-columns: 180px 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.coverage-row:last-child { border-bottom: 0; }
+.coverage-row.gap span:last-child { color: var(--warn); }
+@media (max-width: 820px) { .coverage-row { grid-template-columns: 1fr; gap: 2px; } }
+

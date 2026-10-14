@@ -21,3 +21,14 @@ def test_db_transaction_in_tests_never_commits(conn, own_transaction):
         assert committed == 0, "db.transaction() committed during a test"
     finally:
         other.close()
+
+
+@pytest.mark.parametrize("call", [lambda: __import__("companies_house").search("Zzqx"),
+                                  lambda: __import__("websearch").news("Zzqx", __import__("datetime").date(2026, 10, 14)),
+                                  lambda: __import__("fetcher").fetch("https://zzqx.test/", {})])
+def test_no_test_reaches_a_real_research_service(monkeypatch, call):
+    for name, value in {"COMPANIES_HOUSE_API_KEY": "k", "SEARCH_PROVIDER": "tavily", "SEARCH_API_KEY": "k"}.items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(AssertionError, match="real outside service"):
+        call()
+

@@ -25,8 +25,8 @@ Every step has a document holding its goal, every decision made for it, the desi
 | 1 | Deeper onboarding: CV upload, GitHub import, editing achievements, education and work history, story bank | 0 | Built and merged into `main`. The owner's hand checks with a real CV and account are left (section 18) | `careerai-step-1-deeper-onboarding` |
 | 2 | Real jobs from Reed, fit scoring, sponsor register, visa salary facts | 0 | Built and merged into `main`. Some hand checks are left (section 16) | `careerai-step-2-real-jobs` |
 | 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Built and merged into `main`. The owner's hand checks are left (section 20) | `careerai-step-3-full-uk-cv` |
-| 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Built on branch `step-4-tracker-and-habits`. The owner's hand checks are left (section 22) | `careerai-step-4-tracker-and-habits` |
-| 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Designed | `careerai-step-5-interview-prep` |
+| 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Built and merged into `main`. The owner's hand checks are left (section 22) | `careerai-step-4-tracker-and-habits` |
+| 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Built on branch `step-5-interview-prep`. The owner's hand checks are left (section 24) | `careerai-step-5-interview-prep` |
 | 6 | Hidden market: contacts, outreach drafts, saved events, referrals | 4 | Designed | `careerai-step-6-hidden-market` |
 | 7 | Peers: opt-in buddy groups of two or three | 4 | Designed | `careerai-step-7-peers` |
 
@@ -51,6 +51,9 @@ Browser (React + Vite)
  │                                 ├─ ElevenLabs API                              ← mints voice session tokens
  │                                 ├─ Reed API                                    ← job adverts (titles and locations sent, nothing personal)
  │                                 ├─ GitHub API                                  ← public repositories and READMEs, by a username the user types
+ │                                 ├─ Companies House API                         ← a company's official record (a company name, nothing personal)
+ │                                 ├─ Tavily                                      ← a company's news and competitors (its name only)
+ │                                 ├─ employers' websites                         ← up to six public pages, read safely, robots.txt respected
  │                                 └─ gov.uk                                      ← the register of licensed sponsors, weekly
  └─ WebRTC audio ──────────────► ElevenLabs agents (onboarding coach, mock interviewer)
 ```
@@ -74,6 +77,7 @@ Browser (React + Vite)
 | Reading CV files | `pypdf` for PDF, the standard library for Word (.docx), both in memory | One small dependency. A Word file is a zip of XML, and reading it directly reaches the tables and text boxes CV templates are built from |
 | Writing CV files | `python-docx` for Word and `fpdf2` for PDF, both in memory, drawn from one list of print blocks. The PDF embeds Liberation Sans (bundled in `backend/fonts`, SIL Open Font Licence 1.1) | Both are pure Python apart from two compiled packages that ship ready built. Liberation Sans has exactly Arial's letter widths, so Word (Arial) and the PDF break lines alike |
 | GitHub projects | GitHub's public REST API, no login | Nothing to connect; public data only |
+| Company research | Companies House's public data API; Tavily for news and competitors; the employer's own site read by `fetcher.py` | The register is official and free. Tavily has 1,000 free credits a month, dated news, and terms that allow keeping results (Brave's forbid storing them, which the shared cache needs) |
 | Hosting | Vercel: one Python function serving the API and the built frontend | Already set up |
 | Tests | `pytest` | Backend logic, data isolation and routes |
 
@@ -138,6 +142,16 @@ Minimum versions: Node 20.19 or 22.12 (Vite 8 will not run on older), Python 3.1
 | A follow-up draft is written without the user's name; code adds "Dear ..." and "Kind regards" with their name | Nothing personal in the prompt beyond the contact's name | The model cannot choose another sign-off | – |
 | Stage history starts with step 4 | Only real data | Older applications show no history | – |
 | An application at No reply asks for no follow-up | The user has said they have stopped waiting | A reminder set on it is not listed on Home | Users ask for it |
+| Every line of a company brief cites a passage the app fetched, and code checks it against that passage | Nothing about a company comes from the model's memory | An honest line worded with a figure the page writes differently is dropped | – |
+| Company research is shared by everyone for 14 days, kept by the Companies House number with the name searched for, and the website | One search per company, not per user; a wrong name or website typed by one user never changes another's brief | The same company can be researched twice under two spellings or websites | – |
+| Research that missed a source for a passing reason (a timeout, Companies House or the search service down) is shared for an hour, not 14 days | One bad moment for one user is not everyone's brief for a fortnight | A failing source is tried again by the next user after an hour | – |
+| A pack keeps its own copy of the brief | Another user refreshing the company never changes it; talking points always point at facts the pack shows | A pack shows its own research date until Refresh | – |
+| Research and the pack are two requests | Each fits the 120-second limit, and the page shows progress between them | One more route | – |
+| Companies House lines are written by code | Exact register facts need no model | None | – |
+| A news or competitor result must name the company (the first word of its name) | A result about another company never reaches the brief | Two companies sharing a first word are not told apart | Users report a wrong line |
+| The pitch is accepted at 110 to 260 words | The real model writes about 120 to 140 words even when asked for more | Pitches run about a minute rather than a full 90 seconds | The model changes |
+| Research is limited to 5 a day, separately from the AI limit. Every research counts, Refresh and a retry after a failure included; a shared, fresh company is free | Searches cost money, and nothing can run past the limit | A failed research uses one of the day's five | Users hit the limit because of failures |
+| Edits to a pack are saved part by part, and a rebuild re-reads the pack under a lock | Two saves a moment apart, or an edit made while the pack is rewritten, are never lost | – | – |
 
 Smaller behaviours worth knowing:
 
@@ -171,6 +185,13 @@ Smaller behaviours worth knowing:
 - Three lessons that point to the same page become a finding under What to fix.
 - All milestones not yet shown appear in one banner at the top of Home and are marked seen as it appears. Deleting an application can take away a milestone not yet shown; a milestone already shown never comes back.
 - The weekly plan holds at most five tasks, never one for a page this build lacks: no jobs task without a Reed key, no task for a finding that links nowhere.
+- Prep packs appear only when the Companies House key, `SEARCH_PROVIDER=tavily`, the search key and the model are all set. A pack already made can always be read, edited and deleted.
+- "Prepare" opens the pack that already exists for a job or application. An application with a saved job shares that job's pack.
+- Refresh researches again and rewrites the pack; a pitch or right-to-work line the user edited is kept, and the ticks on questions to ask are cleared because the questions change.
+- A likely question is matched only to one of the user's own stories; anything else shows "No story yet" with a link to write one.
+- The user ticks at most three questions to ask. Printing a pack prints only the ticked ones, when any are ticked, and every source as its address.
+- A story written by the app is tagged with up to three of eight competencies in the same call; "Tag my stories" tags older ones in one AI action; the user can tick them by hand. A story the model gave none takes its one-word label when it is exactly one of the eight.
+- The mock interviewer is told a company summary (what they do, products, news) whenever the chosen job has a pack, and the pack's likely questions in the job-specific and behavioural sessions.
 
 ## 6. Code map
 
@@ -198,11 +219,18 @@ backend/
   limits.py        per-user daily caps
   analytics.py     tracker stats, diagnosis rules, getting-started checklist. Pure functions
   habits.py        weeks, goals, the weekly streak, follow-ups due, milestones, the weekly plan. Pure functions
+  companies_house.py  Companies House client: search by name, one company's profile, SIC descriptions
+  fetcher.py       an employer's website, read safely: public addresses only (checked at connection), robots.txt, size, time and page limits
+  textify.py       HTML to plain text, shared by Reed adverts and websites
+  websearch.py     Tavily client: a company's news from the last year and its competitors
+  research.py      one company's research: the four sources side by side, numbered passages, the cited brief, the cache key
+  prep.py          a prep pack's own rules: right-to-work line, edits, rebuilds, what the interviewer is told. Pure functions
   ai.py            one function per AI task: prompt, output shaping, quote checking
   llm.py           one call path to Bedrock, fallback model, JSON parsing
   voice.py         ElevenLabs token minting and transcript fetch (owner only)
   content.py       loads data/content.json, the static guidance copy
   data/visa_rules.json   the visa figures, their gov.uk sources and the date checked. The only place they are written
+  data/sic_codes.json    SIC 2007 code descriptions from gov.uk's condensed list (Open Government Licence)
   config.py        settings from the environment, then backend/.env
   migrate.py       applies migrations/*.sql not yet recorded in schema_migrations
   setup_agents.py  creates or updates the two ElevenLabs agents and writes their ids to .env
@@ -227,8 +255,10 @@ frontend/src/
                    CvSide (pages, keywords, downloads, letter), OldCv (a version from before step 3), EditableText,
                    ContactForm (contact details; certifications, awards and volunteering),
                    ApplicationPanel (every field of an application, its history, follow-up and lesson),
-                   RejectQuestions (where a rejection ended, feedback, the lesson), FollowUps, ThisWeek (goals, streak), Plan, Milestones
+                   RejectQuestions (where a rejection ended, feedback, the lesson), FollowUps, ThisWeek (goals, streak), Plan, Milestones,
+                   PrepPacks (the tab), CompanyConfirm (pick the company, research, build), PrepPack (the pack, printable), StoryCoverage
   tracker.js       the tracker's stage words and small rules, shared by Applications and Home
+  prep.js          prep pack words and which pack belongs to a job or application
   pages/           Landing, Auth, Privacy, Onboarding, Home, Profile, Pathways, Jobs, Resume,
                    Interview, Applications, Journal, Account
 app.py             Vercel entry point: the API plus the built frontend
@@ -236,7 +266,7 @@ app.py             Vercel entry point: the API plus the built frontend
 
 ## 7. Data model
 
-All tables are in the `public` schema. Every row of a per-user table has `user_id` referencing `auth.users` with `on delete cascade`, so deleting a login removes all of that person's data. Five tables added in step 2 hold public data shared by everyone and have no `user_id`; they are marked below. Row-level security is on with no policies, and the browser-facing roles (`anon`, `authenticated`) have no privileges.
+All tables are in the `public` schema. Every row of a per-user table has `user_id` referencing `auth.users` with `on delete cascade`, so deleting a login removes all of that person's data. Five tables added in step 2 and one in step 5 hold public data shared by everyone and have no `user_id`; they are marked below. Row-level security is on with no policies, and the browser-facing roles (`anon`, `authenticated`) have no privileges.
 
 | Table | Holds |
 |---|---|
@@ -247,20 +277,22 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 | `role_families` | AI-suggested families: fit, estimated overlap, UK titles, requirements shown or missing, targeted or not. Unique per user by name, ignoring case |
 | `saved_jobs` | Jobs the user pasted: title, company, description, AI summary, keywords, matched role family |
 | `cv_versions` | Each CV in full as one document, named "<title>, <company> vN" or "Base CV vN": whether it is a base or a tailored CV, its page count, when it was last edited, who its letter is to. A version made before step 3 is marked format 1 and holds only a paragraph, bullets and a letter |
-| `stories` | STAR stories, linked to their achievement |
+| `stories` | STAR stories, linked to their achievement, with up to three of eight competencies |
 | `applications` | Tracker rows: company, role, family, CV version, source, stage, applied and posted dates, link, the contact's name and how to reach them, notes, sponsor licence, the next follow-up date and when the user last followed up, and for a rejection where it ended, any feedback and the lesson |
 | `application_events` | One row per stage change of an application, with when; the first records its creation. Deleted with the application |
 | `weekly_goals` | The user's weekly goals (applications with a CV, mock interviews), each applying from a Monday. No row means the defaults, 5 and 2 |
 | `journal_entries` | Coach calls, mock interviews and imports (a CV upload, a GitHub import): summary, points, actions, scores, and the transcript or the text that was read |
-| `usage_events` | One row per AI action or voice session: daily limits now, streaks later |
+| `usage_events` | One row per AI action, voice session or newly researched company: the daily limits |
+| `prep_packs` | One per saved job (or per application without one): the role and company, a copy of the brief it was built from, talking points, the pitch, likely questions with the story for each, questions to ask and which are ticked, the right-to-work line, the interview type, and whether the user edited the pitch or the line |
 | `job_listings` (shared) | One row per advert: source and its id, title, employer, who really posted it (employer, agency, or training for an advert that sells a course), location, salary and whether it is annual, description and whether it is the full text, link, posting date, and what the register says about the employer |
 | `job_searches`, `job_search_results` (shared) | The search cache: each search anyone has run, when, and the adverts it last found |
 | `sponsors` (shared) | The register's Skilled Worker entries: registered name, normalised name, town, county, rating. A trading name gets its own row |
 | `reference_meta` (shared) | When the register was last loaded and the date gov.uk published that file |
+| `companies` (shared) | One company's research: the key it is kept under, its name, Companies House number and website, the register entry, the brief's lines each with its source address, title and date, which sources could not be read, and when |
 | `job_matches` | One user's view of one advert: role family, fit percentage and label, what they show and lack, new, seen, saved or hidden |
 | `schema_migrations` | Which migration files have been applied |
 
-Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`), `006_full_cv`, `007_tracker_habits` (which also gives each open application without one a follow-up date a week after it was sent).
+Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`), `006_full_cv`, `007_tracker_habits` (which also gives each open application without one a follow-up date a week after it was sent), `008_interview_prep` (which also tags existing stories whose one-word competency is exactly one of the eight).
 
 Adverts older than 30 days are deleted on each refresh. A saved job is a copy, so it stays.
 
@@ -286,7 +318,7 @@ A reference from one row to another (for example an application's CV version) is
 | `DELETE /api/cv-versions/{id}` | Remove a version; 409 while an application points at it |
 | `GET /api/cv-versions/{id}/download?format=docx\|pdf&part=cv\|letter` | The CV or its letter as a file, made now and not kept |
 | `POST /api/profile/facts` | Save the jobs, courses, skills and languages the user ticked after an import, all or nothing, and link the new achievements |
-| `PATCH`, `DELETE /api/stories/{id}` | Edit or remove a STAR story |
+| `PATCH`, `DELETE /api/stories/{id}` | Edit or remove a STAR story, including its competencies (at most three) |
 | `POST /api/github/repos` | A GitHub user's own public repositories, each marked if already imported. The username travels in the body |
 | `POST /api/families/{id}/target` | Tick or untick a role family |
 | `POST /api/jobs`, `DELETE /api/jobs/{id}` | Add a pasted job (with an AI summary), remove a saved job |
@@ -303,6 +335,12 @@ A reference from one row to another (for example an application's CV version) is
 | `POST /api/applications/{id}/followed-up` | Followed up today: the next follow-up is due in a week |
 | `PUT /api/profile/goals` | Weekly goals: 1 to 30 applications, 0 to 14 mock interviews. The first applies this week, later ones from next Monday |
 | `POST /api/milestones/seen` | Milestones the banner has shown |
+| `POST /api/companies/search` | Up to five Companies House matches for a name. The name travels in the body |
+| `POST /api/companies/research` | A confirmed company's brief: shared research from the last 14 days, or researched now (one research use) |
+| `POST /api/ai/prep` | The pack for a saved job or an application, from a company's research. One AI action. A rebuild keeps the user's edits |
+| `GET`, `PATCH`, `DELETE /api/prep/{id}` | A pack with what the interviewer is told from it; the user's pitch, right-to-work line, ticks (at most three) and interview type |
+| `POST /api/prep/{id}/refresh` | Research the pack's company again now; the page then rebuilds the pack |
+| `POST /api/ai/stories/tag` | Competencies for the user's stories that have none. One AI action |
 | `GET /api/journal/{id}/transcript` | What was said in that session |
 | `POST /api/ai/achievements` | Transcript or pasted text → achievements and pitch, plus proposed jobs, courses, skills and languages |
 | `POST /api/ai/achievements/upload` | A PDF or Word CV as the raw body → the same. The file is read and dropped |
@@ -334,6 +372,9 @@ Error responses always carry a plain `detail` message the UI shows as-is: 409 a 
 - **Several calls for one action.** An import asks for achievements and for CV facts at the same time; the story bank writes in batches of four. Each counts as one AI action.
 - **A CV: wording only.** `build_cv` returns a profile paragraph, bullets each naming one of the user's achievements, and the user's own skills in two groups. `job_letter` returns the advert's main terms, gaps and the three paragraphs of a letter. Neither is asked for, or trusted with, a fact: employers, dates, courses and grades are copied from the records in code. A bullet for an id that is not the user's is dropped; a reworded bullet that lost, changed or gained a number is replaced by the stored one; a skill that is not the user's is dropped; a keyword that is not in the advert is dropped; a paragraph or letter with a number found nowhere in the candidate's facts is refused and asked for once more.
 - **A lesson and a follow-up.** `rejection_lesson` is given the CV as sent (without its contact line), the job description, where the process ended and any feedback, and says which of them were not recorded. Its reason must be worded as a possibility, it may not claim feedback the user did not enter, a quoted phrase must be in the inputs, and it is written to "you". `follow_up` is given only the role, the company, the date applied and the contact's name; it writes a subject and a body of at most 80 words with no number that is not in those details, and code adds the greeting and the user's own sign-off.
+- **A company brief.** `company_brief` is given only numbered passages the app fetched and must cite one for each statement. A statement is kept only if its number was sent, its section is one of six, every figure and every quoted phrase in it is in that passage, a value carries words found exactly in its page, and a news line cites a news result from the last 12 months (its date is the result's, not the model's). Register lines are written by code. With nothing fetched at all, the model is not asked.
+- **A prep pack.** `prep_pack` gets the brief, the advert (or a note that none was recorded), the user's course, achievements and stories, with short ids mapped back in code. A talking point must name a real fact and achievement and use only their figures; the pitch, in three paragraphs, 110 to 260 words with no figure from outside the input; a likely question keeps a story only if it is the user's. No name, contact details or visa are sent.
+- **Story competencies.** Each story is tagged with up to three of eight competencies; anything else the model names is dropped.
 - **Privacy in logs.** Failures log the task name and the error type only, never prompts or replies. `httpx` request lines are off, because an address can hold what a user typed.
 - **No database connection is held during a model call.** Each AI route reads and counts usage in one short transaction, calls the model, then writes in a second.
 
@@ -344,7 +385,7 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 - Two private ElevenLabs agents, created and updated by `setup_agents.py`: an onboarding coach and a mock interviewer. Their prompts live in that file. Run it again after editing a prompt.
 - The backend mints a short-lived token; the ElevenLabs key never reaches the browser.
 - The coach is told the user's first name, course, university and visa type, so it spends the call on experience.
-- The interviewer is told the job (or "general practice"), the session type and a summary of the user's achievements.
+- The interviewer is told the job (or "general practice"), the session type and a summary of the user's achievements, and, when the job has a prep pack, a company summary and the pack's likely questions to ask from.
 - **Live transcript.** During a call the user sees what was heard, sentence by sentence. ElevenLabs sends the user's words after each finished sentence, not word by word. The transcript stays on screen after the call and is saved with the journal entry.
 - Every session is tagged with the user's id. The server-side transcript fallback returns a transcript only to that user.
 - Each call is capped at 7 minutes by the agent configuration.
@@ -358,7 +399,7 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 | Who can see what | Every query filters by the caller's user id. Automated tests prove account A cannot read, change or delete account B's rows, including transcripts |
 | Direct database access from browsers | Blocked: deny-all row-level security and no privileges for browser roles |
 | Secrets | Only in `backend/.env` (git-ignored) and Vercel project settings |
-| Cost abuse | Daily limits per user: `DAILY_AI_LIMIT` (40) and `DAILY_VOICE_LIMIT` (3), midnight to midnight UK time. A jobs refresh that scores anything is one AI action; Reed calls are free and bounded by the shared cache and 20 searches per refresh |
+| Cost abuse | Daily limits per user: `DAILY_AI_LIMIT` (40), `DAILY_VOICE_LIMIT` (3) and `DAILY_RESEARCH_LIMIT` (5 newly researched companies), midnight to midnight UK time. A jobs refresh that scores anything is one AI action; Reed calls are free and bounded by the shared cache and 20 searches per refresh |
 | Shared tables | Hold only public adverts and the public register. A user's fit, saved and dismissed jobs live in `job_matches`, filtered by user id like everything else |
 | What Reed is told | Job titles and locations from the user's target roles. Never a name, an email or anything from their profile |
 | Uploaded files | Read as the raw request body, in memory, at most 4 MB, and dropped. Never written to disk or the database: only the text read from them is kept. The type is decided from the file's first bytes, never its name. Password-protected, damaged and oversized-when-unpacked files are refused before anything reaches the model |
@@ -368,6 +409,9 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 | What GitHub is told | A username the user typed, to list its public repositories and read the READMEs they pick. Usernames and repository names are checked against GitHub's own naming rules before they are put in an address. A repository link is stored only if it is on github.com |
 | The scheduled reload | Refused unless the request carries the secret; refused always when no secret is set. Compared in constant time |
 | Links from outside | An advert's link is used only if it is on reed.co.uk over https; anything else is replaced by Reed's standard address |
+| Reading employers' websites | Only http and https on the standard ports, only a typed host name (never an IP address, user name or port). The server resolves every address itself and refuses unless all of them are public, then connects to the address it checked, so a redirect or a second lookup cannot reach a private network. Redirects are followed by hand and checked the same way. robots.txt is respected for "UKCareerNavigator". Pages are asked for uncompressed. At most 1 MB of text and 8 seconds a page, the clock read after every piece that arrives, six pages, HTML only; all four sources together get 30 seconds. IPv6 forms that carry an IPv4 address (mapped, NAT64, 6to4, IPv4-compatible) are judged by that address or refused. Tested against private, loopback, link-local and each of those forms |
+| What Companies House, Tavily and employers' sites are told | A company name and its website. Nothing about the user. A Companies House number is checked as eight letters or digits before it is put in an address |
+| Shared research | `companies` holds public facts about companies only. A user's pack, ticks and edits are in `prep_packs`, filtered by user id |
 | Right to erasure | "Delete my account" removes the login; cascading deletes remove every row |
 | Transparency | A privacy notice page lists what is collected, why, and who processes it. Sign-up requires agreeing to it |
 | Data location | Database and login in London. The language model runs in the United States; ElevenLabs processes audio outside the UK. The privacy notice says so |
@@ -443,11 +487,16 @@ cd backend && .venv\Scripts\python -m pytest tests
 | `test_repo_cv`, `test_routes_cv` | Building, editing, downloading and deleting a CV with the model replaced: every fact equal to the record, limits, nothing saved on failure, a sent version never changed, one user never reaching another's CV, contact details |
 | `test_habits` | Weeks across Sunday and Monday and the clock changes, goals by the week they applied, the streak in every case the step names, follow-ups due and quiet applications, milestones, the weekly plan's order, cap and pages |
 | `test_repo_habits`, `test_repo_records` | Stage history written once per change and deleted with the application, rejections, lessons, follow-up dates, goals, mock interviews by their London date, milestones seen; one user never reading or changing another's |
+| `test_companies_house`, `test_websearch` | Request shape, parsing, every failure as one error type, the key in no error or log, a bad company number never in an address |
+| `test_fetcher` | Typed addresses, private and mapped addresses refused before and after redirects, the connection made to the checked address, size, time, redirects, robots.txt, non-HTML pages, text from a page |
+| `test_research`, `test_repo_prep` | The four sources and each failing, register lines, numbered passages, results about other companies left out, the shared cache's 14 days |
+| `test_prep` | The right-to-work line, edits, ticks, rebuilds keeping the user's words, what the interviewer is told |
+| `test_routes_prep` | Search, research and packs end to end with every outside service replaced: the shared cache and the research limit, failures, no sources, not a UK company, a dissolved one, packs for jobs and applications, edits, refresh, isolation between users, no key in any response, no connection held during an outside call |
 | `test_routes_tracker` | Rejecting with and without anything to compare, a failed or limited lesson keeping the rejection, follow-up drafts sending only what they should, goals, milestones shown once, the state for a new user, and another user reaching none of it |
 
-No test can reach the real model: an AI task that a test did not replace fails loudly. Database tests run against the real database inside transactions that are rolled back, so they leave nothing behind. Because the real register and real adverts are in that database, tests use names that cannot occur in real data and never count whole tables. Run the suite on its own: a second database-heavy job at the same time has caused dropped connections.
+No test can reach the real model, Companies House, a website or Tavily: an AI task or outside client that a test did not replace fails loudly. Database tests run against the real database inside transactions that are rolled back, so they leave nothing behind. Because the real register and real adverts are in that database, tests use names that cannot occur in real data and never count whole tables. Run the suite on its own: a second database-heavy job at the same time has caused dropped connections.
 
-**Deploy to Vercel.** Not yet done for this version. `vercel.json` schedules the register reload for 05:00 UTC every Monday; it works only if `CRON_SECRET` is set in the Vercel project. The function may run for 120 seconds, to leave room for an import and one retry. A Python function may be 500 MB unpacked (Vercel's limit, read on 13 October 2026); with the Word and PDF packages the app is about 190 MB. `backend/fonts` must be in the bundle. Set `GITHUB_TOKEN` there: Vercel shares server addresses, and without a token GitHub allows only 60 requests an hour for each address. Add every variable from `backend/.env` to the Vercel project (use `BEDROCK_REGION`, not `AWS_REGION`, which Vercel reserves), add the Vercel address to Supabase's Site URL and Redirect URLs, then deploy. `vercel.json` builds the frontend, runs `app.py` as one function in London (`lhr1`), and leaves tests and scripts out of the bundle.
+**Deploy to Vercel.** Not yet done for this version. `vercel.json` schedules the register reload for 05:00 UTC every Monday; it works only if `CRON_SECRET` is set in the Vercel project. The function may run for 120 seconds, to leave room for an import and one retry. A Python function may be 500 MB unpacked (Vercel's limit, read on 13 October 2026); with the Word and PDF packages the app is about 190 MB. `backend/fonts` must be in the bundle. Set `COMPANIES_HOUSE_API_KEY`, `SEARCH_PROVIDER` and `SEARCH_API_KEY` there for prep packs. Set `GITHUB_TOKEN` there: Vercel shares server addresses, and without a token GitHub allows only 60 requests an hour for each address. Add every variable from `backend/.env` to the Vercel project (use `BEDROCK_REGION`, not `AWS_REGION`, which Vercel reserves), add the Vercel address to Supabase's Site URL and Redirect URLs, then deploy. `vercel.json` builds the frontend, runs `app.py` as one function in London (`lhr1`), and leaves tests and scripts out of the bundle.
 
 ## 13. Verification record for step 0
 
@@ -502,6 +551,13 @@ No test can reach the real model: an AI task that a test did not replace fails l
 - Going rates and eligible occupations are linked to on gov.uk, not looked up per job: the app does not know a job's occupation code.
 - The visa figures are updated by hand in `backend/data/visa_rules.json`.
 - The production JavaScript bundle is large (over 500 kB) because of the voice library.
+- A company brief is only as good as what was found: a small company with a thin website gets a short brief. Tavily's date for a news result is its estimate of when the page was published or last updated.
+- A search result is kept only if it names the company's first word, so two companies that share a first word are not told apart.
+- "None that the company's own site already answers" is asked of the model for questions to ask; code cannot check it.
+- A site that blocks automated readers in robots.txt, or that builds its pages with JavaScript, gives no website lines.
+- A figure in a brief statement, in digits or in words for ten or more, must be in its page; "5,000" and "five thousand" are not taken as the same, so an honest line worded differently from its page is dropped.
+- Looking up Companies House is not limited per user; heavy use by one person could use up the app's allowance of 600 requests in 5 minutes.
+- A pack does not change when the user's stories or achievements change; Refresh rebuilds it.
 
 ## 15. Jobs, sponsorship and visa facts (step 2)
 
@@ -744,3 +800,69 @@ The last three rules came from the real model on 14 October 2026, which wrote "T
 - **Real weeks passing.** Streaks across weeks, the weeks the clocks change, milestones at 10, 25 and 50 applications and streaks of 4 and 8 weeks are proved by tests with set dates, not by living through them.
 - **How the pages look**, beyond the panel at phone width.
 - **Anything on Vercel.**
+
+## 23. Interview preparation (step 5)
+
+**Where it starts.** "Prepare" beside the job picker on Interview coach, and "Prepare for this interview" on any application at Phone screen or Interview. Both open the Prep packs tab, which also lists the user's packs. If the job or application already has a pack, it opens.
+
+**Confirming the company.** The employer's name (editable) is looked up on Companies House and up to five matches are shown with their town, status and year. The user picks one, "None of these" or "It is not a UK company", and may type the website. Without a register entry the pack still builds and says so.
+
+**Research** (`POST /api/companies/research`, `research.py`). Companies House's profile, the employer's home page and up to five useful pages of the same site (about, careers, values, news and the like), a news search for the last year and a competitor search all run side by side. Any of them may fail; the brief then says what is missing ("Not included: the news search"). The register's lines are written by code. Everything else goes to the model as numbered passages: the website's text split between lines (each page in turn, at most 18 passages), then each news and competitor result that names the company. The model returns statements, each citing one passage, and code keeps a statement only if:
+
+| Rule | Check in code |
+|---|---|
+| It came from something the app fetched | Its passage number is one that was sent ("3", "[3]" and 3 are read alike) |
+| It is in one of the six sections | What they do, size and age, values, products and projects, news, competitors |
+| No figure was invented | Every number in it is in its passage ("1,200" and "1200" alike) |
+| No words were put in the company's mouth | A phrase in double quotes is in its passage; a value carries a quote found there word for word (case, spacing and curly quotes aside), shown in the page's own wording |
+| News is news, and recent | It cites a news result; the date shown is the result's; a result older than 12 months is left out; one with no date is shown as "Undated" |
+| Competitors are attributed | Shown as "According to <source>" |
+
+If statements came back but none survived, the model is asked once more, then the page shows Retry; nothing is kept from a failed attempt. If nothing was fetched at all, the model is not asked and the brief says nothing was found. The result is stored in `companies` and reused by anyone who prepares for the same company, under the same name and website, within 14 days, or within an hour if a source was missing for a passing reason. Form controls are left out of a page's text, not whole forms, so older sites built inside one form are read; a page with no text counts as unread. On 14 October 2026, for Monzo with the register left out (see section 24), the sources took 2.3 seconds and the brief 30: four pages, eight news results from the last three weeks, five competitor pages, nineteen lines.
+
+**The pack** (`POST /api/ai/prep`), one AI action, built from the research, the advert (or a note that none was recorded), the user's course, achievements and stories:
+
+| Part | What it is, and what code checks |
+|---|---|
+| Company brief | The research, copied into the pack, with "Researched on" and Refresh. Every line links to its page |
+| Why this company, for you | Up to three talking points, each joining one fact to one achievement, both real and shown beneath it, using only their figures |
+| Tell me about yourself | Three short paragraphs, 110 to 260 words, no figure from outside the input. Editable; the user's version survives Refresh |
+| Likely questions | Five to eight, each with the competency it tests, why it is likely, and "Use your story: <title>" or "No story yet" with a link to write one. A story id that is not the user's becomes "No story yet" |
+| Questions to ask them | Five, each linked to the fact it came from where there is one. The user ticks at most three |
+| Your right-to-work answer | Written by the app from the visa type and end date (the owner's wording), editable, with "That answer is yours to add. This is not immigration advice." |
+| On the day | Phone, video or in person (starting at Phone for a phone screen), with a checklist for each and the UK norms already in the app |
+
+The pack prints from the browser: the menu, buttons and boxes are left out, the user's own text is printed, only the ticked questions are printed when any are ticked, and every source prints its address.
+
+**Story coverage.** STAR stories shows the eight competencies (teamwork, leadership, problem solving, communication, handling a setback, initiative, influencing, working to deadlines) with the stories that show each, or "No story yet". Stories are tagged when written; "Tag my stories" tags older ones; the edit form has eight tick boxes, at most three.
+
+**The mock interviewer.** When the job picked on Practice sessions has a pack, the interviewer is told a company summary of at most 600 characters (what they do, products, news) and, in the job-specific and behavioural sessions, the pack's likely questions (at most 1,200 characters), and asks its three questions from them. The page says "Using your prep pack".
+
+## 24. Verification record for step 5
+
+| Check | Result | Date |
+|---|---|---|
+| Automated backend suite | 1,679 passed, 0 skipped, against the real database | 14 Oct 2026 |
+| Frontend | Lints with no errors and no new warnings; builds | 14 Oct 2026 |
+| Migration `008_interview_prep` | Applied to the real database | 14 Oct 2026 |
+| Real model, one call per AI task (`live_check.py`) | 33 of 33 passed: the 28 from before and 5 new (a cited company brief, real research of one company, a prep pack, tagging stories, a story's competencies). After the review fixes the six step 5 checks passed again | 14 Oct 2026 |
+| Real research | Monzo through the live Companies House register, its own website (4 pages), Tavily (8 news results from the last three weeks, 5 competitor pages) and the model: a 28-line brief in 14.5 seconds, nothing missing (21 lines in 10 seconds after figures in words were checked too). Every line cited its page and every value was quoted word for word | 14 Oct 2026 |
+| Companies House key | The first key given was for Companies House's test environment: it worked on their sandbox and was refused by the live service. The Live key added afterwards works | 14 Oct 2026 |
+| What the real model showed, each fixed test first | It wrote the pitch at about 120 to 140 words even when asked for more (now three paragraphs, 110 to 260 words, and the page says "About a minute to 90 seconds"); a pitch quoting a company figure was refused (figures from the company facts are now allowed); it sometimes named the wrong achievement for a talking point (that point is dropped by the figure check; the prompt now asks for the achievement the point describes) | 14 Oct 2026 |
+| Interview coach against the real backend and model, as a temporary user whose data was never saved, with Companies House, the website and the search replaced by made-up company pages | Prep packs tab with its empty state; Prepare from a saved job: two register matches with town, status and year, a website typed, the pack built in about 20 seconds with every section; source links open the page in a new tab; three questions ticked and the other two refused; an edited pitch and the interview type kept on the server; Refresh kept the edited pitch and the type and cleared the ticks; Prepare from an application at Phone screen with no saved job and "It is not a UK company": a second pack, starting at Phone; STAR stories: the coverage grid, "Tag my stories" with the real model, three tick boxes at most when editing; Practice sessions with a packed job says "Using your prep pack" | 14 Oct 2026 |
+| Defects that check found, each fixed | Search results about another company reached the brief (a news or competitor result must now name the company); a value's quote was shown twice; the reasons for likely questions spoke of "the candidate" and started in lower case | 14 Oct 2026 |
+| Voice agents | The mock interviewer's prompt updated on ElevenLabs with `setup_agents.py` (both agents updated in place) | 14 Oct 2026 |
+| A fresh review of the whole branch (a separate reviewer on the most capable model) | Ready with fixes; nothing critical. All findings fixed, each with a test that failed first: refreshing or repeating research within 10 minutes cost nothing against the daily limit (every research now counts, and a failed rewrite after a refresh does not research again); a different typed name with a real company number changed every user's research for that company (the name is now part of the key); an edit could be lost while the pack was rewritten or between two quick saves; a slowly sent page was not cut off; a passing failure was shared for 14 days; pages built inside one form read as empty; figures in words were not checked; the right-to-work line did not appear after visa details were added. The smaller points were fixed too, at the owner's request: a page cut through a character or with one stray byte read as mojibake; a compressed page could expand in memory; IPv6 forms of private IPv4 addresses passed; a malformed link could stop a site being read; an emptied pitch was kept as the user's own; linking an application to a job after its pack was made gave two packs and a 500 when the job was deleted; a call could restart as the pack loaded | 14 Oct 2026 |
+| The fixes against the real model, as a temporary user (direct requests to a scratch server, canned company pages) | Research 3.7 seconds, a pack 14.9 seconds with every part; two saves made from the same old copy both kept; Refresh counted against the limit, kept the edited pitch and cleared the ticks; an emptied pitch was no longer marked as the user's own | 14 Oct 2026 |
+| The owner's missing transcript | The owner's mock interview on 14 October 2026 was heard by ElevenLabs (one answer of 20 words) and scored, but the page kept only the interviewer's line: pressing End before the last sentence's text arrived lost it, and the stored copy was read only when nothing at all had arrived. The page now reads ElevenLabs' stored copy whenever the user's own words are missing | 14 Oct 2026 |
+| The database afterwards | No temporary user and no test company left | 14 Oct 2026 |
+
+**Not yet verified:**
+
+- **The transcript fix in a real call.** It reads ElevenLabs' stored copy when the user's words are missing; a call ended straight after speaking has not been tried since.
+- **A signed-in session.** The pages were driven without the login screen, through a temporary check page (removed afterwards); the review fixes were checked by direct requests, not on the pages.
+- **Printing a pack**, and **a voice call that uses a pack** (the interviewer's questions were not heard).
+- **The owner's hand checks** in the step document: a well-known employer with five sources followed, a small company, an employer not on Companies House, news dates, story matching, a mock interview with a pack, printing.
+- **A second account in the browser.** Proved by automated tests only.
+- **Anything on Vercel**, including the new settings.
+

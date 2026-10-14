@@ -5,8 +5,38 @@ description: Use when building, continuing or reviewing step 5 of the CareerAI r
 
 # Step 5: interview preparation
 
-**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Better after step 1 (story bank) and step 4 (application stages). **Size:** medium to large, mostly because of the research.
+**Status:** Built on branch `step-5-interview-prep`, 14 October 2026; not yet merged. **Not finished:** the owner's hand checks. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Better after step 1 (story bank) and step 4 (application stages). **Size:** medium to large, mostly because of the research.
 **REQUIRED:** follow `careerai-building-a-step`.
+
+## Where it stands (14 October 2026)
+
+- Built and committed, tasks 1 to 13 of `docs/superpowers/plans/2026-10-14-step-5-interview-prep.md`. What it does and how is in `docs/ARCHITECTURE.md` section 23; what was verified and what was not is in section 24.
+- Verified by the automated suite, by the real-model checks, by real research of one company through Tavily and its own website, and by running the Prep packs tab, story coverage and an application's Prepare button against the real backend and model as a temporary user whose data was never saved.
+- A fresh review of the whole branch found nothing critical; every finding, the minor ones included, is fixed (ARCHITECTURE section 24).
+- **Left for the owner:** the hand checks below with their own login, including printing a pack and a mock interview that uses one. The live Companies House key is now set.
+
+## Changed at build time (14 October 2026)
+
+Where what was built differs from the sections below, this table is what is true.
+
+| Change | Why | Decided by |
+|---|---|---|
+| Research and the pack are two requests (`POST /api/companies/research`, then `POST /api/ai/prep`), not one `POST /api/ai/prep` | Each fits the 120-second limit; the page shows progress between them | Owner, with the plan |
+| The company search is `POST /api/companies/search` with the name in the body | `CLAUDE.md`: what a user types never goes in an address | Owner, with the plan |
+| Research is kept by Companies House number (or normalised name) together with the website's host | A wrong website typed by one user never changes another user's brief | Owner, with the plan |
+| A pack keeps its own copy of the brief | Another user refreshing the company never changes it | Owner, with the plan |
+| `DELETE /api/prep/{id}` added | A user can remove a pack | Owner, with the plan |
+| Reading, editing and deleting a stored pack work without the research settings; only search, research, building and refresh need them | A user's own data never depends on an outside service being set up | Build-time ruling |
+| The pitch is three paragraphs of 110 to 260 words (planned 150 to 260), and the page says "About a minute to 90 seconds spoken" | The real model writes about 120 to 140 words even when asked for 180 to 230 | Build-time ruling |
+| A news or competitor result is used only if it names the company (the first word of its name) | The browser check showed results about another company reaching the brief | Build-time ruling |
+| A story the model gives no competencies takes its one-word label when that is exactly one of the eight | The same rule the migration uses for existing stories; no extra call | Build-time ruling |
+| The pitch may use figures from the company facts as well as the user's records and the advert | The real model's pitch quoted a company figure ("140 shops") and was refused | Build-time ruling |
+| Every research counts against the daily limit, Refresh and a retry after a failure included (the plan let the same company again within 10 minutes go free) | The free window let repeated or parallel research run past the limit | Final review |
+| Research is kept by the Companies House number together with the name searched for, and the website | A name typed with a real company number changed every user's research for that company | Final review |
+| Research that missed a source for a passing reason is shared for an hour, not 14 days | One timeout for one user was everyone's brief for a fortnight | Final review |
+| A pack is saved part by part, and a rebuild re-reads it under a lock; an emptied pitch is not the user's own | Edits were lost between two quick saves or during a rebuild | Final review |
+| The right-to-work line is filled when the pack is read, while it is empty and the user has not written or cleared one | Visa details added after the pack was built did not show | Final review |
+| Form controls, not forms, are left out of a page; a figure written in words for ten or more must be in its page | Older public-sector sites read as empty; "five thousand" was not checked | Final review |
 
 ## Goal
 
@@ -26,6 +56,10 @@ Today the mock interview knows only the job title and summary, and there is no c
 | Research limit | 5 companies per user per day (`DAILY_RESEARCH_LIMIT`), separate from the AI limit, because searches cost money | Recommended; approved 12 Oct 2026 |
 | Right-to-work answer | The pack helps the user phrase a one-line answer from their own visa type and end date. It states facts only and carries "not immigration advice" | Recommended; approved 12 Oct 2026 |
 | Export | The pack prints from the browser. No Word or PDF export | Recommended; approved 12 Oct 2026 |
+| Search service | Tavily: 1,000 free credits a month with no card, 2 credits per newly researched company (news and competitors), then $0.008 a credit. News search with publish dates. Its terms do not forbid keeping results, so the 14-day shared cache works. Brave was ruled out because its terms forbid storing results beyond transient use; Serper because its terms are vague and its dates less reliable. Expected monthly cost now: nothing | Recommended; approved 14 Oct 2026 |
+| Right-to-work wording | One spoken line from the visa type and end date. Graduate: "I have the right to work in the UK on a Graduate visa until 30 January 2027." Student: "I am in the UK on a Student visa until 30 January 2027." Under it: "Employers often ask next whether you will need sponsorship. That answer is yours to add. This is not immigration advice." Editable, saved with the pack | Recommended; approved 14 Oct 2026 |
+| How stories get competencies | New stories are tagged in the same call that writes them, at no extra cost. Existing stories get a "Tag my stories" button on the coverage grid (one AI action). The user can tick or untick competencies when editing a story | Recommended; approved 14 Oct 2026 |
+| Where packs live | A fourth tab, "Prep packs", in Interview coach. It lists the user's packs; "Prepare" (on Interview coach and on applications at phone screen or interview) opens the company step there | Recommended; approved 14 Oct 2026 |
 
 ## In scope
 
@@ -104,7 +138,7 @@ A daily drill; longer or multi-interviewer mock interviews; salary negotiation; 
 | Service | Settings | Notes |
 |---|---|---|
 | Companies House API | `COMPANIES_HOUSE_API_KEY` | Free, official |
-| Web search | `SEARCH_PROVIDER`, `SEARCH_API_KEY` | To be chosen with the owner at build time |
+| Web search | `SEARCH_PROVIDER` (`tavily`), `SEARCH_API_KEY` | Tavily, chosen 14 Oct 2026. `POST https://api.tavily.com/search`, key as a Bearer token; `topic=news` returns `published_date` |
 | Limit | `DAILY_RESEARCH_LIMIT` (default 5) | |
 
 ## AI tasks

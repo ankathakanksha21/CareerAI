@@ -331,3 +331,62 @@ def test_transcript_owner_only(client, voice_ready, monkeypatch, user_a):
     assert seen == [user_a]
     monkeypatch.setattr(voice, "fetch_transcript", lambda c, u: [{"role": "agent", "message": "Hi"}])
     assert client.get("/api/voice/transcript/conv_1").json() == {"turns": [{"role": "agent", "message": "Hi"}]}
+
+
+# ---------- story competencies ----------
+
+def stories_for(conn, user, *tags):
+    a = seed_achievement(conn, user)
+    return [repo.add_story(conn, user, a["id"], STORY | {"title": f"Story {i}", "competencies": list(t)}) for i, t in enumerate(tags)]
+
+
+def test_tag_my_stories_tags_only_untagged(client, stub, conn, user_a):
+    tagged, bare = stories_for(conn, user_a, ["teamwork"], [])
+    calls = stub("tag_stories", {bare["id"]: ["initiative"]})
+    r = client.post("/api/ai/stories/tag")
+    assert r.status_code == 200
+    assert [s["id"] for s in calls[0][0]] == [bare["id"]]
+    got = {s["id"]: s["competencies"] for s in r.json()["stories"]}
+    assert got == {tagged["id"]: ["teamwork"], bare["id"]: ["initiative"]}
+
+
+def test_tag_my_stories_refusals(client, stub, conn, user_a):
+    calls = stub("tag_stories", {})
+    r = client.post("/api/ai/stories/tag")
+    assert r.status_code == 400 and r.json()["detail"] == "You have no stories yet."
+    stories_for(conn, user_a, ["teamwork"])
+    r = client.post("/api/ai/stories/tag")
+    assert r.status_code == 400 and r.json()["detail"] == "Every story already has competencies."
+    assert calls == []
+
+
+def test_tag_counts_one_ai_action(client, stub, conn, user_a, monkeypatch):
+    bare, = stories_for(conn, user_a, [])
+    stub("tag_stories", {bare["id"]: ["teamwork"]})
+    client.post("/api/ai/stories/tag")
+    assert state(client)["usage"]["ai"]["used"] == 1
+    monkeypatch.setenv("DAILY_AI_LIMIT", "1")
+    stories_for(conn, user_a, [])
+    assert client.post("/api/ai/stories/tag").status_code == 429
+
+
+def test_another_users_stories_are_never_sent_for_tagging(client, stub, conn, user_a, user_b, as_user):
+    stories_for(conn, user_a, [])
+    as_user(user_b)
+    calls = stub("tag_stories", {})
+    assert client.post("/api/ai/stories/tag").json()["detail"] == "You have no stories yet." and calls == []
+
+
+@pytest.mark.parametrize("competencies, status", [(["teamwork", "setback"], 200), ([], 200), (["cooking"], 422),
+                                                  (["teamwork", "leadership", "initiative", "deadlines"], 422), ("teamwork", 422)])
+def test_patch_story_competencies_validated(client, conn, user_a, competencies, status):
+    s, = stories_for(conn, user_a, [])
+    r = client.patch(f"/api/stories/{s['id']}", json={"competencies": competencies})
+    assert r.status_code == status
+    if status == 200:
+        assert r.json()["competencies"] == competencies
+
+
+def test_patch_story_competencies_drops_repeats(client, conn, user_a):
+    s, = stories_for(conn, user_a, [])
+    assert client.patch(f"/api/stories/{s['id']}", json={"competencies": ["teamwork", "teamwork"]}).json()["competencies"] == ["teamwork"]

@@ -1,9 +1,10 @@
-"""Per-user daily caps on AI actions and voice sessions, so one account cannot run up the bill.
-A day runs midnight to midnight, Europe/London. The caps come from DAILY_AI_LIMIT and DAILY_VOICE_LIMIT."""
+"""Per-user daily caps on AI actions, voice sessions and company research, so one account cannot
+run up the bill. A day runs midnight to midnight, Europe/London. The caps come from DAILY_AI_LIMIT,
+DAILY_VOICE_LIMIT and DAILY_RESEARCH_LIMIT."""
 import repo
 from config import daily_limit
 
-KINDS = ("ai", "voice")
+KINDS = ("ai", "voice", "research")
 
 
 class LimitReached(Exception):

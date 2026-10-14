@@ -701,7 +701,7 @@ def test_story_bank_writes_one_story_per_achievement_sent(model):
     found = ai.story_bank(BANK)
     assert set(found) == {1, 2}
     assert found[1] == {"title": "The delays report", "competency": "Problem solving", "situation": "s", "task": "t", "action": "a", "result": "r",
-                        "strength": "strong", "tip": ""}
+                        "strength": "strong", "tip": "", "competencies": ["problem_solving"]}
     assert found[2]["title"] == "Merge script" and found[2]["strength"] == "needs detail"
 
 
@@ -1241,3 +1241,330 @@ def test_draft_own_greeting_and_sign_off_removed(model):
     model(framed)
     message = draft()["message"]
     assert message == f"Dear Zzqx Person,\n\n{GOOD_DRAFT['body']}\n\nKind regards,\nTest Person"
+
+
+# ---------- the company brief ----------
+
+TODAY = date(2026, 10, 14)
+PASSAGES = [
+    {"n": 1, "kind": "website", "url": "https://zzqx.test/", "title": "Zzqx | Home", "published_on": None,
+     "text": "Zzqx builds payment software for 1,200 UK councils. Our values: “Do the right thing” and Be curious."},
+    {"n": 2, "kind": "news", "url": "https://news.test/a", "title": "Zzqx opens Leeds office", "published_on": date(2026, 9, 1),
+     "text": "Zzqx Holdings opened a second office in Leeds with 40 staff."},
+    {"n": 3, "kind": "news", "url": "https://news.test/old", "title": "Zzqx founded", "published_on": date(2025, 9, 1),
+     "text": "Zzqx was founded in a garage."},
+    {"n": 4, "kind": "competitors", "url": "https://compare.test/zzqx", "title": "Zzqx alternatives", "published_on": None,
+     "text": "Alternatives to Zzqx include Qqzx Pay and Xxqz Ltd."},
+]
+
+
+def brief_reply(*statements):
+    return {"statements": list(statements)}
+
+
+def said(section, text, source, quote=""):
+    return {"section": section, "text": text, "source": source, "quote": quote}
+
+
+GOOD = said("what_they_do", "Zzqx builds payment software for UK councils.", 1)
+
+
+def brief(model, *statements, retry=None):
+    model(brief_reply(*statements), *( [retry] if retry else []))
+    return ai.company_brief("Zzqx", PASSAGES, TODAY)
+
+
+@pytest.mark.parametrize("source", [99, 0, -1, None, "x", 5])
+def test_brief_drops_statement_with_unknown_source(model, source):
+    got = brief(model, GOOD, said("products", "Zzqx sells payment software.", source))
+    assert got == [GOOD]
+
+
+@pytest.mark.parametrize("source", ["1", "[1]", " 1 ", 1.0])
+def test_brief_reads_source_written_as_text(model, source):
+    assert brief(model, said("what_they_do", "Zzqx builds payment software for UK councils.", source)) == [GOOD]
+
+
+def test_brief_drops_value_whose_quote_is_not_in_its_passage(model):
+    got = brief(model, GOOD, said("values", "Zzqx says it values honesty.", 1, "Honesty above all"),
+                said("values", "Zzqx says it values curiosity.", 1, ""))
+    assert got == [GOOD]
+
+
+def test_brief_value_quote_matches_across_curly_quotes_case_and_spacing(model):
+    value = said("values", "Zzqx says it aims to do the right thing.", 1, '"do the  RIGHT thing"')
+    assert brief(model, value) == [value | {"quote": "Do the right thing"}]  # the page's own words
+
+
+def test_brief_drops_statement_with_number_not_in_its_passage(model):
+    got = brief(model, GOOD, said("size", "Zzqx serves 1,500 councils.", 1))
+    assert got == [GOOD]
+
+
+def test_brief_number_matches_with_thousands_separator(model):
+    size = said("size", "Zzqx serves 1200 councils.", 1)
+    assert brief(model, size) == [size]
+
+
+def test_brief_drops_double_quoted_phrase_not_in_its_passage(model):
+    got = brief(model, GOOD, said("what_they_do", 'Zzqx calls itself "the best in Europe".', 1))
+    assert got == [GOOD]
+
+
+def test_news_must_cite_a_news_result(model):
+    news = said("news", "Zzqx opened a second office in Leeds.", 2)
+    got = brief(model, news, said("news", "Zzqx builds payment software.", 1))
+    assert got == [news]
+
+
+def test_news_older_than_12_months_dropped(model):
+    got = brief(model, GOOD, said("news", "Zzqx was founded in a garage.", 3))
+    assert got == [GOOD]
+
+
+def test_competitor_from_any_passage_that_names_it(model):
+    rival = said("competitors", "Qqzx Pay is named as an alternative to Zzqx.", 4)
+    assert brief(model, rival) == [rival]
+
+
+def test_unknown_section_and_empty_text_dropped(model):
+    got = brief(model, GOOD, said("history", "Zzqx has a history.", 1), said("products", "  ", 1), said("", "Zzqx exists.", 1))
+    assert got == [GOOD]
+
+
+def test_quote_kept_only_on_values(model):
+    assert brief(model, GOOD | {"quote": "builds payment software"}) == [GOOD]
+
+
+def test_duplicates_and_caps(model):
+    many = [said("what_they_do", f"Zzqx builds payment software, point {n}.", 1) for n in "abcdef"]
+    got = brief(model, GOOD, GOOD | {"text": " zzqx builds payment software for UK councils. "}, *many)
+    assert got[0] == GOOD and len(got) == ai.SECTION_CAP["what_they_do"]
+
+
+def test_brief_retries_then_fails_when_nothing_survives(model):
+    bad = brief_reply(said("products", "Zzqx sells 9,999 things.", 1))
+    calls = model(bad, bad)
+    with pytest.raises(ai.AIError):
+        ai.company_brief("Zzqx", PASSAGES, TODAY)
+    assert len(calls) == 2
+
+
+def test_brief_with_nothing_to_say_is_empty_not_an_error(model):
+    calls = model(brief_reply())
+    assert ai.company_brief("Zzqx", PASSAGES, TODAY) == [] and len(calls) == 1
+
+
+def test_brief_prompt_holds_only_the_passages(model):
+    calls = model(brief_reply(GOOD))
+    ai.company_brief("Zzqx", PASSAGES, TODAY)
+    for p in PASSAGES:
+        assert f"[{p['n']}]" in calls[0]["user"] and p["text"] in calls[0]["user"] and p["title"] in calls[0]["user"]
+    assert "own knowledge" in calls[0]["system"]
+    assert "1 September 2026" in calls[0]["user"]  # a news passage carries its date
+
+
+# ---------- story competencies ----------
+
+STORY_REPLY = {"title": "t", "competency": "Teamwork", "situation": "s", "task": "t", "action": "a", "result": "r",
+               "strength": "strong", "tip": ""}
+
+
+def test_star_returns_known_competencies(model):
+    model(STORY_REPLY | {"competencies": ["Teamwork", "cooking", "teamwork", "Problem solving", "initiative", "leadership"]})
+    assert ai.star(ACHIEVEMENTS[0])["competencies"] == ["teamwork", "problem_solving", "initiative"]
+
+
+def test_star_without_competencies_falls_back_to_its_label(model):
+    model(STORY_REPLY, STORY_REPLY | {"competency": "Delivering results"})
+    assert ai.star(ACHIEVEMENTS[0])["competencies"] == ["teamwork"]  # the label is exactly one of the eight
+    assert ai.star(ACHIEVEMENTS[0])["competencies"] == []
+
+
+def test_story_bank_returns_competencies(model):
+    model({"stories": [{"n": 1} | STORY_REPLY | {"competencies": ["Handling a setback", "Working to deadlines"]}]})
+    assert ai.story_bank([ACHIEVEMENTS[0] | {"n": 1}])[1]["competencies"] == ["setback", "deadlines"]
+
+
+def test_story_prompts_list_the_eight_competencies(model):
+    calls = model(STORY_REPLY, {"stories": [{"n": 1} | STORY_REPLY]})
+    ai.star(ACHIEVEMENTS[0])
+    ai.story_bank([ACHIEVEMENTS[0] | {"n": 1}])
+    for call in calls:
+        assert all(label in call["user"] for label in ai.COMPETENCIES.values())
+
+
+def test_tag_stories_keeps_only_sent_stories_and_known_keys(model):
+    stories = [{"id": "s1", "title": "Fixed a report", "situation": "s", "task": "t", "action": "a", "result": "r"},
+               {"id": "s2", "title": "Led a club", "situation": "s", "task": "t", "action": "a", "result": "r"}]
+    calls = model({"stories": [{"n": 1, "competencies": ["Problem solving", "Communication"]}, {"n": 9, "competencies": ["Teamwork"]},
+                               {"n": 2, "competencies": ["cooking"]}]})
+    assert ai.tag_stories(stories) == {"s1": ["problem_solving", "communication"]}
+    assert "s1" not in calls[0]["user"] and "Fixed a report" in calls[0]["user"]  # ids stay on the server
+
+
+def test_tag_stories_fails_when_no_story_gets_a_competency(model):
+    stories = [{"id": "s1", "title": "Fixed a report", "situation": "s", "task": "t", "action": "a", "result": "r"}]
+    model({"stories": [{"n": 1, "competencies": ["cooking"]}]}, {"stories": []})
+    with pytest.raises(ai.AIError):
+        ai.tag_stories(stories)
+
+
+# ---------- the prep pack ----------
+
+PACK_JOB = {"title": "Graduate Analyst", "company": "Zzqx", "description": "We need SQL and clear reporting to 3 teams."}
+PACK_FACTS = [{"id": "f1", "section": "what_they_do", "text": "Zzqx builds payment software for 1,200 councils."},
+              {"id": "f2", "section": "news", "text": "Zzqx opened a Leeds office."}]
+PACK_ACHIEVEMENTS = [{"id": "11111111-aaaa-4aaa-8aaa-111111111111", "title": "Delays report", "uk_version": "Built a weekly delays report for 15 managers",
+                      "outcome": "8% fewer late deliveries", "scale": "15 managers", "skills": ["SQL"]}]
+PACK_STORIES = [{"id": "22222222-bbbb-4bbb-8bbb-222222222222", "title": "The delays report", "competencies": ["problem_solving"],
+                 "result": "Late deliveries fell by 8%"}]
+PACK_PROFILE = PROFILE | {"email": "a@example.test", "phone": "07000 000000", "city": "Town A", "linkedin_url": "linkedin.com/in/test",
+                          "graduation_date": date(2026, 9, 1)}
+PITCH = ("I am finishing an MSc at University A, and I enjoy turning messy data into decisions people can act on. " * 8).strip()
+
+
+def pack_reply(**kw):
+    return {"talking_points": [{"text": "You serve 1,200 councils, and my report helped 15 managers act on delays.", "fact_id": "f1", "achievement_id": "a1"}],
+            "pitch": PITCH,
+            "likely_questions": [{"question": f"Question {i}?", "competency": "Problem solving", "story_id": "s1", "why": "w"} for i in range(8)],
+            "questions_to_ask": [{"question": f"Ask {i}?", "fact_id": "f2"} for i in range(5)]} | kw
+
+
+def pack(model, *replies):
+    calls = model(*replies)
+    return ai.prep_pack(job=PACK_JOB, brief=PACK_FACTS, achievements=PACK_ACHIEVEMENTS, stories=PACK_STORIES, profile=PACK_PROFILE), calls
+
+
+def test_pack_maps_short_ids_back_to_real_ones(model):
+    got, _ = pack(model, pack_reply())
+    assert got["talking_points"] == [{"text": "You serve 1,200 councils, and my report helped 15 managers act on delays.", "fact_id": "f1",
+                                      "achievement_id": PACK_ACHIEVEMENTS[0]["id"]}]
+    assert got["likely_questions"][0] == {"question": "Question 0?", "competency": "problem_solving", "story_id": PACK_STORIES[0]["id"], "why": "W"}
+    assert got["questions_to_ask"][0] == {"question": "Ask 0?", "fact_id": "f2"}
+    assert got["pitch"] == PITCH
+
+
+@pytest.mark.parametrize("story", ["s9", "", None, "22222222-bbbb-4bbb-8bbb-222222222222", "a1"])
+def test_pack_story_id_not_owned_becomes_no_story(model, story):
+    reply = pack_reply()
+    reply["likely_questions"][0]["story_id"] = story
+    got, _ = pack(model, reply)
+    assert got["likely_questions"][0]["story_id"] is None
+
+
+def test_pack_talking_point_needs_real_fact_and_achievement(model):
+    good = pack_reply()["talking_points"][0]
+    got, _ = pack(model, pack_reply(talking_points=[good | {"fact_id": "f9"}, good | {"achievement_id": "a7"}, good]))
+    assert len(got["talking_points"]) == 1
+
+
+def test_pack_talking_point_number_must_be_in_its_fact_or_achievement(model):
+    good = pack_reply()["talking_points"][0]
+    got, _ = pack(model, pack_reply(talking_points=[good | {"text": "You serve 5,000 councils."}, good]))
+    assert [t["text"] for t in got["talking_points"]] == [good["text"]]
+
+
+def test_pack_without_any_good_talking_point_is_retried(model):
+    good = pack_reply()["talking_points"][0]
+    _, calls = pack(model, pack_reply(talking_points=[good | {"fact_id": "f9"}]), pack_reply())
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("pitch", ["Too short.", PITCH + " I also cut costs by 40%.", PITCH + " More words here." * 40])
+def test_pack_pitch_length_and_numbers_checked(model, pitch):
+    with pytest.raises(ai.AIError):
+        pack(model, pack_reply(pitch=pitch), pack_reply(pitch=pitch))
+
+
+def test_pack_pitch_may_use_numbers_from_the_advert_and_achievements(model):
+    pitch = PITCH + " I helped 15 managers cut late deliveries by 8%, and I can report to 3 teams."
+    got, _ = pack(model, pack_reply(pitch=pitch))
+    assert got["pitch"] == pitch
+
+
+def test_pack_keeps_five_to_eight_questions(model):
+    reply = pack_reply()
+    many = reply["likely_questions"] + [{"question": "Extra?", "competency": "Teamwork", "story_id": "", "why": ""}]
+    got, _ = pack(model, pack_reply(likely_questions=many + many[:2]))  # nine distinct, two repeats
+    assert len(got["likely_questions"]) == 8
+    with pytest.raises(ai.AIError):
+        pack(model, pack_reply(likely_questions=reply["likely_questions"][:4]), pack_reply(likely_questions=reply["likely_questions"][:4]))
+
+
+@pytest.mark.parametrize("given, kept", [("Teamwork", "teamwork"), ("handling a setback", "setback"), ("Motivation", "motivation"),
+                                         ("Role knowledge", "role"), ("cooking", "role")])
+def test_pack_question_competency_is_known(model, given, kept):
+    reply = pack_reply()
+    reply["likely_questions"][0]["competency"] = given
+    got, _ = pack(model, reply)
+    assert got["likely_questions"][0]["competency"] == kept
+
+
+def test_pack_question_to_ask_with_unknown_fact_keeps_question_drops_link(model):
+    got, _ = pack(model, pack_reply(questions_to_ask=[{"question": f"Ask {i}?", "fact_id": "f9"} for i in range(5)]))
+    assert got["questions_to_ask"][0] == {"question": "Ask 0?", "fact_id": None} and len(got["questions_to_ask"]) == 5
+
+
+def test_pack_prompt_has_no_name_contact_or_visa(model):
+    _, calls = pack(model, pack_reply())
+    sent = calls[0]["system"] + calls[0]["user"]
+    for private in ("Test Person", "a@example.test", "07000 000000", "Town A", "linkedin.com/in/test", "visa", "2027"):
+        assert private not in sent
+    for shared in ("MSc Course A", "University A", "Delays report", "The delays report", "Zzqx opened a Leeds office", "We need SQL"):
+        assert shared in sent
+    assert PACK_ACHIEVEMENTS[0]["id"] not in sent and PACK_STORIES[0]["id"] not in sent  # short ids only
+
+
+def test_pack_without_advert_says_so(model):
+    calls = model(pack_reply())
+    ai.prep_pack(job=PACK_JOB | {"description": ""}, brief=PACK_FACTS, achievements=PACK_ACHIEVEMENTS, stories=[], profile=PACK_PROFILE)
+    assert "No job description was recorded" in calls[0]["user"]
+
+
+def test_pack_with_an_empty_brief_needs_no_talking_points(model):
+    calls = model(pack_reply(talking_points=[], questions_to_ask=[{"question": f"Ask {i}?", "fact_id": ""} for i in range(5)]))
+    got = ai.prep_pack(job=PACK_JOB, brief=[], achievements=PACK_ACHIEVEMENTS, stories=PACK_STORIES, profile=PACK_PROFILE)
+    assert got["talking_points"] == [] and len(calls) == 1
+
+
+def test_pack_pitch_may_use_a_figure_from_the_company_facts(model):
+    pitch = PITCH + " I would like to help a company that serves 1,200 councils."
+    got, _ = pack(model, pack_reply(pitch=pitch))
+    assert got["pitch"] == pitch
+
+
+def test_pack_pitch_of_about_a_minute_is_enough(model):
+    words = PITCH.split()
+    got, _ = pack(model, pack_reply(pitch=" ".join(words[:110])))
+    assert len(got["pitch"].split()) == 110
+    with pytest.raises(ai.AIError):
+        pack(model, pack_reply(pitch=" ".join(words[:109])), pack_reply(pitch=" ".join(words[:109])))
+
+
+def test_pack_pitch_in_paragraphs_is_kept_as_paragraphs(model):
+    parts = [PITCH[:300], PITCH[300:600], PITCH[600:]]
+    got, calls = pack(model, pack_reply(pitch=[" " + parts[0] + "  ", parts[1], parts[2]]))
+    assert got["pitch"] == "\n\n".join(" ".join(x.split()) for x in parts)
+    assert "three short paragraphs" in calls[0]["system"]
+
+
+
+def test_pack_question_reason_starts_with_a_capital(model):
+    reply = pack_reply()
+    reply["likely_questions"][0]["why"] = "you built a report for 15 managers"
+    got, _ = pack(model, reply)
+    assert got["likely_questions"][0]["why"] == "You built a report for 15 managers"
+
+
+
+@pytest.mark.parametrize("text, kept", [("Zzqx employs five thousand people.", False), ("Zzqx works with twenty councils.", False),
+                                        ("Zzqx is one of the larger suppliers.", True), ("Zzqx builds software for one thousand two hundred councils.", False)])
+def test_brief_checks_figures_written_in_words(model, text, kept):
+    statement = said("what_they_do", text, 1)
+    assert brief(model, GOOD, statement) == ([GOOD, statement] if kept else [GOOD])
+
+
+def test_brief_figure_in_words_matching_its_passage_is_kept(model):
+    statement = said("news", "Zzqx opened a second office in Leeds with forty staff.", 2)
+    assert brief(model, statement) == [statement]

@@ -35,5 +35,26 @@
     "Each bullet starts with an action and carries a number.",
     "Overseas employers get one line of context.",
     "The cover letter answers why them before why you."
-  ]
+  ],
+  "interview_day": {
+    "phone": [
+      "Take the call somewhere quiet, with good signal and your phone charged.",
+      "Have the advert, the CV you sent and this pack in front of you.",
+      "Note the name of the person who calls, and thank them by name at the end.",
+      "Keep each answer to about a minute. On the phone, long answers lose people."
+    ],
+    "video": [
+      "Test the link, camera and microphone 15 minutes before.",
+      "Sit facing a window or a lamp, with a plain background behind you.",
+      "Look at the camera, not the screen, when you are speaking.",
+      "Close other apps and turn off notifications.",
+      "Keep the advert and your questions open beside the call, but do not read your answers."
+    ],
+    "in_person": [
+      "Plan the journey to arrive 10 minutes early, and keep the interviewer's name and number to hand in case of delays.",
+      "Bring a copy of the CV you sent and your questions on paper.",
+      "A handshake and first names are normal. Follow the interviewer's lead.",
+      "If they ask to check your right to work, they will ask for a share code. You can get one at gov.uk/prove-right-to-work."
+    ]
+  }
 }

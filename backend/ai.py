@@ -5,7 +5,7 @@ failed call, so a user never sees content that did not come from their own data.
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import anthropic
 import httpx
@@ -563,14 +563,33 @@ def job_letter(job: dict, profile: dict, education: list, work_history: list, ac
 
 # 5. One achievement to a STAR story
 STORY_KEYS = ("title", "competency", "situation", "task", "action", "result", "strength", "tip")
+# The common UK competencies a story can show, as stored and as shown
+COMPETENCIES = {"teamwork": "Teamwork", "leadership": "Leadership", "problem_solving": "Problem solving",
+                "communication": "Communication", "setback": "Handling a setback", "initiative": "Initiative",
+                "influencing": "Influencing", "deadlines": "Working to deadlines"}
+MAX_COMPETENCIES = 3
+_COMPETENCY_KEYS = {k: k for k in COMPETENCIES} | {label.lower(): k for k, label in COMPETENCIES.items()}
+COMPETENCY_LIST = ", ".join(COMPETENCIES.values())
+
+
+def _competencies(value) -> list[str]:
+    """Competencies the model named, as stored keys: known ones only, no repeats, at most three."""
+    found = []
+    for item in value if isinstance(value, list) else []:
+        key = _COMPETENCY_KEYS.get(" ".join(str(item).lower().replace("_", " ").split())) or _COMPETENCY_KEYS.get(str(item).strip().lower())
+        if key and key not in found:
+            found.append(key)
+    return found[:MAX_COMPETENCIES]
 
 
 def _story(data: dict, achievement: dict) -> dict:
-    """A story as the model wrote it, with a title and a strength the UI knows."""
+    """A story as the model wrote it, with a title, a strength and competencies the UI knows."""
     strength = data["strength"].strip().lower()
     return {k: data[k] for k in STORY_KEYS} | {
         "title": data["title"].strip() or achievement.get("title", ""),
         "strength": strength if strength in STRENGTHS else "needs detail",
+        # with none named, the story's own label counts when it is exactly one of the eight
+        "competencies": _competencies(data.get("competencies")) or _competencies([data["competency"]]),
     }
 
 
@@ -583,9 +602,10 @@ def star(achievement: dict) -> dict:
     user = (
         f"Achievement: {_j({k: achievement.get(k) for k in ('title', 'raw', 'uk_version', 'skills', 'outcome', 'scale')})}\n\n"
         'Return {"title":str,"competency":str (e.g. Influencing, Problem solving),"situation":str,"task":str,'
-        '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str}'
+        '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str,'
+        f'"competencies":[str] (one to three of: {COMPETENCY_LIST}; the ones this story shows)}}'
     )
-    data = _run("star", system, user, dict.fromkeys(STORY_KEYS, ""), 900, required=("situation", "action"))
+    data = _run("star", system, user, dict.fromkeys(STORY_KEYS, "") | {"competencies": [""]}, 900, required=("situation", "action"))
     return _story(data, achievement)
 
 
@@ -901,9 +921,10 @@ def story_bank(achievements: list, taken=()) -> dict:
     user = (
         f"Achievements: {_j(listed)}\n\n"
         'Return {"stories":[{"n":int (the achievement number),"title":str,"competency":str,"situation":str,"task":str,'
-        '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str}]}'
+        '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str,'
+        f'"competencies":[str] (one to three of: {COMPETENCY_LIST}; the ones this story shows)}}]}}'
     )
-    template = {"stories": [{"n": 0} | dict.fromkeys(STORY_KEYS, "")]}
+    template = {"stories": [{"n": 0} | dict.fromkeys(STORY_KEYS, "") | {"competencies": [""]}]}
     data = _run("story bank", system, user, template, 300 + 450 * len(achievements), required=("stories",))
     sent, found = {a["n"]: a for a in achievements}, {}
     for story in data["stories"]:
@@ -913,3 +934,229 @@ def story_bank(achievements: list, taken=()) -> dict:
     if not found:
         raise AIError("story bank")
     return found
+
+
+# 14. Competencies for stories written before they were tagged
+def tag_stories(stories: list[dict]) -> dict[str, list[str]]:
+    """The competencies each story shows: {story id: [keys]}. Stories are sent by number, so ids stay
+    on the server; a number that was not sent is ignored, and a story given none is left out."""
+    numbered = {n: s for n, s in enumerate(stories, start=1)}
+    system = (f"Say which of these UK interview competencies each STAR story shows: {COMPETENCY_LIST}. "
+              "Give one to three per story, the ones its facts really show.")
+    listed = [{"n": n} | {k: s.get(k, "") for k in ("title", "situation", "task", "action", "result")} for n, s in numbered.items()]
+    user = f"Stories: {_j(listed)}\n\n" + 'Return {"stories":[{"n":int (the story number),"competencies":[str]}]}'
+
+    def tagged(data: dict) -> dict:
+        found = {}
+        for item in data["stories"]:
+            story = numbered.get(item["n"])
+            keys = _competencies(item.get("competencies"))
+            if story and keys and story["id"] not in found:
+                found[story["id"]] = keys
+        return found
+    data = _run("tag stories", system, user, {"stories": [{"n": 0, "competencies": [""]}]}, 200 + 60 * len(stories),
+                check=lambda d: bool(tagged(d)))
+    return tagged(data)
+
+
+# 13. A company brief from numbered passages the app fetched
+BRIEF_SECTIONS = ("what_they_do", "size", "values", "products", "news", "competitors")
+SECTION_CAP = {"what_they_do": 3, "size": 2, "values": 4, "products": 5, "news": 5, "competitors": 5}
+NEWS_DAYS = 365
+STATEMENT_CHARS = 300
+
+
+def _long_date(value: date) -> str:
+    return f"{value.day} {value:%B %Y}"
+
+
+def _source(value, passages: dict) -> int | None:
+    """A passage number the model wrote as 3, "3" or "[3]", if it is one that was sent."""
+    if isinstance(value, bool) or value is None:
+        return None
+    m = re.fullmatch(r"\s*\[?\s*(\d+)(?:\.0+)?\s*\]?\s*", str(value))
+    return int(m.group(1)) if m and int(m.group(1)) in passages else None
+
+
+def _straight(text: str) -> str:
+    return text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+
+
+def _found_in(quote: str, text: str) -> str:
+    """The words of `quote` as `text` writes them, ignoring case, spacing and curly quotes; "" if absent."""
+    words = _straight(quote).strip(" \"'").split()
+    if not words:
+        return ""
+    m = re.search(r"\s+".join(map(re.escape, words)), _straight(text), re.I)
+    return text[m.start():m.end()] if m else ""
+
+
+def _passage_words(p: dict) -> str:
+    return f"{p['title']} {p['text']}" + (f" {_long_date(p['published_on'])} {p['published_on'].isoformat()}" if p.get("published_on") else "")
+
+
+BIG_NUMBER_WORDS = {w: v for w, v in NUMBER_WORDS.items() if int(v) >= 10}  # "one" or "two" in a sentence is rarely a figure
+
+
+def _figures(text: str) -> set:
+    """Every figure a statement gives: in digits, or written as a word for ten or more ("forty", "thousand")."""
+    return _numbers(text) | {BIG_NUMBER_WORDS[w] for w in _words(text) if w in BIG_NUMBER_WORDS}
+
+
+def _brief_statement(raw: dict, passages: dict, since: date) -> dict | None:
+    """One statement, if code can check it against the passage it cites; otherwise None."""
+    section, text = raw["section"].strip().lower(), " ".join(raw["text"].split())
+    n = _source(raw.get("source"), passages)
+    if section not in BRIEF_SECTIONS or not text or len(text) > STATEMENT_CHARS or n is None:
+        return None
+    p = passages[n]
+    if section == "news" and (p["kind"] != "news" or (p.get("published_on") and p["published_on"] < since)):
+        return None
+    source_text = _passage_words(p)
+    if not _figures(text) <= _numbers(source_text, spelled=True):
+        return None  # a figure the page does not give
+    if any(not _found_in(q, source_text) for q in DOUBLE_QUOTED.findall(_straight(text))):
+        return None  # words put in the company's mouth
+    quote = ""
+    if section == "values":
+        quote = _found_in(raw["quote"], p["text"])
+        if not quote:
+            return None  # a value is shown in the company's own words, or not at all
+    return {"section": section, "text": text, "source": n, "quote": quote}
+
+
+def _brief_checked(data: dict, passages: dict, since: date) -> list[dict]:
+    kept, seen, per_section = [], set(), {}
+    for raw in data["statements"]:
+        statement = _brief_statement(raw, passages, since)
+        if not statement:
+            continue
+        key = _key(statement["text"])
+        if key in seen or per_section.get(statement["section"], 0) >= SECTION_CAP[statement["section"]]:
+            continue
+        seen.add(key)
+        per_section[statement["section"]] = per_section.get(statement["section"], 0) + 1
+        kept.append(statement)
+    return kept
+
+
+def company_brief(company: str, passages: list[dict], today: date) -> list[dict]:
+    """Short statements about a company, each citing the one passage that says it. Only passages
+    the app fetched are sent; a statement code cannot check against its passage is dropped. A reply
+    with statements of which none survive is asked for once more; a reply with none is an honest
+    "nothing to say"."""
+    by_n = {p["n"]: p for p in passages}
+    since = today - timedelta(days=NEWS_DAYS)
+    system = (
+        "You write a short factual brief about one company for someone preparing for an interview there. "
+        "Use only the numbered passages given. Never add anything from your own knowledge, even about a company you know. "
+        "Each statement is one short sentence about the company, in the third person, and cites the one passage number that says it. "
+        "Sections: what_they_do (what the company does); size (how big or how old it is); "
+        "values (what it says it stands for, with the exact words from the passage in quote); products (products, services or projects); "
+        "news (one news item, citing a news passage); competitors (a company the passage names as a competitor or alternative). "
+        "Use no figure that is not in the passage you cite. Leave out a section no passage supports. "
+        "If nothing in the passages is about this company, return no statements."
+    )
+
+    def heading(p: dict) -> str:
+        return f"[{p['n']}] {p['kind']}" + (f", {_long_date(p['published_on'])}" if p.get("published_on") else "") + f": {p['title']}"
+    listed = "\n\n".join(f"{heading(p)}\n{p['text']}" for p in passages)
+    user = (f"Company: {company}\n\nPassages:\n{listed}\n\n"
+            'Return {"statements":[{"section":str,"text":str,"source":int (the passage number),"quote":str (values only, else "")}]}')
+    template = {"statements": [{"section": "", "text": "", "source": "", "quote": ""}]}
+    data = _run("brief", system, user, template, 2000,
+                check=lambda d: not d["statements"] or bool(_brief_checked(d, by_n, since)))
+    return _brief_checked(data, by_n, since)
+
+
+# 15. The prep pack: talking points, the pitch, likely questions and questions to ask
+PITCH_WORDS = (110, 260)  # about a minute to 90 seconds spoken; the model writes about 120 to 140 words
+MAX_TALKING_POINTS, MAX_QUESTIONS, MIN_QUESTIONS, MAX_TO_ASK, MIN_TO_ASK = 3, 8, 5, 5, 3
+NO_ADVERT = "No job description was recorded for this role."
+
+
+def _sentence(text: str) -> str:
+    """Tidied, and starting with a capital letter."""
+    text = " ".join(text.split())
+    return text[:1].upper() + text[1:]
+
+
+def _question_kind(value) -> str:
+    """What a likely question tests: one of the eight competencies, motivation, or knowledge of the role."""
+    text = " ".join(str(value).lower().replace("_", " ").split())
+    return _COMPETENCY_KEYS.get(text) or ("motivation" if text == "motivation" else "role")
+
+
+def prep_pack(*, job: dict, brief: list[dict], achievements: list, stories: list, profile: dict) -> dict:
+    """The parts of a prep pack the model writes, checked: every talking point joins a real company
+    fact to one of the user's achievements and uses only their figures; the pitch is 110 to 260
+    words with no figure from outside the input; a likely question points only to one of the user's
+    own stories. Achievements and stories are sent with short ids, mapped back here. Nothing that
+    identifies the user is sent: no name, contact details or visa."""
+    facts = {f["id"]: f for f in brief}
+    mine = {f"a{n}": a for n, a in enumerate(achievements, start=1)}
+    told = {f"s{n}": s for n, s in enumerate(stories, start=1)}
+    advert = (job.get("description") or "").strip()
+    graduating = cv.as_date(profile.get("graduation_date"))
+    candidate = {"course": profile.get("course") or "", "university": profile.get("university") or "",
+                 "graduating": f"{graduating:%B %Y}" if graduating else ""}
+    listed = [{"id": k, "title": a.get("title", ""), "bullet": a.get("uk_version", ""), "result": a.get("outcome", ""),
+               "scale": a.get("scale", ""), "skills": a.get("skills") or []} for k, a in mine.items()]
+    story_list = [{"id": k, "title": s["title"], "competencies": [COMPETENCIES[c] for c in s.get("competencies") or []],
+                   "result": s.get("result", "")} for k, s in told.items()]
+    system = (
+        "You help a graduate prepare for one interview with a UK employer. Use only the facts given. "
+        "talking_points: three answers to 'Why this company?', each joining one company fact (fact_id) to one of the candidate's "
+        "achievements (achievement_id, the id of the achievement the point describes), in the first person, one or two sentences, "
+        "using no figure that is not in that fact or that achievement. "
+        "pitch: the candidate's answer to 'Tell me about yourself' for this role, about 90 seconds spoken, in the first person, as "
+        "three short paragraphs of 60 to 80 words each: their course and background; two achievements that fit this role, with their "
+        "figures; why this role and this company. Use no figure that is not in the input. "
+        "likely_questions: eight questions this interviewer is likely to ask, some from what the advert asks for and some standard UK "
+        f"competency questions. competency is one of: {COMPETENCY_LIST}, Motivation or Role knowledge. story_id is the id of the "
+        "candidate's story that best answers it, or \"\" when none fits. why is one short sentence on why it is likely, written to the candidate as 'you'. "
+        "questions_to_ask: five questions the candidate could ask at the end, each drawn from a company fact (fact_id) where possible. "
+        "Do not ask anything the company facts already answer; ask about the team, the work, how success is judged, or what a fact "
+        "means for the role. No em dashes."
+    )
+    user = (
+        f"Role: {job['title']} at {job['company']}\nAdvert: {advert[:ADVERT_TEXT] if advert else NO_ADVERT}\n\n"
+        f"Company facts: {_j([{'id': i, 'text': f['text']} for i, f in facts.items()]) if facts else '(none found)'}\n\n"
+        f"Candidate: {_j(candidate)}\nAchievements: {_j(listed)}\nStories: {_j(story_list) if story_list else '(none yet)'}\n\n"
+        'Return {"talking_points":[{"text":str,"fact_id":str,"achievement_id":str}],"pitch":[str, str, str],'
+        '"likely_questions":[{"question":str,"competency":str,"story_id":str,"why":str}],'
+        '"questions_to_ask":[{"question":str,"fact_id":str}]}'
+    )
+    said = {item["id"]: _j(item) for item in listed}  # what each achievement told the model, figures included
+    sent = f"{_j(candidate)} {advert} {_j(listed)} {_j(story_list)} {_j([f['text'] for f in facts.values()])}"
+    allowed = _numbers(sent, spelled=True)
+
+    def shaped(d: dict) -> dict | None:
+        points, seen = [], set()
+        for t in d["talking_points"]:
+            text, fact, achievement = " ".join(t["text"].split()), facts.get(t["fact_id"].strip()), mine.get(t["achievement_id"].strip())
+            source = f"{fact['text'] if fact else ''} {said.get(t['achievement_id'].strip(), '')}"
+            if text and fact and achievement and _key(text) not in seen and _numbers(text) <= _numbers(source, spelled=True):
+                seen.add(_key(text))
+                points.append({"text": text, "fact_id": fact["id"], "achievement_id": achievement["id"]})
+        pitch = "\n\n".join(" ".join(p.split()) for p in d["pitch"] if p.strip())  # its paragraphs, each tidied
+        questions, asked = [], set()
+        for q in d["likely_questions"]:
+            text = " ".join(q["question"].split())
+            if text and _key(text) not in asked:
+                asked.add(_key(text))
+                story = told.get(q["story_id"].strip())
+                questions.append({"question": text, "competency": _question_kind(q["competency"]),
+                                  "story_id": story["id"] if story else None, "why": _sentence(q["why"])})
+        to_ask = [{"question": " ".join(q["question"].split()), "fact_id": q["fact_id"].strip() if q["fact_id"].strip() in facts else None}
+                  for q in d["questions_to_ask"] if q["question"].strip()][:MAX_TO_ASK]
+        if ((facts and not points) or not PITCH_WORDS[0] <= len(pitch.split()) <= PITCH_WORDS[1] or not _numbers(pitch) <= allowed
+                or len(questions) < MIN_QUESTIONS or len(to_ask) < MIN_TO_ASK):
+            return None
+        return {"talking_points": points[:MAX_TALKING_POINTS], "pitch": pitch, "likely_questions": questions[:MAX_QUESTIONS],
+                "questions_to_ask": to_ask}
+
+    template = {"talking_points": [{"text": "", "fact_id": "", "achievement_id": ""}], "pitch": [""],
+                "likely_questions": [{"question": "", "competency": "", "story_id": "", "why": ""}],
+                "questions_to_ask": [{"question": "", "fact_id": ""}]}
+    return shaped(_run("prep", system, user, template, 3000, check=lambda d: shaped(d) is not None))

@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 4 of the CareerAI r
 
 # Step 4: tracker and habits
 
-**Status:** Built on branch `step-4-tracker-and-habits`, 14 October 2026; not yet merged. **Not finished:** the owner's hand checks. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Uses steps 2 and 3 where they exist (sponsor status, full CV versions) and must work without them. **Size:** medium.
+**Status:** Built and merged into `main` (pull request 9), 14 October 2026. **Not finished:** the owner's hand checks. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Uses steps 2 and 3 where they exist (sponsor status, full CV versions) and must work without them. **Size:** medium.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Where it stands (14 October 2026)

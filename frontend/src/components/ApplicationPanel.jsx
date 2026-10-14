@@ -4,6 +4,7 @@ import { del, patch, post } from '../api'
 import { ErrorRetry, attempt, fmtDate, useAction } from '../ui'
 import { CLOSED, ENDED_PHRASE, HISTORY_FROM, REJECTED, STAGE_LABEL, useEscape } from '../tracker'
 import { Lesson } from './RejectQuestions'
+import { PREP_STAGES, packFor } from '../prep'
 
 const SPONSOR = { yes: true, no: false, '': null }
 const sponsorValue = (v) => (v === true ? 'yes' : v === false ? 'no' : '')
@@ -84,6 +85,11 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
                 {a.history.map((h, i) => <li key={i}><span>{h.from_stage ? `Moved to ${STAGE_LABEL[h.to_stage]}` : `Logged at ${STAGE_LABEL[h.to_stage]}`}</span><span className="muted">{when(h.at)}</span></li>)}
               </ol>
             ) : <p className="small muted" style={{ marginTop: 6 }}>Stage changes are recorded from {HISTORY_FROM}.</p>}
+            {s.config.prep && PREP_STAGES.has(a.stage) && (
+              <button type="button" className="btn small" style={{ marginTop: 10 }} onClick={() => go('interview', 'prep', { prepAppId: a.id })}>
+                {packFor(s, { appId: a.id }) ? 'Open prep pack' : 'Prepare for this interview'}
+              </button>
+            )}
           </div>
 
           <div className="grid cols-2">

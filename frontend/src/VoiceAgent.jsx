@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Conversation } from '@elevenlabs/client'
 import { api } from './api'
 
+const STORED_TRIES = 4 // reads of ElevenLabs' stored transcript when the browser missed the user's words
+const STORED_WAIT_MS = 1500
+
 /*
   One ElevenLabs agent call over WebRTC. The backend mints a short-lived
   conversation token, so the API key never reaches the browser. Transcript
@@ -37,14 +40,19 @@ export default function VoiceAgent({ agent, agentLabel, userId, dynamicVariables
     doneRef.current = true
     setStatus('ended')
     let list = turnsRef.current
-    if (!list.length && id) {
-      // browser missed the turns: ask ElevenLabs for the stored transcript
+    // The user's last sentence reaches the browser a moment after they finish it, so pressing End can lose
+    // it, or every word they said. Then ElevenLabs' own copy is read; it can take a few seconds to be complete
+    const spoke = (turns) => turns.some((t) => t.role === 'user')
+    for (let attempt = 0; id && !spoke(list) && attempt < STORED_TRIES; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, STORED_WAIT_MS))
       try {
         const r = await api(`/api/voice/transcript/${id}`)
-        list = r.turns
-        turnsRef.current = list
-        setTurns(list)
-      } catch { /* nothing to recover */ }
+        if (spoke(r.turns) || !list.length) {
+          list = r.turns
+          turnsRef.current = list
+          setTurns(list)
+        }
+      } catch { break } // nothing to recover
     }
     const text = list.map((t) => `${t.role === 'agent' ? agentLabel : 'Candidate'}: ${t.message}`).join('\n')
     if (text) onDone(text)
