@@ -999,3 +999,15 @@ def test_filler_words_are_not_keywords(model):
     advert = JOB | {"description": "Strong Excel skills and SQL experience are essential. Tableau is desirable. You will build reports."}
     model(LETTER | {"keywords": ["SQL", "experience", "Desirable", "build", "skills", "Excel skills", "Tableau", "essential"]})
     assert cv_letter(advert)["keywords"] == ["SQL", "Excel skills", "Tableau"]
+
+
+def test_a_keyword_is_at_most_three_words(model):
+    advert = JOB | {"description": "A degree in a quantitative subject, SQL and stakeholder management skills. Automate recurring reports."}
+    model(LETTER | {"keywords": ["degree in a quantitative subject", "SQL", "stakeholder management", "Automate recurring reports", "stakeholder management skills too"]})
+    assert cv_letter(advert)["keywords"] == ["SQL", "stakeholder management", "Automate recurring reports"]
+
+
+def test_gaps_are_written_to_the_user(model):
+    calls = model(LETTER)
+    cv_letter()
+    assert "addressed to the candidate as 'you'" in calls[0]["system"]

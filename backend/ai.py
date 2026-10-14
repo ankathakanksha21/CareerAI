@@ -390,7 +390,7 @@ def summarise_job(title: str, company: str, description: str, family_names: list
 #    by cv.assemble, and the model is never sent the candidate's name or contact details.
 CV_BULLETS = 14     # about what two A4 pages hold beside the facts
 ADVERT_TEXT = 6000  # characters of a job description sent
-MAX_KEYWORDS, MAX_KEYWORD_CHARS, MAX_GAPS = 12, 40, 5
+MAX_KEYWORDS, MAX_KEYWORD_CHARS, MAX_KEYWORD_WORDS, MAX_GAPS = 12, 40, 3, 5
 # words an advert is full of that say nothing a CV could be searched for
 FILLER = {"experience", "experienced", "desirable", "essential", "required", "requirements", "skills", "skill", "ability", "abilities",
           "strong", "good", "excellent", "team", "role", "join", "build", "write", "explain", "work", "working", "knowledge", "candidate",
@@ -530,8 +530,8 @@ def job_letter(job: dict, profile: dict, education: list, work_history: list, ac
         "a recruiter would search a CV for, such as 'SQL', 'Power BI' or 'stakeholder management'. Copy each from the advert in the advert's "
         "own words, one to three words long, the most important first. Give fewer rather than pad: no verbs, no benefits, and no general "
         "words such as 'experience', 'skills' or 'desirable'. "
-        "gaps are up to four honest gaps between what the advert asks for and what the achievements show, each one sentence the candidate "
-        "should be ready to talk about. "
+        "gaps are up to four honest gaps between what the advert asks for and what the achievements show, each one sentence addressed "
+        "to the candidate as 'you', that they should be ready to talk about. "
         "cover_letter is the body of a UK cover letter in three short paragraphs, under 220 words in all, in the first person: "
         "why_them (why this company and this role, specific to the advert), why_you (two pieces of evidence from the achievements, each number "
         "as the achievement writes it, with a hedge such as 'about' where it has one), "
@@ -553,7 +553,8 @@ def job_letter(job: dict, profile: dict, education: list, work_history: list, ac
     advert, keywords, seen = f"{job['title']}\n{job.get('description') or ''}", [], set()
     for term in data["keywords"]:
         term = term.strip().strip(".,;:")
-        if term and len(term) <= MAX_KEYWORD_CHARS and term.lower() not in seen | FILLER and cv.has_term(term, advert):
+        short = 0 < len(term) <= MAX_KEYWORD_CHARS and len(term.split()) <= MAX_KEYWORD_WORDS  # a longer phrase is never found word for word in a CV
+        if short and term.lower() not in seen | FILLER and cv.has_term(term, advert):
             seen.add(term.lower())
             keywords.append(term)
     return {"keywords": keywords[:MAX_KEYWORDS], "gaps": [g.strip() for g in data["gaps"] if g.strip()][:MAX_GAPS],
