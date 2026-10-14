@@ -26,6 +26,10 @@ Today the mock interview knows only the job title and summary, and there is no c
 | Research limit | 5 companies per user per day (`DAILY_RESEARCH_LIMIT`), separate from the AI limit, because searches cost money | Recommended; approved 12 Oct 2026 |
 | Right-to-work answer | The pack helps the user phrase a one-line answer from their own visa type and end date. It states facts only and carries "not immigration advice" | Recommended; approved 12 Oct 2026 |
 | Export | The pack prints from the browser. No Word or PDF export | Recommended; approved 12 Oct 2026 |
+| Search service | Tavily: 1,000 free credits a month with no card, 2 credits per newly researched company (news and competitors), then $0.008 a credit. News search with publish dates. Its terms do not forbid keeping results, so the 14-day shared cache works. Brave was ruled out because its terms forbid storing results beyond transient use; Serper because its terms are vague and its dates less reliable. Expected monthly cost now: nothing | Recommended; approved 14 Oct 2026 |
+| Right-to-work wording | One spoken line from the visa type and end date. Graduate: "I have the right to work in the UK on a Graduate visa until 30 January 2027." Student: "I am in the UK on a Student visa until 30 January 2027." Under it: "Employers often ask next whether you will need sponsorship. That answer is yours to add. This is not immigration advice." Editable, saved with the pack | Recommended; approved 14 Oct 2026 |
+| How stories get competencies | New stories are tagged in the same call that writes them, at no extra cost. Existing stories get a "Tag my stories" button on the coverage grid (one AI action). The user can tick or untick competencies when editing a story | Recommended; approved 14 Oct 2026 |
+| Where packs live | A fourth tab, "Prep packs", in Interview coach. It lists the user's packs; "Prepare" (on Interview coach and on applications at phone screen or interview) opens the company step there | Recommended; approved 14 Oct 2026 |
 
 ## In scope
 
@@ -104,7 +108,7 @@ A daily drill; longer or multi-interviewer mock interviews; salary negotiation; 
 | Service | Settings | Notes |
 |---|---|---|
 | Companies House API | `COMPANIES_HOUSE_API_KEY` | Free, official |
-| Web search | `SEARCH_PROVIDER`, `SEARCH_API_KEY` | To be chosen with the owner at build time |
+| Web search | `SEARCH_PROVIDER` (`tavily`), `SEARCH_API_KEY` | Tavily, chosen 14 Oct 2026. `POST https://api.tavily.com/search`, key as a Bearer token; `topic=news` returns `published_date` |
 | Limit | `DAILY_RESEARCH_LIMIT` (default 5) | |
 
 ## AI tasks
