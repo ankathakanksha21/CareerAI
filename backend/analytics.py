@@ -21,9 +21,15 @@ def plural(n, word):
     return f"{n} {word}{'' if n == 1 else 's'}"
 
 
+def responded(app) -> bool:
+    """Whether the employer replied. A rejection after a phone screen was a reply, though its stage
+    is the same as a rejection at the CV stage; where it ended says which."""
+    return app["stage"] in RESPONDED or (app["stage"] == "rejected" and app.get("rejected_at_stage") == "screening")
+
+
 def _row(label, apps):
     n = len(apps)
-    responses = sum(a["stage"] in RESPONDED for a in apps)
+    responses = sum(responded(a) for a in apps)
     return {
         "label": label,
         "applied": n,
@@ -70,7 +76,8 @@ def compute(applications, families, cv_versions, stories, market=None):
         "by_cv": by_cv,
         "by_source": by_source,
         "timing": timing,
-        "findings": diagnose(applications, cv_versions, stories, by_family, by_source, timing, fam_names, cv_names)
+        "findings": sorted(diagnose(applications, cv_versions, stories, by_family, by_source, timing, fam_names, cv_names)
+                           + lesson_findings(applications), key=lambda f: -f["severity"])
                     + sponsor_findings(families, market or {}),
     }
 
@@ -147,6 +154,41 @@ def diagnose(apps, cv_versions, stories, by_family, by_source, timing, fam_names
         })
 
     return sorted(findings, key=lambda f: -f["severity"])
+
+
+MIN_LESSONS = 3  # lessons from rejections that point to the same page before they make a finding
+LESSON_PAGES = {
+    "resume": ("your CV", "Open Resume"),
+    "interview": ("your interview answers", "Practise an interview"),
+    "profile": ("the evidence on your profile", "Open your profile"),
+}
+
+
+def _names(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def lesson_findings(apps):
+    """6. Three or more rejections whose lessons point to the same page: a pattern, not bad luck."""
+    by_page = defaultdict(list)
+    for a in apps:
+        lesson = a.get("lesson") or {}
+        if lesson.get("page") in LESSON_PAGES:
+            by_page[lesson["page"]].append(a)
+    findings = []
+    for page, rejected in by_page.items():
+        if len(rejected) < MIN_LESSONS:
+            continue
+        rejected.sort(key=lambda a: a["lesson"].get("made_on") or "")
+        what, label = LESSON_PAGES[page]
+        findings.append({
+            "id": f"lessons-{page}", "type": "lessons", "severity": 3,
+            "title": f"{len(rejected)} of your rejections point to {what}",
+            "evidence": f"The lessons from {_names([a['company'] for a in rejected])} each suggest a change to {what}.",
+            "action": rejected[-1]["lesson"]["one_change"],
+            "link": {"page": page, "label": label},
+        })
+    return findings
 
 
 def sponsor_findings(families, market):
