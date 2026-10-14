@@ -1,12 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BriefcaseBusiness, FileText, MessagesSquare, PhoneCall } from 'lucide-react'
-import { del, patch, post } from '../api'
+import { api, del, patch, post } from '../api'
 import { ErrorRetry, Meter, PageHead, attempt, useAction } from '../ui'
 import VoiceAgent from '../VoiceAgent'
 import { AddJob, JobPicker } from '../components/Jobs'
+import PrepPacks from '../components/PrepPacks'
+import StoryCoverage from '../components/StoryCoverage'
+import { packFor } from '../prep'
 
-const TABS = [['sessions', 'Practice sessions'], ['stories', 'STAR stories'], ['tone', 'UK tone decoder']]
+const TABS = [['sessions', 'Practice sessions'], ['stories', 'STAR stories'], ['tone', 'UK tone decoder'], ['prep', 'Prep packs']]
 const SCORE_LABELS = { structure: 'Structure', clarity: 'Clarity', evidence: 'Evidence', uk_tone: 'UK tone' }
+const PACK_QUESTIONS = new Set(['job', 'behavioural']) // sessions that ask from a prep pack's likely questions
 
 // Each session type changes what the voice interviewer asks (sent as dynamic variables)
 const SESSIONS = [
@@ -38,7 +42,7 @@ function Points({ items }) {
   )
 }
 
-function Sessions({ s, focus, refresh, session }) {
+function Sessions({ s, focus, go, refresh, session }) {
   const [jobId, setJobId] = useState(focus.jobId || '')
   const [type, setType] = useState(SESSIONS[1])
   const [adding, setAdding] = useState(false)
@@ -50,6 +54,12 @@ function Sessions({ s, focus, refresh, session }) {
     return r
   })
   const job = s.saved_jobs.find((j) => j.id === jobId)
+  const packId = packFor(s, { jobId })?.id
+  const [prepped, setPrepped] = useState(null) // what the interviewer is told from the job's prep pack
+  useEffect(() => {
+    if (packId) api(`/api/prep/${packId}`).then((p) => setPrepped({ id: p.id, ...p.interviewer })).catch(() => {}) // without it, practice is as before
+  }, [packId])
+  const pack = prepped && prepped.id === packId ? prepped : null
   const d = fb.result
   const target = s.role_families.find((f) => f.targeted)
   // with no job picked, the interviewer practises for the user's first target role
@@ -64,6 +74,11 @@ function Sessions({ s, focus, refresh, session }) {
         <span className="strong">Practising for</span>
         <JobPicker jobs={s.saved_jobs} value={jobId} allowNone onChange={(v) => { setJobId(v); fb.setResult(null) }} />
         <button className="linkish small" onClick={() => setAdding(!adding)}>{adding ? 'Cancel' : 'Add a job'}</button>
+        {s.config.prep && (
+          <button className="btn ghost small" disabled={!jobId} title={jobId ? undefined : 'Pick a job first'} onClick={() => go('interview', 'prep', { prepJobId: jobId })}>
+            {packFor(s, { jobId }) ? 'Open prep pack' : 'Prepare'}
+          </button>
+        )}
       </div>
       {adding && <div style={{ marginBottom: 16 }}><AddJob onCancel={() => setAdding(false)} onAdded={async (j) => { await refresh(); setJobId(j.id); setAdding(false) }} /></div>}
       <div className="grid cols-4">
@@ -79,13 +94,16 @@ function Sessions({ s, focus, refresh, session }) {
 
       <div className="grid cols-2 section">
         <VoiceAgent
-          key={`${type.key}-${jobId}`}
+          key={`${type.key}-${jobId}-${pack ? 'pack' : ''}`}
           agent="interviewer"
           agentLabel="Interviewer"
           userId={session.user.id}
-          intro={job ? `${type.label}: ${job.title} at ${job.company}` : `${type.label}: general practice`}
+          intro={job ? `${type.label}: ${job.title} at ${job.company}${pack ? '. Using your prep pack' : ''}` : `${type.label}: general practice`}
           dynamicVariables={{ candidate_name: s.profile.first_name || 'there', ...about,
-            interview_type: type.label.toLowerCase(), interview_brief: type.brief, opening_question: type.opening, cv_summary: cvSummary }}
+            interview_type: type.label.toLowerCase(), interview_brief: type.brief, opening_question: type.opening, cv_summary: cvSummary,
+            // the company summary helps every session; the likely questions suit the job and behavioural rounds
+            company_brief: pack?.company_brief || 'Not provided.',
+            likely_questions: (pack && PACK_QUESTIONS.has(type.key) && pack.likely_questions) || 'None given.' }}
           onDone={(t) => fb.run(t)}
         />
 
@@ -124,9 +142,10 @@ function Sessions({ s, focus, refresh, session }) {
 const BANK = 8 // stories a candidate needs; "Build my story bank" fills up to this
 const STORY_PARTS = [['situation', 'Situation'], ['task', 'Task'], ['action', 'Action'], ['result', 'Result']]
 const STRENGTH_TONE = { strong: 'good', 'needs a number': 'warn', 'needs detail': 'bad' }
+const MAX_COMPETENCIES = 3
 
 // One STAR story, read or edited in place
-function Story({ st, refresh, notify }) {
+function Story({ st, s, refresh, notify }) {
   const [form, setForm] = useState(null) // the fields being edited, or nothing
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -157,11 +176,26 @@ function Story({ st, refresh, notify }) {
     })
   }
 
+  const label = Object.fromEntries(s.options.competencies)
   if (form) {
     return (
       <form className="card stack editing" onSubmit={save} noValidate>
         <label className="field">Title<input type="text" value={form.title} maxLength={200} onChange={set('title')} /></label>
-        <label className="field">Competency<input type="text" value={form.competency} maxLength={80} onChange={set('competency')} placeholder="e.g. Problem solving" /></label>
+        <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend>Competencies it shows <span className="small muted" style={{ fontWeight: 400 }}>(up to {MAX_COMPETENCIES})</span></legend>
+          <div className="row" style={{ gap: 12 }}>
+            {s.options.competencies.map(([key, label]) => {
+              const on = form.competencies.includes(key)
+              return (
+                <label key={key} className="check">
+                  <input type="checkbox" checked={on} disabled={!on && form.competencies.length >= MAX_COMPETENCIES}
+                    onChange={() => setForm({ ...form, competencies: on ? form.competencies.filter((k) => k !== key) : [...form.competencies, key] })} />
+                  {label}
+                </label>
+              )
+            })}
+          </div>
+        </fieldset>
         {STORY_PARTS.map(([key, label]) => (
           <label key={key} className="field">{label}<textarea rows={key === 'action' ? 4 : 2} value={form[key]} maxLength={2000} onChange={set(key)} /></label>
         ))}
@@ -176,12 +210,14 @@ function Story({ st, refresh, notify }) {
   return (
     <article className="card stack">
       <div className="row"><h3 style={{ flex: 1 }}>{st.title}</h3><span className={`chip ${STRENGTH_TONE[st.strength] || ''}`}>{st.strength}</span></div>
-      <span className="small muted">{st.competency}</span>
+      {st.competencies.length > 0 && (
+        <div className="row" style={{ gap: 6 }}>{st.competencies.map((k) => <span key={k} className="chip">{label[k]}</span>)}</div>
+      )}
       <div className="star">
         {STORY_PARTS.map(([key, label]) => <span key={key} style={{ display: 'contents' }}><b>{label[0]}</b><span>{st[key]}</span></span>)}
       </div>
       <div className="row">
-        <button className="linkish small" onClick={() => setForm({ title: st.title, competency: st.competency, situation: st.situation, task: st.task, action: st.action, result: st.result })}>Edit</button>
+        <button className="linkish small" onClick={() => setForm({ title: st.title, competencies: st.competencies, situation: st.situation, task: st.task, action: st.action, result: st.result })}>Edit</button>
         <button className="linkish small" onClick={remove}>Delete</button>
       </div>
     </article>
@@ -230,9 +266,10 @@ function Stories({ s, refresh, notify, go }) {
         <ErrorRetry error={make.error} onRetry={make.retry} />
         {make.result?.tip && <p className="small" style={{ marginTop: 8 }}>Tip: {make.result.tip}</p>}
       </section>
+      <StoryCoverage s={s} refresh={refresh} notify={notify} />
       {s.stories.length === 0 && <p className="muted">No stories yet. Build your story bank above, or write one at a time.</p>}
       <div className="grid cols-2">
-        {s.stories.map((st) => <Story key={st.id} st={st} refresh={refresh} notify={notify} />)}
+        {s.stories.map((st) => <Story key={st.id} st={st} s={s} refresh={refresh} notify={notify} />)}
       </div>
     </>
   )
@@ -295,18 +332,20 @@ function Tone({ s }) {
 }
 
 export default function Interview({ s, tab, go, focus, refresh, notify, session }) {
-  const active = TABS.find(([k]) => k === tab) ? tab : 'sessions'
+  const tabs = TABS.filter(([k]) => k !== 'prep' || s.config.prep) // prep packs need the research settings
+  const active = tabs.find(([k]) => k === tab) ? tab : 'sessions'
   return (
     <>
       <PageHead title="Interview coach" lede="Practise out loud with a voice interviewer, then get scored feedback. Pick the kind of interview you want to rehearse." />
       <div className="tabs" role="tablist">
-        {TABS.map(([k, label]) => (
+        {tabs.map(([k, label]) => (
           <button key={k} role="tab" aria-selected={active === k} className={`tab ${active === k ? 'active' : ''}`} onClick={() => go('interview', k === 'sessions' ? null : k, focus)}>{label}</button>
         ))}
       </div>
-      {active === 'sessions' && <Sessions s={s} focus={focus} refresh={refresh} session={session} />}
+      {active === 'sessions' && <Sessions s={s} focus={focus} go={go} refresh={refresh} session={session} />}
       {active === 'stories' && <Stories s={s} refresh={refresh} notify={notify} go={go} />}
       {active === 'tone' && <Tone s={s} />}
+      {active === 'prep' && <PrepPacks key={JSON.stringify(focus)} s={s} focus={focus} go={go} refresh={refresh} notify={notify} />}
     </>
   )
 }

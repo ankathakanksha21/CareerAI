@@ -6,7 +6,14 @@ import content
 def test_content_sections_and_sizes():
     c = content.load()
     assert {k: len(v) for k, v in c.items()} == {
-        "uk_market": 5, "where_to_look": 5, "tone_phrases": 8, "tone_norms": 5, "cv_rules": 4}
+        "uk_market": 5, "where_to_look": 5, "tone_phrases": 8, "tone_norms": 5, "cv_rules": 4, "interview_day": 3}
+
+
+def test_interview_day_has_every_type():
+    day = content.load()["interview_day"]
+    assert set(day) == {"phone", "video", "in_person"}
+    assert all(3 <= len(lines) <= 5 and all(isinstance(x, str) and x for x in lines) for lines in day.values())
+    assert any("gov.uk/prove-right-to-work" in line for line in day["in_person"])
 
 
 def test_content_item_shapes():

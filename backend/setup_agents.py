@@ -42,7 +42,11 @@ This session is a {{interview_type}}. What to cover: {{interview_brief}}
 
 Candidate background, from their CV: {{cv_summary}}
 
-Ask exactly three questions, one at a time. Your first question is already in your first message.
+Company background, from research: {{company_brief}}
+
+Likely questions for this role: {{likely_questions}}
+
+Ask exactly three questions, one at a time. Your first question is already in your first message. When likely questions are given, ask your three questions from them, in your own words, choosing ones that fit this session type. Mention the company background only where it makes a question more natural.
 
 Rules:
 - Wait for the full answer. Give only a brief neutral acknowledgement such as "Thank you" or "That's helpful", then ask the next question.
@@ -81,7 +85,8 @@ AGENTS = [
      {"candidate_name": "there", "user_id": "", "role": "graduate role", "company": "a UK employer",
       "job_summary": "General practice, no specific job.", "interview_type": "job-specific interview",
       "interview_brief": "One motivation question, one competency question and one role-specific question.",
-      "cv_summary": "Not provided.", "opening_question": "To start, could you tell me a bit about yourself?"}),
+      "cv_summary": "Not provided.", "opening_question": "To start, could you tell me a bit about yourself?",
+      "company_brief": "Not provided.", "likely_questions": "None given."}),
 ]
 
 
