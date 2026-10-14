@@ -10,11 +10,13 @@ pytestmark = pytest.mark.db
 def caps(monkeypatch):
     monkeypatch.setenv("DAILY_AI_LIMIT", "2")
     monkeypatch.setenv("DAILY_VOICE_LIMIT", "1")
+    monkeypatch.setenv("DAILY_RESEARCH_LIMIT", "1")
 
 
 def test_under_limit_records(conn, user_a):
     limits.check_and_record(conn, user_a, "ai", "tone")
-    assert limits.usage(conn, user_a) == {"ai": {"used": 1, "limit": 2}, "voice": {"used": 0, "limit": 1}}
+    assert limits.usage(conn, user_a) == {"ai": {"used": 1, "limit": 2}, "voice": {"used": 0, "limit": 1},
+                                          "research": {"used": 0, "limit": 1}}
 
 
 def test_at_limit_raises_and_does_not_record(conn, user_a):
@@ -77,3 +79,12 @@ def test_retry_window_only_for_same_action(conn, user_a, monkeypatch):
 def test_allowed_does_not_record(conn, user_a):
     assert limits.allowed(conn, user_a, "ai") is True
     assert limits.usage(conn, user_a)["ai"]["used"] == 0
+
+
+def test_research_limit_counts_separately_from_ai(conn, user_a):
+    limits.check_and_record(conn, user_a, "research", "research name:zzqx|")
+    with pytest.raises(limits.LimitReached) as e:
+        limits.check_and_record(conn, user_a, "research", "research name:qqzx|")
+    assert e.value.kind == "research"
+    limits.check_and_record(conn, user_a, "ai", "prep")  # the AI allowance is untouched
+    assert limits.usage(conn, user_a)["research"] == {"used": 1, "limit": 1}

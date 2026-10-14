@@ -10,7 +10,7 @@ pytestmark = pytest.mark.db
 TABLES = ("profiles", "achievements", "role_families", "saved_jobs", "cv_versions", "stories",
           "applications", "journal_entries", "usage_events", "schema_migrations",
           "job_listings", "job_searches", "job_search_results", "sponsors", "reference_meta", "job_matches",
-          "work_history", "education", "application_events", "weekly_goals")
+          "work_history", "education", "application_events", "weekly_goals", "companies", "prep_packs")
 
 
 def test_apply_all_is_idempotent(conn):
@@ -323,3 +323,77 @@ def test_new_application_columns_start_empty(conn, user_a):
 def test_milestones_seen_defaults_to_empty(conn, user_a):
     row = conn.execute("insert into profiles (user_id, full_name) values (%s, 'Test Person') returning milestones_seen", (user_a,)).fetchone()
     assert row["milestones_seen"] == []
+
+
+# ---------- step 5: interview prep ----------
+
+def _saved_job(conn, user):
+    return conn.execute("insert into saved_jobs (user_id, title, company, description) values (%s, 'Role A', 'Zzqx Holdings Ltd', 'd') "
+                        "returning id", (user,)).fetchone()["id"]
+
+
+def _pack(conn, user, **kw):
+    fields = {"role": "Role A", "company": "Zzqx Holdings Ltd", "content": "{}"} | kw
+    return conn.execute(f"insert into prep_packs (user_id, {', '.join(fields)}) values (%s, {', '.join(['%s'] * len(fields))}) returning *",
+                        (user, *fields.values())).fetchone()
+
+
+def _story(conn, user, **kw):
+    fields = {"title": "Story A"} | kw
+    return conn.execute(f"insert into stories (user_id, {', '.join(fields)}) values (%s, {', '.join(['%s'] * len(fields))}) returning *",
+                        (user, *fields.values())).fetchone()
+
+
+def test_packs_cascade_on_user_delete(conn, user_a):
+    _pack(conn, user_a, saved_job_id=_saved_job(conn, user_a))
+    conn.execute("delete from auth.users where id = %s", (user_a,))
+    assert conn.execute("select count(*) as n from prep_packs where user_id = %s", (user_a,)).fetchone()["n"] == 0
+
+
+def test_pack_survives_its_job_being_deleted(conn, user_a):
+    job = _saved_job(conn, user_a)
+    pack = _pack(conn, user_a, saved_job_id=job)["id"]
+    conn.execute("delete from saved_jobs where id = %s", (job,))
+    assert conn.execute("select saved_job_id from prep_packs where id = %s", (pack,)).fetchone()["saved_job_id"] is None
+
+
+def test_one_pack_per_saved_job(conn, user_a):
+    job = _saved_job(conn, user_a)
+    _pack(conn, user_a, saved_job_id=job)
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        _pack(conn, user_a, saved_job_id=job)
+
+
+def test_one_pack_per_application_without_a_saved_job(conn, user_a):
+    application = _application(conn, user_a)["id"]
+    _pack(conn, user_a, application_id=application)
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        _pack(conn, user_a, application_id=application)
+
+
+def test_story_competencies_checked(conn, user_a):
+    assert _story(conn, user_a)["competencies"] == []
+    assert _story(conn, user_a, competencies=["teamwork", "setback"])["competencies"] == ["teamwork", "setback"]
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _story(conn, user_a, competencies=["cooking"])
+
+
+def test_research_is_a_usage_kind(conn, user_a):
+    conn.execute("insert into usage_events (user_id, kind, action) values (%s, 'research', 'research x')", (user_a,))
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute("insert into usage_events (user_id, kind, action) values (%s, 'other', 'x')", (user_a,))
+
+
+def _backfill_statement() -> str:
+    sql = (migrate.MIGRATIONS / "008_interview_prep.sql").read_text(encoding="utf-8")
+    start = sql.index("update stories")
+    return sql[start:sql.index(";", start)]
+
+
+def test_backfill_maps_exact_labels(conn, user_a):
+    tagged = _story(conn, user_a, competency="Teamwork")["id"]
+    spaced = _story(conn, user_a, competency=" handling a setback ")["id"]
+    hyphen = _story(conn, user_a, competency="Problem-solving")["id"]
+    conn.execute(_backfill_statement())
+    got = {r["id"]: r["competencies"] for r in conn.execute("select id, competencies from stories where user_id = %s", (user_a,))}
+    assert got == {tagged: ["teamwork"], spaced: ["setback"], hyphen: []}

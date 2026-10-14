@@ -54,7 +54,7 @@ def test_state_for_new_user(client):
     assert s["profile"]["skills"] == [] and s["profile"]["languages"] == [] and s["profile"]["github_username"] is None
     assert (s["profile"]["phone"], s["profile"]["city"], s["profile"]["linkedin_url"], s["profile"]["additional"]) == ("", "", "", [])
     assert len(s["next_steps"]) == 6 and not any(x["done"] for x in s["next_steps"])
-    assert s["usage"] == {"ai": {"used": 0, "limit": 40}, "voice": {"used": 0, "limit": 3}}
+    assert s["usage"] == {"ai": {"used": 0, "limit": 40}, "voice": {"used": 0, "limit": 3}, "research": {"used": 0, "limit": 5}}
     assert s["stats"]["findings"] == [] and s["stats"]["funnel"]["applied"] == 0
     assert "Company site" in s["options"]["sources"] and "applied" in s["options"]["stages"]
     assert set(s["config"]) == {"llm", "voice", "jobs"}

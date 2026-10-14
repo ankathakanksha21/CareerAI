@@ -6,7 +6,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 ENV_PATH = Path(__file__).parent / ".env"
-DAILY_LIMIT_DEFAULTS = {"ai": 40, "voice": 3}
+DAILY_LIMIT_DEFAULTS = {"ai": 40, "voice": 3, "research": 5}
 
 
 def env(name: str, default: str = "") -> str:
@@ -44,11 +44,24 @@ def github_token() -> str:
     return env("GITHUB_TOKEN")
 
 
+def companies_house_key() -> str:
+    return env("COMPANIES_HOUSE_API_KEY")
+
+
+def search_key() -> str:
+    return env("SEARCH_API_KEY")
+
+
+def research_configured() -> bool:
+    """Interview prep needs Companies House and a web search service. Only Tavily is built."""
+    return bool(companies_house_key() and env("SEARCH_PROVIDER").lower() == "tavily" and search_key())
+
+
 def supabase_url() -> str:
     return env("SUPABASE_URL").rstrip("/")
 
 
 def daily_limit(kind: str) -> int:
-    """How many "ai" actions or "voice" sessions one user may start per day."""
+    """How many "ai" actions, "voice" sessions or "research" uses (a newly researched company) one user may start per day."""
     raw = env(f"DAILY_{kind.upper()}_LIMIT")
     return int(raw) if raw.isdigit() else DAILY_LIMIT_DEFAULTS[kind]

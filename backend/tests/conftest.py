@@ -105,6 +105,7 @@ def client(conn, user_a, monkeypatch, own_transaction):
 
     monkeypatch.setenv("DAILY_AI_LIMIT", "40")
     monkeypatch.setenv("DAILY_VOICE_LIMIT", "3")
+    monkeypatch.setenv("DAILY_RESEARCH_LIMIT", "5")
     main.app.dependency_overrides[current_user] = lambda: User(user_a, "a@example.test", "Test Person")
     try:
         yield TestClient(main.app)
