@@ -25,9 +25,11 @@ export default function Privacy({ go, signedIn }) {
           <li>What you tell the careers coach in a voice call, or paste into the app, about your background.</li>
           <li>The text of a CV you upload. The file is read once and discarded: we keep the text we read from it, never the file.</li>
           <li>Your work history, education, skills and languages, once you confirm them.</li>
+          <li>Your phone number, town or city and LinkedIn address, if you add them for your CV, and any certifications, awards or volunteering you list. They are printed on your CVs. Your name, email and these contact details are not sent to the AI when a CV is written.</li>
           <li>Your GitHub username, if you import projects, and the public description and README of the repositories you pick.</li>
           <li>Job descriptions you add, which matched jobs you save or dismiss, and the applications you log.</li>
           <li>Content the AI writes for you: achievements, CVs, cover letters, interview stories and feedback.</li>
+          <li>The wording of each CV and cover letter you build or edit. The Word and PDF files are made when you download them and are not kept.</li>
           <li>A count of how many AI actions and voice calls you use each day.</li>
         </ul>
 

@@ -6,6 +6,7 @@ import BackgroundInput from '../components/BackgroundInput'
 import FoundFacts, { hasFacts, mergeFound } from '../components/FoundFacts'
 import AchievementCard from '../components/AchievementCard'
 import { Education, Skills, WorkHistory } from '../components/History'
+import ContactForm, { AdditionalLines } from '../components/ContactForm'
 
 export default function Profile({ s, refresh, go, notify, session }) {
   const [editing, setEditing] = useState(false)
@@ -65,6 +66,14 @@ export default function Profile({ s, refresh, go, notify, session }) {
       <WorkHistory s={s} refresh={refresh} notify={notify} />
       <Education s={s} refresh={refresh} notify={notify} />
       <Skills s={s} refresh={refresh} notify={notify} />
+
+      <div className="section">
+        <div className="section-head"><h2>For your CV</h2><p>Printed on every CV you build. Never sent to the AI.</p></div>
+        <div className="card stack">
+          <ContactForm profile={p} onSaved={async () => { await refresh(); notify('Contact details saved') }} />
+          <AdditionalLines profile={p} onSaved={async () => { await refresh(); notify('Saved for your next CV') }} />
+        </div>
+      </div>
 
       <div className="section">
         <div className="section-head"><h2>Achievements ({s.achievements.length})</h2><p>Each one shows the UK version and the words it came from.</p></div>
