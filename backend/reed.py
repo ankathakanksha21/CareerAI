@@ -5,13 +5,12 @@ row. Search results do not say who posted an advert, so each search is made twic
 direct employers and once for recruitment agencies. Any failure is a ReedError; the key travels
 only in the request's authorisation header and never appears in an error or a log line."""
 import logging
-import re
 from datetime import date, datetime
-from html.parser import HTMLParser
 from urllib.parse import urlparse
 
 import httpx
 
+import textify
 from config import env
 
 log = logging.getLogger("reed")
@@ -77,38 +76,9 @@ def _link(value, job_id) -> str:
     return value.strip() if url.scheme == "https" and url.hostname in HOSTS else ADVERT_URL.format(id=job_id)
 
 
-class _Text(HTMLParser):
-    BLOCKS = {"p", "div", "br", "li", "ul", "ol", "tr", "h1", "h2", "h3", "h4", "h5", "h6"}
-    HIDDEN = {"script", "style"}
-
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.parts, self.hidden = [], 0
-
-    def handle_starttag(self, tag, attrs):
-        if tag in self.HIDDEN:
-            self.hidden += 1
-        elif tag in self.BLOCKS:
-            self.parts.append("\n- " if tag == "li" else "\n")
-
-    def handle_endtag(self, tag):
-        if tag in self.HIDDEN:
-            self.hidden = max(0, self.hidden - 1)
-        elif tag in self.BLOCKS:
-            self.parts.append("\n")
-
-    def handle_data(self, data):
-        if not self.hidden:
-            self.parts.append(data)
-
-
 def clean(html) -> str:
     """An advert's HTML as plain text: one line per paragraph, list items marked with a dash."""
-    parser = _Text()
-    parser.feed(_text(html))
-    parser.close()
-    lines = (re.sub(r"\s+", " ", line.replace("\xa0", " ")).strip() for line in "".join(parser.parts).split("\n"))
-    return "\n".join(line for line in lines if line and line != "-")[:MAX_DESCRIPTION]
+    return textify.text(_text(html))[:MAX_DESCRIPTION]
 
 
 def parse(raw, posted_by: str) -> dict | None:
