@@ -11,6 +11,7 @@ import anthropic
 import httpx
 
 import cv
+import networking
 from llm import complete_json
 
 log = logging.getLogger("ai")
@@ -1160,3 +1161,190 @@ def prep_pack(*, job: dict, brief: list[dict], achievements: list, stories: list
                 "likely_questions": [{"question": "", "competency": "", "story_id": "", "why": ""}],
                 "questions_to_ask": [{"question": "", "fact_id": ""}]}
     return shaped(_run("prep", system, user, template, 3000, check=lambda d: shaped(d) is not None))
+
+
+# 14. Networking: a short message to someone the user wants to talk to, and preparation for an event
+NOTE_CHARS = 200  # LinkedIn's limit on a connection note (help page, checked 14 October 2026)
+DRAFT_WORDS = {"chat_request": 79, "follow_up": 60, "thank_you": 100, "referral_ask": 130, "recruiter_intro": 120, "reference_ask": 120}
+DRAFT_SHAPES = {
+    "connection_note": "a LinkedIn connection note: who the candidate is and the link between you, and no request of any kind",
+    "chat_request": ("a request for an informational chat: who the candidate is, why this person, and one clear ask, "
+                     "15 minutes for advice, never a job or a referral"),
+    "follow_up": "a friendly follow-up to a message that has had no reply for two weeks, in at most two sentences",
+    "thank_you": "a thank-you after an informational chat, mentioning the one thing the candidate learned",
+    "referral_ask": ("a request for a referral for one role at their company: say which role, then two sentences on why the "
+                     "candidate fits it, then ask whether they would be comfortable referring them, making it easy to say no"),
+    "recruiter_intro": "an introduction to a recruiter: what the candidate does, what roles they are looking for, and when they can start",
+    "reference_ask": "a request to act as a referee for job applications, saying what roles the candidate is applying for",
+}
+CONNECTION = {  # how the user knows them: the only connection a draft may claim
+    "alumni": "They studied at the same university as the candidate{university}.",
+    "tutor": "They taught the candidate, as a tutor or lecturer.",
+    "supervisor": "They supervised the candidate at work or on a project.",
+    "event": "The candidate met them at an event{event}.",
+    "recruiter": "They are a recruiter. The candidate has no other connection with them.",
+    "introduced": "Someone introduced the candidate to them.",
+    "none": "The candidate has no connection with them yet.",
+}
+# What a draft may say only when the user entered that connection
+CLAIMS = {
+    "alumni": re.compile(r"\b(alumn\w*|both studied|also studied|studied there too|fellow\b[^.?!]{0,60}\b(graduate|student)s?|"
+                         r"same university|you studied|we studied)\b", re.I),
+    "tutor": re.compile(r"\b(you taught|taught me|your (module|modules|lecture|lectures|class|classes|seminar|seminars|course)|"
+                        r"my (tutor|lecturer)|your student)\b", re.I),
+    "supervisor": re.compile(r"\b(you supervised|supervised me|my supervisor|under your supervision|worked (together|with you|under you|for you)|"
+                             r"working (together|with you|under you|for you)|my (manager|line manager)|we worked|former colleague|"
+                             r"both worked|when we were at)\b", re.I),
+    "event": re.compile(r"\b(we met|met you|meeting you|(great|nice|lovely|good|a pleasure) to meet|our (conversation|chat) at|"
+                        r"spoke at|chatted at|(talking|speaking) (with|to) you at)\b", re.I),
+    "introduced": re.compile(r"\b(introduc\w*|mutual (friend|contact|connection|acquaintance)s?|recommended (that )?(i|me)|"
+                             r"suggested (that )?(i|me)|referred me to you|passed on your|gave me your)\b", re.I),
+}
+ALLOWED_CLAIMS = {"alumni": {"alumni"}, "tutor": {"tutor"}, "supervisor": {"supervisor"}, "event": {"event"},
+                  "introduced": {"introduced"}, "recruiter": set(), "none": set()}
+ANY_ASK = re.compile(r"\?|\b(chat|call|coffee|minutes|catch up|advice|referr\w*|refer me|jobs?|vacanc\w*|openings?|hiring|hire)\b", re.I)
+JOB_ASK = re.compile(r"\b(referr\w*|refer me|vacanc\w*|job openings?|any (jobs|roles|openings|positions|vacancies)|hire me|"
+                     r"a job|job offer)\b", re.I)
+FIFTEEN_MINUTES = re.compile(r"\b(15|fifteen)[- ]?min(ute)?s?\b", re.I)
+VISA_WORDS = re.compile(r"\b(visas?|sponsor\w*|right to work|immigration|work permit)\b", re.I)
+WEB_ADDRESS = re.compile(r"https?://|\bwww\.|\b[\w-]+\.(com|co\.uk|org|ac\.uk)\b", re.I)
+# A month named in a draft must be in what was sent. Capitalised only, and never "May", which is mostly the verb
+MONTH_NAMED = re.compile(r"\b(January|February|March|April|June|July|August|September|October|November|December)\b")
+MONTH_GIVEN = re.compile(r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b", re.I)
+TITLES = {"dr", "dr.", "prof", "prof.", "professor", "mr", "mr.", "mrs", "mrs.", "ms", "ms.", "miss", "mx", "sir", "dame"}
+STOP_WORDS = {"the", "and", "for", "you", "your", "that", "with", "how", "was", "are", "they", "their", "this", "its", "about",
+              "what", "when", "into", "from", "have", "has", "had", "can", "use", "uses", "one", "who", "why", "our", "but", "not"}
+EVENT_INTRO_WORDS = (30, 90)  # about 30 seconds spoken
+SHORT_WORDS = 30              # an opener or the goal
+
+
+def _greeting_names(name: str) -> tuple[str, str]:
+    """('Priya', 'Dr Shah') for 'Dr Priya Shah'; ('Priya', 'Priya Shah') for 'Priya Shah'."""
+    parts = name.split()
+    titled = len(parts) > 1 and parts[0].lower() in TITLES
+    first = parts[1] if titled else (parts[0] if parts else name)
+    return first, f"{parts[0]} {parts[-1]}" if titled else name.strip()
+
+
+def _sentences(text: str) -> list[str]:
+    return [x for x in re.split(r"(?<=[.!?])\s+", text.strip()) if x]
+
+
+def _key_words(text: str) -> list[str]:
+    return [w for w in dict.fromkeys(_words(text)) if len(w) >= 3 and w not in STOP_WORDS]
+
+
+def _uses(learned: str, body: str) -> bool:
+    """Whether the draft mentions what the user learned: at least half its key words, three at most needed."""
+    wanted = _key_words(learned)
+    have = set(_words(body))
+    return sum(w in have for w in wanted) >= min(3, -(-len(wanted) // 2))
+
+
+def _plain(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def outreach_draft(*, kind: str, contact: dict, sender: str, about_me: str, university: str = "", event_name: str = "",
+                   job: dict | None = None, achievements=(), learned: str = "", start: str = "", course_ends: str = "",
+                   looking_for=()) -> dict:
+    """A short message to one of the user's contacts, for them to copy and send themselves. The model
+    is told the contact's role, company and how the user knows them, never their name or notes, nor
+    the user's name: code adds the greeting and sign-off. The draft fits its limit or is asked for
+    once more and then refused, never cut, and may claim no connection the user did not enter."""
+    relationship = contact["relationship"]
+    first, formal = _greeting_names(contact["name"])
+    greeting = f"Dear {formal}," if kind == "reference_ask" else f"Hi {first},"
+    sender_first = (sender.split() or [sender])[0]
+    note_room = NOTE_CHARS - len(greeting) - len(sender_first) - 2
+    connection = CONNECTION[relationship].format(university=f" ({university})" if university else "",
+                                                 event=f" ({event_name})" if event_name else "")
+    limit = f"at most {note_room} characters" if kind == "connection_note" else f"under {DRAFT_WORDS[kind] + 1} words"
+    system = (
+        f"Write {DRAFT_SHAPES[kind]}, from an international student or graduate in the UK to someone they want to learn from. "
+        "UK tone: warm, brief and specific, with no flattery and no pressure. Write the body only, with no greeting, no sign-off "
+        f"and no placeholders in brackets, in {limit}. The only connection between them that you may mention is this one: "
+        f"{connection} Do not claim any other shared university, employer, event, meeting or mutual contact. "
+        "Use only the details given and invent nothing about the candidate. Do not mention visas or sponsorship, and do not "
+        "include any web address."
+    )
+    details = [f"About the candidate: {about_me}", f"Their role: {contact.get('role') or 'not given'}",
+               f"Their company: {contact.get('company') or 'not given'}", f"Connection: {connection}"]
+    if kind == "thank_you":
+        details.append(f"What the candidate learned in the chat: {learned}")
+    if kind == "recruiter_intro":
+        details.append(f"Roles the candidate is looking for: {', '.join(looking_for) or 'not given'}")
+        details.append(f"When they can start: {start}" if start else
+                       f"Their course ends: {course_ends}. Say only that, not a start date." if course_ends else "No start date given: leave it out.")
+    if kind == "referral_ask" and job:
+        details.append(f"The role: {job['title']} at {job['company']}. {job.get('summary') or ''}".strip())
+        details += [f"Achievement: {a}" for a in achievements]
+    user = "\n".join(details) + '\n\nReturn {"body":str}'
+    sources = " ".join([about_me, university, event_name, learned, start, course_ends, *looking_for, *achievements,
+                        contact.get("role") or "", contact.get("company") or "",
+                        *([job["title"], job["company"], job.get("summary") or ""] if job else [])])
+    allowed_numbers = _numbers(sources) | ({"15"} if kind in ("chat_request", "follow_up") else set())
+    months = {m.lower() for m in MONTH_GIVEN.findall(sources)}
+    claims = ALLOWED_CLAIMS[relationship] | ({"event"} if kind == "thank_you" else set())
+
+    def body_of(data: dict) -> str:
+        return _message_body(data["body"]).replace(" \u2014 ", ", ").replace("\u2014", ", ")
+
+    def usable(data: dict) -> bool:
+        body = body_of(data)
+        if not body or body[0].islower() or PLACEHOLDER.search(body) or WEB_ADDRESS.search(body) or VISA_WORDS.search(body):
+            return False
+        if not _numbers(body) <= allowed_numbers or any(m.lower() not in months for m in MONTH_NAMED.findall(body)):
+            return False
+        if any(CLAIMS[c].search(body) for c in CLAIMS if c not in claims):
+            return False
+        if kind == "connection_note":
+            return len(body) <= note_room and not ANY_ASK.search(body)
+        if len(body.split()) > DRAFT_WORDS[kind]:
+            return False
+        if kind == "chat_request":
+            return bool(FIFTEEN_MINUTES.search(body)) and not JOB_ASK.search(body)
+        if kind == "follow_up":
+            return len(_sentences(body)) <= 2
+        if kind == "thank_you":
+            return _uses(learned, body)
+        if kind == "recruiter_intro" and start:
+            return _plain(start) in _plain(body)
+        return True
+
+    data = _run("outreach", system, user, {"body": ""}, 600, required=("body",), check=usable)
+    body = body_of(data)
+    if kind == "connection_note":
+        message = f"{greeting}\n{body}\n{sender_first}"
+    else:
+        role = f"\n\nThe role: {job['title']}" + (f"\n{job['url']}" if job.get("url") else "") if kind == "referral_ask" and job else ""
+        closing = "Kind regards" if kind == "reference_ask" else "Best wishes"
+        message = f"{greeting}\n\n{body}{role}\n\n{closing},\n{sender}"
+    return {"message": message, "words": len(body.split()), "characters": len(message)}
+
+
+def event_prep(*, event: dict, about_me: str) -> dict:
+    """For one saved event: a 30-second introduction from what the user says about themselves, three
+    ways to start a conversation at that kind of event, and one small goal."""
+    kind = networking.EVENT_TYPES.get(event["type"], "event")
+    system = (
+        "Help an international student or graduate in the UK prepare for a networking event. Write a 30-second introduction "
+        f"in the first person ({EVENT_INTRO_WORDS[0]} to {EVENT_INTRO_WORDS[1]} words) from what they say about themselves, three "
+        "short ways to start a conversation that suit this kind of event, and one small, specific goal for the event. Use only "
+        "the details given and invent no achievements, employers or numbers. Do not mention visas or sponsorship."
+    )
+    user = (f"About the candidate: {about_me}\nEvent: {event['name']}\nKind of event: {kind}{', online' if event.get('online') else ''}\n\n"
+            'Return {"introduction":str,"openers":[str,str,str],"goal":str}')
+    allowed = _numbers(f"{about_me} {event['name']}")
+
+    def usable(data: dict) -> bool:
+        intro, openers, goal = data["introduction"], [o.strip() for o in data["openers"]], data["goal"]
+        texts = [intro, goal, *openers]
+        return (EVENT_INTRO_WORDS[0] <= len(intro.split()) <= EVENT_INTRO_WORDS[1] and _numbers(intro) <= allowed
+                and len(openers) == 3 and all(openers) and all(len(t.split()) <= SHORT_WORDS for t in [goal, *openers])
+                and not any(VISA_WORDS.search(t) or PLACEHOLDER.search(t) for t in texts))
+
+    data = _run("event prep", system, user, {"introduction": "", "openers": [""], "goal": ""}, 700,
+                required=("introduction", "goal"), check=usable)
+    dashless = lambda t: t.strip().replace(" \u2014 ", ", ").replace("\u2014", ", ")  # noqa: E731
+    return {"introduction": dashless(data["introduction"]), "openers": [dashless(o) for o in data["openers"]], "goal": dashless(data["goal"])}
