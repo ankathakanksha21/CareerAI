@@ -1,0 +1,152 @@
+"""Weeks, goals and streaks: pure functions over the user's own rows."""
+from datetime import date, timedelta
+
+import habits
+
+MON = date(2026, 10, 12)  # a Monday; "today" in these tests is the Wednesday of that week
+TODAY = MON + timedelta(days=2)
+SMALL = {"applications": 1, "practice": 0}
+
+
+def week(n: int) -> date:
+    """The Monday n weeks from MON: week(-1) is the week before."""
+    return MON + timedelta(days=7 * n)
+
+
+def app(day: date, cv: bool = True, **kw) -> dict:
+    return {"applied_on": day, "cv_version_id": "cv-1" if cv else None, "stage": "applied"} | kw
+
+
+def goal(monday: date, applications: int, practice: int) -> dict:
+    return {"effective_from": monday, "applications": applications, "practice": practice}
+
+
+def met(monday: date) -> tuple[list, list]:
+    """Exactly the default goal in that week: five applications with a CV, two mock interviews."""
+    return [app(monday + timedelta(days=d)) for d in range(5)], [monday + timedelta(days=1), monday + timedelta(days=3)]
+
+
+def activity(*mondays: date) -> tuple[list, list]:
+    apps, practice = [], []
+    for m in mondays:
+        a, p = met(m)
+        apps, practice = apps + a, practice + p
+    return apps, practice
+
+
+def streaks(apps=(), practice=(), goals=(), started=week(-20), today=TODAY) -> dict:
+    return habits.streaks(applications=list(apps), practice_days=list(practice), goals=list(goals), started=started, today=today)
+
+
+# ---------- weeks and goals ----------
+
+def test_monday_of_any_day():
+    assert [habits.monday(MON + timedelta(days=d)) for d in range(7)] == [MON] * 7
+    assert habits.monday(MON + timedelta(days=7)) == week(1)
+
+
+def test_weeks_when_the_clocks_change_are_ordinary_weeks():
+    assert habits.monday(date(2026, 3, 29)) == date(2026, 3, 23)    # the Sunday the clocks went forward
+    assert habits.monday(date(2026, 3, 30)) == date(2026, 3, 30)
+    assert habits.monday(date(2026, 10, 25)) == date(2026, 10, 19)  # the Sunday the clocks went back
+    goals = [goal(date(2026, 1, 5), **SMALL)]
+    spring = [app(date(2026, 3, 29)), app(date(2026, 3, 30))]
+    assert streaks(spring, goals=goals, started=date(2026, 3, 1), today=date(2026, 4, 1)) == {"current": 2, "best": 2}
+    autumn = [app(date(2026, 10, 25)), app(date(2026, 10, 26))]
+    assert streaks(autumn, goals=goals, started=date(2026, 3, 1), today=date(2026, 10, 27)) == {"current": 2, "best": 2}
+
+
+def test_sunday_counts_in_its_own_week_and_monday_in_the_next():
+    sunday = week(-1) + timedelta(days=6)
+    assert habits.week_counts(week(-1), [app(sunday)], [])["applications"] == 1
+    assert habits.week_counts(MON, [app(sunday)], [sunday])["applications"] == 0
+    assert habits.week_counts(MON, [app(MON)], [MON]) == {"applications": 1, "practice": 1, "without_cv": 0}
+
+
+def test_application_without_cv_does_not_count():
+    counts = habits.week_counts(MON, [app(MON, cv=False), app(MON)], [])
+    assert (counts["applications"], counts["without_cv"]) == (1, 1)
+
+
+def test_goal_for_a_week_is_the_latest_that_had_started():
+    goals = [goal(week(-4), 3, 1), goal(week(-1), 4, 2)]
+    assert habits.goal_for(week(-6), goals) == habits.DEFAULT_GOAL
+    assert habits.goal_for(week(-2), goals) == {"applications": 3, "practice": 1}
+    assert habits.goal_for(MON, goals) == {"applications": 4, "practice": 2}
+
+
+def test_first_goal_applies_this_week():
+    assert habits.goal_starts(TODAY, []) == MON
+
+
+def test_goal_change_applies_from_next_monday_and_leaves_earlier_weeks():
+    goals = [goal(MON, 3, 1)]
+    assert habits.goal_starts(MON + timedelta(days=6), goals) == week(1)  # set on the Sunday: still next Monday
+    changed = goals + [goal(week(1), **SMALL)]
+    assert habits.goal_for(MON, changed) == {"applications": 3, "practice": 1}
+    assert habits.goal_for(week(1), changed) == SMALL
+
+
+# ---------- streaks ----------
+
+def test_no_activity_is_zero():
+    assert streaks() == {"current": 0, "best": 0}
+
+
+def test_no_account_is_zero():
+    assert streaks(*activity(week(-1)), started=None) == {"current": 0, "best": 0}
+
+
+def test_three_met_weeks_then_a_missed_week_is_zero():
+    assert streaks(*activity(week(-4), week(-3), week(-2))) == {"current": 0, "best": 3}
+
+
+def test_met_current_week_extends():
+    assert streaks(*activity(week(-2), week(-1), MON)) == {"current": 3, "best": 3}
+
+
+def test_unmet_current_week_in_progress_does_not_break():
+    apps, practice = activity(week(-2), week(-1))
+    assert streaks(apps + [app(MON)], practice) == {"current": 2, "best": 2}
+
+
+def test_exactly_at_goal_is_met_and_one_short_is_not():
+    apps, practice = met(week(-1))
+    assert streaks(apps, practice)["current"] == 1
+    assert streaks(apps[1:], practice)["current"] == 0
+    assert streaks(apps, practice[1:])["current"] == 0
+
+
+def test_lowering_the_goal_today_cannot_make_past_weeks_met():
+    apps = [app(week(n)) for n in range(-4, 1)]  # one application with a CV in each of the last five weeks
+    chosen = [goal(week(-8), 5, 2)]
+    lowered = chosen + [goal(habits.goal_starts(TODAY, chosen), **SMALL)]
+    assert streaks(apps, goals=lowered)["current"] == 0
+    # a first goal applies this week, which can only count this week
+    first = [goal(habits.goal_starts(TODAY, []), **SMALL)]
+    assert streaks(apps, goals=first) == {"current": 1, "best": 1}
+
+
+def test_weeks_before_the_account_do_not_count():
+    apps, practice = activity(week(-3), week(-2), week(-1))
+    assert streaks(apps, practice, started=week(-1) + timedelta(days=4)) == {"current": 1, "best": 1}
+
+
+def test_best_streak_survives_a_break():
+    assert streaks(*activity(week(-6), week(-5), week(-4), week(-2), week(-1))) == {"current": 2, "best": 3}
+
+
+# ---------- this week ----------
+
+def test_this_week_counts_against_its_goal():
+    apps = [app(MON), app(MON, cv=False), app(week(-1))]
+    week_now = habits.this_week(applications=apps, practice_days=[TODAY], goals=[], today=TODAY)
+    assert week_now == {"week_of": MON, "applications": 1, "practice": 1, "without_cv": 1, "goal": habits.DEFAULT_GOAL,
+                        "met": False, "next_goal": None}
+
+
+def test_next_goal_shown_only_when_it_differs():
+    set_before = [goal(week(-2), 3, 1)]
+    assert habits.this_week(applications=[], practice_days=[], goals=set_before, today=TODAY)["next_goal"] is None
+    pending = set_before + [goal(week(1), 4, 1)]
+    assert habits.this_week(applications=[], practice_days=[], goals=pending, today=TODAY)["next_goal"] == {"applications": 4, "practice": 1}
