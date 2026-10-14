@@ -1408,3 +1408,121 @@ def test_tag_stories_fails_when_no_story_gets_a_competency(model):
     model({"stories": [{"n": 1, "competencies": ["cooking"]}]}, {"stories": []})
     with pytest.raises(ai.AIError):
         ai.tag_stories(stories)
+
+
+# ---------- the prep pack ----------
+
+PACK_JOB = {"title": "Graduate Analyst", "company": "Zzqx", "description": "We need SQL and clear reporting to 3 teams."}
+PACK_FACTS = [{"id": "f1", "section": "what_they_do", "text": "Zzqx builds payment software for 1,200 councils."},
+              {"id": "f2", "section": "news", "text": "Zzqx opened a Leeds office."}]
+PACK_ACHIEVEMENTS = [{"id": "11111111-aaaa-4aaa-8aaa-111111111111", "title": "Delays report", "uk_version": "Built a weekly delays report for 15 managers",
+                      "outcome": "8% fewer late deliveries", "scale": "15 managers", "skills": ["SQL"]}]
+PACK_STORIES = [{"id": "22222222-bbbb-4bbb-8bbb-222222222222", "title": "The delays report", "competencies": ["problem_solving"],
+                 "result": "Late deliveries fell by 8%"}]
+PACK_PROFILE = PROFILE | {"email": "a@example.test", "phone": "07000 000000", "city": "Town A", "linkedin_url": "linkedin.com/in/test",
+                          "graduation_date": date(2026, 9, 1)}
+PITCH = ("I am finishing an MSc at University A, and I enjoy turning messy data into decisions people can act on. " * 8).strip()
+
+
+def pack_reply(**kw):
+    return {"talking_points": [{"text": "You serve 1,200 councils, and my report helped 15 managers act on delays.", "fact_id": "f1", "achievement_id": "a1"}],
+            "pitch": PITCH,
+            "likely_questions": [{"question": f"Question {i}?", "competency": "Problem solving", "story_id": "s1", "why": "w"} for i in range(8)],
+            "questions_to_ask": [{"question": f"Ask {i}?", "fact_id": "f2"} for i in range(5)]} | kw
+
+
+def pack(model, *replies):
+    calls = model(*replies)
+    return ai.prep_pack(job=PACK_JOB, brief=PACK_FACTS, achievements=PACK_ACHIEVEMENTS, stories=PACK_STORIES, profile=PACK_PROFILE), calls
+
+
+def test_pack_maps_short_ids_back_to_real_ones(model):
+    got, _ = pack(model, pack_reply())
+    assert got["talking_points"] == [{"text": "You serve 1,200 councils, and my report helped 15 managers act on delays.", "fact_id": "f1",
+                                      "achievement_id": PACK_ACHIEVEMENTS[0]["id"]}]
+    assert got["likely_questions"][0] == {"question": "Question 0?", "competency": "problem_solving", "story_id": PACK_STORIES[0]["id"], "why": "w"}
+    assert got["questions_to_ask"][0] == {"question": "Ask 0?", "fact_id": "f2"}
+    assert got["pitch"] == PITCH
+
+
+@pytest.mark.parametrize("story", ["s9", "", None, "22222222-bbbb-4bbb-8bbb-222222222222", "a1"])
+def test_pack_story_id_not_owned_becomes_no_story(model, story):
+    reply = pack_reply()
+    reply["likely_questions"][0]["story_id"] = story
+    got, _ = pack(model, reply)
+    assert got["likely_questions"][0]["story_id"] is None
+
+
+def test_pack_talking_point_needs_real_fact_and_achievement(model):
+    good = pack_reply()["talking_points"][0]
+    got, _ = pack(model, pack_reply(talking_points=[good | {"fact_id": "f9"}, good | {"achievement_id": "a7"}, good]))
+    assert len(got["talking_points"]) == 1
+
+
+def test_pack_talking_point_number_must_be_in_its_fact_or_achievement(model):
+    good = pack_reply()["talking_points"][0]
+    got, _ = pack(model, pack_reply(talking_points=[good | {"text": "You serve 5,000 councils."}, good]))
+    assert [t["text"] for t in got["talking_points"]] == [good["text"]]
+
+
+def test_pack_without_any_good_talking_point_is_retried(model):
+    good = pack_reply()["talking_points"][0]
+    _, calls = pack(model, pack_reply(talking_points=[good | {"fact_id": "f9"}]), pack_reply())
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("pitch", ["Too short.", PITCH + " I also cut costs by 40%.", PITCH + " More words here." * 40])
+def test_pack_pitch_length_and_numbers_checked(model, pitch):
+    with pytest.raises(ai.AIError):
+        pack(model, pack_reply(pitch=pitch), pack_reply(pitch=pitch))
+
+
+def test_pack_pitch_may_use_numbers_from_the_advert_and_achievements(model):
+    pitch = PITCH + " I helped 15 managers cut late deliveries by 8%, and I can report to 3 teams."
+    got, _ = pack(model, pack_reply(pitch=pitch))
+    assert got["pitch"] == pitch
+
+
+def test_pack_keeps_five_to_eight_questions(model):
+    reply = pack_reply()
+    many = reply["likely_questions"] + [{"question": "Extra?", "competency": "Teamwork", "story_id": "", "why": ""}]
+    got, _ = pack(model, pack_reply(likely_questions=many + many[:2]))  # nine distinct, two repeats
+    assert len(got["likely_questions"]) == 8
+    with pytest.raises(ai.AIError):
+        pack(model, pack_reply(likely_questions=reply["likely_questions"][:4]), pack_reply(likely_questions=reply["likely_questions"][:4]))
+
+
+@pytest.mark.parametrize("given, kept", [("Teamwork", "teamwork"), ("handling a setback", "setback"), ("Motivation", "motivation"),
+                                         ("Role knowledge", "role"), ("cooking", "role")])
+def test_pack_question_competency_is_known(model, given, kept):
+    reply = pack_reply()
+    reply["likely_questions"][0]["competency"] = given
+    got, _ = pack(model, reply)
+    assert got["likely_questions"][0]["competency"] == kept
+
+
+def test_pack_question_to_ask_with_unknown_fact_keeps_question_drops_link(model):
+    got, _ = pack(model, pack_reply(questions_to_ask=[{"question": f"Ask {i}?", "fact_id": "f9"} for i in range(5)]))
+    assert got["questions_to_ask"][0] == {"question": "Ask 0?", "fact_id": None} and len(got["questions_to_ask"]) == 5
+
+
+def test_pack_prompt_has_no_name_contact_or_visa(model):
+    _, calls = pack(model, pack_reply())
+    sent = calls[0]["system"] + calls[0]["user"]
+    for private in ("Test Person", "a@example.test", "07000 000000", "Town A", "linkedin.com/in/test", "visa", "2027"):
+        assert private not in sent
+    for shared in ("MSc Course A", "University A", "Delays report", "The delays report", "Zzqx opened a Leeds office", "We need SQL"):
+        assert shared in sent
+    assert PACK_ACHIEVEMENTS[0]["id"] not in sent and PACK_STORIES[0]["id"] not in sent  # short ids only
+
+
+def test_pack_without_advert_says_so(model):
+    calls = model(pack_reply())
+    ai.prep_pack(job=PACK_JOB | {"description": ""}, brief=PACK_FACTS, achievements=PACK_ACHIEVEMENTS, stories=[], profile=PACK_PROFILE)
+    assert "No job description was recorded" in calls[0]["user"]
+
+
+def test_pack_with_an_empty_brief_needs_no_talking_points(model):
+    calls = model(pack_reply(talking_points=[], questions_to_ask=[{"question": f"Ask {i}?", "fact_id": ""} for i in range(5)]))
+    got = ai.prep_pack(job=PACK_JOB, brief=[], achievements=PACK_ACHIEVEMENTS, stories=PACK_STORIES, profile=PACK_PROFILE)
+    assert got["talking_points"] == [] and len(calls) == 1

@@ -1059,3 +1059,88 @@ def company_brief(company: str, passages: list[dict], today: date) -> list[dict]
     data = _run("brief", system, user, template, 2000,
                 check=lambda d: not d["statements"] or bool(_brief_checked(d, by_n, since)))
     return _brief_checked(data, by_n, since)
+
+
+# 15. The prep pack: talking points, the pitch, likely questions and questions to ask
+PITCH_WORDS = (150, 260)
+MAX_TALKING_POINTS, MAX_QUESTIONS, MIN_QUESTIONS, MAX_TO_ASK, MIN_TO_ASK = 3, 8, 5, 5, 3
+NO_ADVERT = "No job description was recorded for this role."
+
+
+def _question_kind(value) -> str:
+    """What a likely question tests: one of the eight competencies, motivation, or knowledge of the role."""
+    text = " ".join(str(value).lower().replace("_", " ").split())
+    return _COMPETENCY_KEYS.get(text) or ("motivation" if text == "motivation" else "role")
+
+
+def prep_pack(*, job: dict, brief: list[dict], achievements: list, stories: list, profile: dict) -> dict:
+    """The parts of a prep pack the model writes, checked: every talking point joins a real company
+    fact to one of the user's achievements and uses only their figures; the pitch is 150 to 260
+    words with no figure from outside the input; a likely question points only to one of the user's
+    own stories. Achievements and stories are sent with short ids, mapped back here. Nothing that
+    identifies the user is sent: no name, contact details or visa."""
+    facts = {f["id"]: f for f in brief}
+    mine = {f"a{n}": a for n, a in enumerate(achievements, start=1)}
+    told = {f"s{n}": s for n, s in enumerate(stories, start=1)}
+    advert = (job.get("description") or "").strip()
+    graduating = cv.as_date(profile.get("graduation_date"))
+    candidate = {"course": profile.get("course") or "", "university": profile.get("university") or "",
+                 "graduating": f"{graduating:%B %Y}" if graduating else ""}
+    listed = [{"id": k, "title": a.get("title", ""), "bullet": a.get("uk_version", ""), "result": a.get("outcome", ""),
+               "scale": a.get("scale", ""), "skills": a.get("skills") or []} for k, a in mine.items()]
+    story_list = [{"id": k, "title": s["title"], "competencies": [COMPETENCIES[c] for c in s.get("competencies") or []],
+                   "result": s.get("result", "")} for k, s in told.items()]
+    system = (
+        "You help a graduate prepare for one interview with a UK employer. Use only the facts given. "
+        "talking_points: three answers to 'Why this company?', each joining one company fact (fact_id) to one of the candidate's "
+        "achievements (achievement_id), in the first person, one or two sentences, using no figure that is not in that fact or achievement. "
+        "pitch: the candidate's answer to 'Tell me about yourself' for this role, about 90 seconds spoken (150 to 250 words), in the first "
+        "person: their course, two or three achievements that fit the role, and why this role. Use no figure that is not in the input. "
+        "likely_questions: eight questions this interviewer is likely to ask, some from what the advert asks for and some standard UK "
+        f"competency questions. competency is one of: {COMPETENCY_LIST}, Motivation or Role knowledge. story_id is the id of the "
+        "candidate's story that best answers it, or \"\" when none fits. why is one short sentence on why it is likely. "
+        "questions_to_ask: five questions the candidate could ask at the end, each drawn from a company fact (fact_id) where possible. "
+        "Do not ask anything the company facts already answer; ask about the team, the work, how success is judged, or what a fact "
+        "means for the role. No em dashes."
+    )
+    user = (
+        f"Role: {job['title']} at {job['company']}\nAdvert: {advert[:ADVERT_TEXT] if advert else NO_ADVERT}\n\n"
+        f"Company facts: {_j([{'id': i, 'text': f['text']} for i, f in facts.items()]) if facts else '(none found)'}\n\n"
+        f"Candidate: {_j(candidate)}\nAchievements: {_j(listed)}\nStories: {_j(story_list) if story_list else '(none yet)'}\n\n"
+        'Return {"talking_points":[{"text":str,"fact_id":str,"achievement_id":str}],"pitch":str,'
+        '"likely_questions":[{"question":str,"competency":str,"story_id":str,"why":str}],'
+        '"questions_to_ask":[{"question":str,"fact_id":str}]}'
+    )
+    said = {item["id"]: _j(item) for item in listed}  # what each achievement told the model, figures included
+    sent = f"{_j(candidate)} {advert} {_j(listed)} {_j(story_list)}"
+    allowed = _numbers(sent, spelled=True)
+
+    def shaped(d: dict) -> dict | None:
+        points, seen = [], set()
+        for t in d["talking_points"]:
+            text, fact, achievement = " ".join(t["text"].split()), facts.get(t["fact_id"].strip()), mine.get(t["achievement_id"].strip())
+            source = f"{fact['text'] if fact else ''} {said.get(t['achievement_id'].strip(), '')}"
+            if text and fact and achievement and _key(text) not in seen and _numbers(text) <= _numbers(source, spelled=True):
+                seen.add(_key(text))
+                points.append({"text": text, "fact_id": fact["id"], "achievement_id": achievement["id"]})
+        pitch = " ".join(d["pitch"].split())
+        questions, asked = [], set()
+        for q in d["likely_questions"]:
+            text = " ".join(q["question"].split())
+            if text and _key(text) not in asked:
+                asked.add(_key(text))
+                story = told.get(q["story_id"].strip())
+                questions.append({"question": text, "competency": _question_kind(q["competency"]),
+                                  "story_id": story["id"] if story else None, "why": " ".join(q["why"].split())})
+        to_ask = [{"question": " ".join(q["question"].split()), "fact_id": q["fact_id"].strip() if q["fact_id"].strip() in facts else None}
+                  for q in d["questions_to_ask"] if q["question"].strip()][:MAX_TO_ASK]
+        if ((facts and not points) or not PITCH_WORDS[0] <= len(pitch.split()) <= PITCH_WORDS[1] or not _numbers(pitch) <= allowed
+                or len(questions) < MIN_QUESTIONS or len(to_ask) < MIN_TO_ASK):
+            return None
+        return {"talking_points": points[:MAX_TALKING_POINTS], "pitch": pitch, "likely_questions": questions[:MAX_QUESTIONS],
+                "questions_to_ask": to_ask}
+
+    template = {"talking_points": [{"text": "", "fact_id": "", "achievement_id": ""}], "pitch": "",
+                "likely_questions": [{"question": "", "competency": "", "story_id": "", "why": ""}],
+                "questions_to_ask": [{"question": "", "fact_id": ""}]}
+    return shaped(_run("prep", system, user, template, 3000, check=lambda d: shaped(d) is not None))
