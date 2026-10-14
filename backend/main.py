@@ -17,10 +17,12 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstra
 import ai
 import analytics
 import content
+import cv
 import cvbuild
 import cvfile
 import db
 import github
+import habits
 import intake
 import jobs
 import limits
@@ -107,6 +109,38 @@ def get_config():
             "contact_email": env("CONTACT_EMAIL")}
 
 
+def _pages() -> set[str]:
+    """The pages this build has, so the weekly plan never offers a task on one that is not there."""
+    return {"home", "profile", "pathways", "resume", "interview", "applications", "journal"} | ({"jobs"} if jobs_configured() else set())
+
+
+def _habits(state: dict, profile: dict, tracked: dict, stats: dict, fresh_jobs: int) -> dict:
+    """This week, the streak, milestones, follow-ups due and the weekly plan, all worked out now
+    from the user's own rows. `tracked` holds the rows read for them (see get_state)."""
+    apps, practice, goals, today = state["applications"], tracked["practice"], tracked["goals"], tracked["today"]
+    week = habits.this_week(applications=apps, practice_days=practice, goals=goals, today=today)
+    streak = habits.streaks(applications=apps, practice_days=practice, goals=goals, started=tracked["started"], today=today)
+    reached = habits.milestones(applications=apps, events=tracked["events"], practice_count=len(practice),
+                                story_count=len(state["stories"]), best_streak=streak["best"])
+    follow_ups = habits.follow_ups_due(apps, tracked["events"], today)
+    plan = habits.weekly_plan(follow_ups=follow_ups, findings=stats["findings"], fresh_jobs=fresh_jobs, week=week,
+                              story_count=len(state["stories"]), missing_numbers=sum(a["needs_number"] for a in state["achievements"]),
+                              pages=_pages())
+    return {
+        "habits": {"this_week": week, "streak": streak["current"], "best_streak": streak["best"], "milestones": reached,
+                   "new_milestones": [{"id": m, "text": habits.MILESTONES[m]} for m in reached if m not in profile["milestones_seen"]]},
+        "follow_ups_due": follow_ups,
+        "plan": plan,
+    }
+
+
+def _with_history(applications: list, events: list) -> list:
+    history = {}
+    for e in events:
+        history.setdefault(e["application_id"], []).append({"from_stage": e["from_stage"], "to_stage": e["to_stage"], "at": e["at"]})
+    return [a | {"history": history.get(a["id"], [])} for a in applications]
+
+
 @app.get("/api/state")
 def get_state(user: CurrentUser):
     since, fresh_since = _job_dates()
@@ -118,10 +152,16 @@ def get_state(user: CurrentUser):
         usage = limits.usage(conn, user.id)
         job_counts = repo.job_counts(conn, user.id, since, fresh_since)
         market = jobs.market(repo.family_market(conn, user.id, since))
-    return state | {
+        tracked = {"events": repo.list_application_events(conn, user.id), "goals": repo.list_goals(conn, user.id),
+                   "practice": repo.practice_days(conn, user.id), "started": repo.account_started(conn, user.id),
+                   "today": repo.today(conn)}
+    stats = analytics.compute(state["applications"], state["role_families"], state["cv_versions"], state["stories"], market)
+    progress = _habits(state, profile, tracked, stats, job_counts["fresh"] if jobs_configured() else 0)
+    state["applications"] = _with_history(state["applications"], tracked["events"])
+    return state | progress | {
         "profile": profile | {"email": user.email},
         "details_complete": repo.details_complete(profile),
-        "stats": analytics.compute(state["applications"], state["role_families"], state["cv_versions"], state["stories"], market),
+        "stats": stats,
         "next_steps": analytics.next_steps(state),
         "content": content.load(),
         "usage": usage,
@@ -591,7 +631,8 @@ class ApplicationIn(BaseModel):
     cv_version_id: UUID | None = None
     saved_job_id: UUID | None = None
     job_url: Text(500, 0) | None = None
-    contact: Text(200, 0) | None = None
+    contact_name: Text(120, 0) | None = None  # the only part of the contact ever sent to the AI
+    contact: Text(200, 0) | None = None       # how to reach them
     notes: Text(4000, 0) | None = None
     sponsor_licence: bool | None = None  # what the sponsor register said about the employer, if known
     follow_up_on: date | None = None
@@ -614,6 +655,7 @@ class ApplicationPatch(BaseModel):
     cv_version_id: UUID | None = None
     saved_job_id: UUID | None = None
     job_url: Text(500, 0) | None = None
+    contact_name: Text(120, 0) | None = None
     contact: Text(200, 0) | None = None
     notes: Text(4000, 0) | None = None
     sponsor_licence: bool | None = None  # what the sponsor register said about the employer, if known
@@ -646,6 +688,94 @@ def update_application(app_id: UUID, body: ApplicationPatch, user: CurrentUser):
 def delete_application(app_id: UUID, user: CurrentUser):
     with db.transaction() as conn:
         _found(repo.delete_application(conn, user.id, str(app_id)))
+    return Response(status_code=204)
+
+
+# ---------- the tracker's habits: rejections, follow-ups, goals, milestones ----------
+
+NOTHING_TO_COMPARE = ("No CV or job description was recorded for this application, so there is nothing to compare. "
+                      "Attach both next time.")
+ENDED = "This application has ended, so there is nothing to follow up."
+
+
+class RejectIn(BaseModel):
+    ended_at: Literal[tuple(repo.ENDED_AT)]
+    feedback: Text(2000, 0) = ""
+
+
+def _cv_text(version: dict | None) -> str:
+    """What a reader of the CV that was sent would see. Never the contact line: it is not the model's business."""
+    if not version:
+        return ""
+    content = version["content"]
+    if version["format_version"] == 2:
+        return cv.text(content)
+    return "\n".join(p for p in [content.get("profile"), *[b.get("text") for b in content.get("bullets") or []]] if p)
+
+
+@app.post("/api/applications/{app_id}/reject")
+def reject_application(app_id: UUID, body: RejectIn, user: CurrentUser):
+    """Record where a rejection ended and any feedback, then write one lesson from the CV that was
+    sent and the job description. The rejection is saved first, so it stands if the daily limit is
+    reached or the model fails; sending the same answers again retries the lesson."""
+    with db.transaction() as conn:
+        application = _found(repo.reject_application(conn, user.id, str(app_id), ended_at=body.ended_at, feedback=body.feedback))
+        version = repo.get_cv_version(conn, user.id, application["cv_version_id"]) if application["cv_version_id"] else None
+        job_id = application["saved_job_id"] or (version or {}).get("saved_job_id")
+        job = repo.get_job(conn, user.id, job_id) if job_id else None
+    cv_text = _cv_text(version)
+    if not cv_text and not job:
+        return {"application": application, "lesson": None, "notice": NOTHING_TO_COMPARE}
+    _start_ai(user, "lesson")
+    lesson = ai.rejection_lesson(job=job, cv_text=cv_text, ended_at=body.ended_at, feedback=application["feedback_received"] or "")
+    with db.transaction() as conn:
+        lesson["made_on"] = repo.today(conn).isoformat()
+        application = _found(repo.set_lesson(conn, user.id, application["id"], lesson))
+    return {"application": application, "lesson": application["lesson"], "notice": None}
+
+
+@app.post("/api/ai/applications/{app_id}/follow-up")
+def ai_follow_up(app_id: UUID, user: CurrentUser):
+    """A short follow-up message for the user to copy. Nothing is ever sent for them."""
+    with db.transaction() as conn:
+        application = _found(repo.get_application(conn, user.id, str(app_id)))
+    if application["stage"] in repo.CLOSED:
+        raise HTTPException(400, ENDED)
+    profile = _start_ai(user, "follow up")
+    return ai.follow_up(role=application["role"], company=application["company"], applied_on=application["applied_on"],
+                        contact_name=application["contact_name"] or "", sender=profile["full_name"])
+
+
+@app.post("/api/applications/{app_id}/followed-up")
+def followed_up(app_id: UUID, user: CurrentUser):
+    with db.transaction() as conn:
+        return _found(repo.mark_followed_up(conn, user.id, str(app_id), repo.today(conn)))
+
+
+class GoalsIn(BaseModel):
+    applications: int = Field(ge=1, le=30)  # never 0: a goal of nothing would build a streak from nothing
+    practice: int = Field(ge=0, le=14)
+
+
+@app.put("/api/profile/goals")
+def put_goals(body: GoalsIn, user: CurrentUser):
+    """Set the weekly goals. The first goal a user sets applies to this week; any later change
+    from next Monday, so a week in progress can never be made easier."""
+    with db.transaction() as conn:
+        starts = habits.goal_starts(repo.today(conn), repo.list_goals(conn, user.id))
+        saved = repo.set_goal(conn, user.id, effective_from=starts, applications=body.applications, practice=body.practice)
+    return {"goal": {"applications": saved["applications"], "practice": saved["practice"]}, "starts_on": saved["effective_from"]}
+
+
+class MilestonesSeen(BaseModel):
+    ids: list[Literal[tuple(habits.MILESTONES)]] = Field(max_length=len(habits.MILESTONES))
+
+
+@app.post("/api/milestones/seen", status_code=204)
+def milestones_seen(body: MilestonesSeen, user: CurrentUser):
+    with db.transaction() as conn:
+        repo.get_or_create_profile(conn, user.id, user.name)
+        repo.mark_milestones_seen(conn, user.id, body.ids)
     return Response(status_code=204)
 
 
