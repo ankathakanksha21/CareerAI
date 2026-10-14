@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Copy, Trash2, X } from 'lucide-react'
 import { del, patch, post } from '../api'
 import { ErrorRetry, attempt, fmtDate, useAction } from '../ui'
-import { CLOSED, ENDED_LABEL, HISTORY_FROM, REJECTED, STAGE_LABEL, useEscape } from '../tracker'
+import { CLOSED, ENDED_PHRASE, HISTORY_FROM, REJECTED, STAGE_LABEL, useEscape } from '../tracker'
 import { Lesson } from './RejectQuestions'
 
 const SPONSOR = { yes: true, no: false, '': null }
@@ -11,7 +11,7 @@ const when = (at) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', 
 
 // Every field of one application, each saved as it changes, with its stage history, follow-up and lesson
 export default function ApplicationPanel({ app: a, s, refresh, go, notify, close, onReject }) {
-  const [round, setRound] = useState(0) // a new number puts the stored values back after a refused or blank edit
+  const [refused, setRefused] = useState({}) // per field: a new number puts the stored value back after a refused or blank edit
   const draft = useAction(() => post(`/api/ai/applications/${a.id}/follow-up`))
   const relearn = useAction(async () => {
     const r = await post(`/api/applications/${a.id}/reject`, { ended_at: a.rejected_at_stage, feedback: a.feedback_received || '' })
@@ -19,13 +19,21 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
     return r
   })
   const safely = attempt(notify)
-  useEscape(close)
+  // the field being edited is saved first, as clicking away would save it: its leave handler is run
+  // directly, since a browser need not fire one for a field that is about to disappear
+  useEscape(() => {
+    const field = document.activeElement
+    if (field?.closest('.panel')) field.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    close()
+  })
+  const putBack = (keys) => setRefused((r) => ({ ...r, ...Object.fromEntries(keys.map((k) => [k, (r[k] || 0) + 1])) }))
 
   const save = (fields) => safely(async () => {
     try {
       await patch(`/api/applications/${a.id}`, fields)
     } catch (e) {
-      setRound((n) => n + 1)
+      // a refused edit shows the stored value again; after a network or server failure the typing is kept to try again
+      if (e.status >= 400 && e.status < 500) putBack(Object.keys(fields))
       throw e
     }
     await refresh()
@@ -36,19 +44,19 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
     onBlur: (e) => {
       const value = e.target.value.trim()
       if (value === (a[key] || '')) return
-      if (required && !value) { setRound((n) => n + 1); return }
+      if (required && !value) { putBack([key]); return }
       save({ [key]: value || null })
     },
   })
   // an input remounts, showing what is stored, when its stored value changes or an edit of it is refused
-  const stamp = (key) => `${round}:${a[key] ?? ''}`
+  const stamp = (key) => `${refused[key] || 0}:${a[key] ?? ''}`
   const followedUp = () => safely(async () => { await post(`/api/applications/${a.id}/followed-up`); await refresh(); notify('Next follow-up in a week') })
   const remove = () => {
     if (!window.confirm(`Delete the application to ${a.company}? Its history and lesson go with it.`)) return
     safely(async () => { await del(`/api/applications/${a.id}`); close(); await refresh(); notify('Application deleted') })
   }
   const copy = (value) => safely(async () => { await navigator.clipboard.writeText(value); notify('Copied') })
-  const setStage = (stage) => (REJECTED.has(stage) ? onReject(a) : save({ stage }))
+  const setStage = (stage) => (REJECTED.has(stage) ? onReject(a, stage) : save({ stage }))
   const cv = s.cv_versions.find((c) => c.id === a.cv_version_id)
 
   return (
@@ -148,7 +156,7 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
               <h3>Lesson</h3>
               {a.rejected_at_stage ? (
                 <>
-                  <p className="small">Ended {ENDED_LABEL[a.rejected_at_stage].toLowerCase()}. {a.feedback_received ? <>They said: "{a.feedback_received}"</> : 'No feedback given.'}</p>
+                  <p className="small">Ended {ENDED_PHRASE[a.rejected_at_stage]}. {a.feedback_received ? <>They said: "{a.feedback_received}"</> : 'No feedback given.'}</p>
                   {a.lesson ? <Lesson lesson={a.lesson} go={go} /> : relearn.result?.notice ? <p className="small">{relearn.result.notice}</p> : (
                     <div className="row"><button type="button" className="btn small" disabled={relearn.loading} onClick={() => relearn.run()}>{relearn.loading ? 'Writing the lesson' : 'Get the lesson'}</button></div>
                   )}

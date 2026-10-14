@@ -166,7 +166,8 @@ Smaller behaviours worth knowing:
 - The model is never sent the user's name, phone number, email, town or LinkedIn address when a CV is written.
 - A new application gets a follow-up date a week after the date applied. Correcting the date applied moves it, until the user has followed up or chosen a date. "Mark as followed up" sets the next one a week after the day it is pressed.
 - An application still at Applied with no stage change for 21 days is listed under Follow-ups due with "Move to No reply". Logging an application late is not a change: the days count from the date applied.
-- Moving a card out of Rejected clears where it ended, the feedback and the lesson. Moving it between the two rejected stages keeps them.
+- Moving a card out of Rejected clears where it ended, the feedback and the lesson. Moving it into Rejected, or from one rejected stage to the other, always asks where it ended first, so the answer and the stage agree. The question starts on an answer that fits: a card already at "Rejected after interview" starts on "after an interview".
+- A lesson is saved only onto the rejection it was written for: if the card was moved out of Rejected or answered again while the model was writing, the lesson is dropped and the page says so.
 - Three lessons that point to the same page become a finding under What to fix.
 - All milestones not yet shown appear in one banner at the top of Home and are marked seen as it appears. Deleting an application can take away a milestone not yet shown; a milestone already shown never comes back.
 - The weekly plan holds at most five tasks, never one for a page this build lacks: no jobs task without a Reed key, no task for a finding that links nowhere.
@@ -701,7 +702,7 @@ The hedge rule, the keyword rules and the last rule were added after the first r
 |---|---|---|
 | A guess, never a verdict | The likely reason must contain "may", "might", "could", "possibly", "probably", "perhaps", "likely", "seems" or "suggests" | Asked once more, then an error with Retry |
 | No invented feedback | With no feedback entered, the reason may not mention feedback, and neither part may say "they said", "you were told" or similar. Suggesting the user ask for feedback is allowed | The same |
-| Quotes are real | A phrase in quotation marks must appear in the feedback, the CV or the advert | The same |
+| Quotes are real | A phrase in quotation marks, double or single, straight or curly, must appear in the feedback, the CV or the advert. An apostrophe ("you're", "employer's") is not a quotation mark | The same |
 | No advert, no description of it | With no job description recorded, the reason may not mention the advert | The same |
 | Written to the user | "The candidate" is refused | The same |
 | A page that exists | Anything but resume, interview or profile becomes resume for a CV-stage rejection, interview for the rest | Normalised |
@@ -724,13 +725,14 @@ The last three rules came from the real model on 14 October 2026, which wrote "T
 
 | Check | Result | Date |
 |---|---|---|
-| Automated backend suite | 1,331 passed, 0 skipped, against the real database | 14 Oct 2026 |
+| Automated backend suite | 1,340 passed, 0 skipped, against the real database | 14 Oct 2026 |
 | Frontend | Lints with no errors and no new warnings; builds | 14 Oct 2026 |
 | Migration `007_tracker_habits` | Applied to the real database; open applications without a follow-up date were given one | 14 Oct 2026 |
 | Real model, one call per AI task (`live_check.py`) | 28 of 28 passed: the 24 from before and 4 new (a lesson with feedback, without feedback, without an advert; a follow-up draft), 1 to 3 seconds each | 14 Oct 2026 |
-| Real output read by eye | Seven lessons: each hedged, specific to the CV and advert, and using the feedback only when it was given; the first ones spoke of "the candidate", fixed. Seven drafts: 50 to 65 words, one ask, the right date and contact; the first ones lost their body to a greeting on the same line or kept a second sign-off, fixed | 14 Oct 2026 |
+| Real output read by eye | Eight lessons: each hedged, specific to the CV and advert, and using the feedback only when it was given; the first ones spoke of "the candidate", fixed. Seven drafts: about 50 to 65 words, one ask, the right date and contact; the first ones lost their body to a greeting on the same line or kept a second sign-off, fixed | 14 Oct 2026 |
 | Home and Applications against the real backend and model, as a temporary user whose data was never saved | The panel showed every field; notes, date posted and link saved and were still there after a reload. A card moved Applied, Phone screen, Interview, Offer showed each change with its date, and Offer showed nothing to follow up. Dropping a card on Rejected asked the two questions without moving it, and Cancel left it at Applied; answered "after an interview" with feedback, it gave a lesson about this job's CV and the feedback, which also appeared under What you have learned and in the panel. A card with no CV or advert gave the fixed message and made no AI call. A real follow-up draft was addressed to the contact, dated right and signed with the user's name; Mark as followed up moved the date a week on and took it off Follow-ups due. Setting goals of 1 and 0 made the week met and the streak 1, and took the goal tasks off the plan. Three milestones showed in one banner and not again after a reload; two more reached later showed once each. Open CV opened the version that was sent. Move to No reply worked from Home. At phone width the panel filled the screen with no sideways scroll | 14 Oct 2026 |
 | Defects that check found, each fixed test first | An application logged late never counted as quiet; Move to No reply left a follow-up due; "1 of 1 applications" | 14 Oct 2026 |
+| A fresh review of the whole branch (a separate reviewer on the most capable model) | Ready to merge with fixes; no critical findings. Fixed, each with a test or a browser check that failed first: a quote in single quotes escaped the quote check; the question form started a card already at "Rejected after interview" on "at the CV stage", and could undo a rejected stage picked from the menu; Cancel did nothing once Save was pressed, and a lesson could land on a card moved out of Rejected meanwhile; a greeting such as "Hello!" took the first clause of a draft with it, and a closing "Many thanks for..." sentence was cut; Escape lost an edit not yet saved, and one refused edit reset every field; "Ended at the cv stage"; the "Also worth fixing" card, dropped from Home without a recorded reason, is back. The same checks were then repeated on the pages as a temporary user | 14 Oct 2026 |
 | The database afterwards | No trace of the temporary user | 14 Oct 2026 |
 
 **Not yet verified:**

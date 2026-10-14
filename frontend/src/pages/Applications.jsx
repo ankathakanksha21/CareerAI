@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { BellRing, Plus, Trash2 } from 'lucide-react'
 import { del, patch, post } from '../api'
 import { Empty, ErrorRetry, Meter, PageHead, attempt, fmtDate, isoDay, parseDay, pct, plural, today, useAction } from '../ui'
-import { ENDED_LABEL, LESSON_LINK, REJECTED, STAGE_LABEL, isDue } from '../tracker'
+import { ENDED_PHRASE, LESSON_LINK, REJECTED, STAGE_LABEL, isDue } from '../tracker'
 import ApplicationPanel from '../components/ApplicationPanel'
 import FollowUps from '../components/FollowUps'
 import RejectQuestions from '../components/RejectQuestions'
@@ -88,9 +88,10 @@ function Board({ s, refresh, notify, open, reject }) {
   const fam = Object.fromEntries(s.role_families.map((f) => [f.id, f.name]))
   const cvs = Object.fromEntries(s.cv_versions.map((c) => [c.id, c.name]))
   const safely = attempt(notify)
-  // a move to a rejected stage asks where it ended first; nothing changes until that is answered
-  const setStage = (a, stage) => (REJECTED.has(stage) && !REJECTED.has(a.stage)
-    ? reject(a)
+  // a move to a rejected stage, or between the two, asks where it ended first, so the answer and the
+  // stage always agree; nothing changes until that is answered
+  const setStage = (a, stage) => (REJECTED.has(stage)
+    ? reject(a, stage)
     : safely(async () => { await patch(`/api/applications/${a.id}`, { stage }); await refresh() }))
   const remove = (a) => {
     if (!window.confirm(`Delete the application to ${a.company}?`)) return
@@ -100,7 +101,9 @@ function Board({ s, refresh, notify, open, reject }) {
     e.preventDefault()
     setOver(null)
     const app = s.applications.find((a) => a.id === e.dataTransfer.getData('text/plain'))
-    if (app && !col.stages.includes(app.stage)) setStage(app, col.stages[0])
+    if (!app || col.stages.includes(app.stage)) return
+    if (col.key === 'rejected') reject(app) // the Rejected column holds both stages: the answer decides which
+    else setStage(app, col.stages[0])
   }
   const keep = (e) => e.stopPropagation() // a control inside a card does not open the card
 
@@ -220,7 +223,7 @@ function Learned({ s, go, open }) {
         {lessons.map((a) => (
           <div key={a.id} className="finding">
             <div>
-              <span className="kind">{a.role}, {a.company}{a.rejected_at_stage && `: ${ENDED_LABEL[a.rejected_at_stage].toLowerCase()}`}</span>
+              <span className="kind">{a.role}, {a.company}{a.rejected_at_stage && `: ended ${ENDED_PHRASE[a.rejected_at_stage]}`}</span>
               <p className="act">{a.lesson.one_change}</p>
               <p className="ev">{a.lesson.likely_reason} <button className="linkish small" onClick={() => open(a.id)}>Open</button></p>
             </div>
@@ -241,7 +244,7 @@ export default function Applications({ s, refresh, go, focus, notify }) {
   const r = review.result
   const empty = s.applications.length === 0
   const opened = s.applications.find((a) => a.id === openId)
-  const reject = (a) => setRejecting({ app: a, from: a.stage })
+  const reject = (a, target = null) => setRejecting({ app: a, from: a.stage, target })
 
   return (
     <>
@@ -311,7 +314,7 @@ export default function Applications({ s, refresh, go, focus, notify }) {
       )}
 
       {opened && !rejecting && <ApplicationPanel key={opened.id} app={opened} s={s} refresh={refresh} go={go} notify={notify} close={() => setOpenId(null)} onReject={reject} />}
-      {rejecting && <RejectQuestions app={rejecting.app} from={rejecting.from} refresh={refresh} go={go} close={() => setRejecting(null)} />}
+      {rejecting && <RejectQuestions app={rejecting.app} from={rejecting.from} target={rejecting.target} refresh={refresh} go={go} close={() => setRejecting(null)} />}
     </>
   )
 }

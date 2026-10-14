@@ -49,6 +49,9 @@ export default function Home({ s, go, refresh, notify }) {
     : finding
       ? { text: finding.action, why: finding.evidence, label: finding.link?.label, page: finding.link?.page }
       : step && { text: step.text, why: step.why, label: 'Open', page: step.page }
+  // findings that are neither the next best step nor a task on the plan, such as one with no page to fix it on
+  const planned = new Set(s.plan.map((t) => t.id))
+  const others = (fresh > 0 ? s.stats.findings : s.stats.findings.slice(1)).filter((x) => !planned.has(`finding-${x.id}`))
 
   return (
     <>
@@ -72,6 +75,14 @@ export default function Home({ s, go, refresh, notify }) {
           <Plan s={s} go={go} />
           <FollowUps s={s} refresh={refresh} notify={notify} onOpen={(id) => go('applications', null, { appId: id })} />
           <GettingStarted s={s} go={go} />
+          {others.length > 0 && (
+            <section className="card">
+              <div className="row"><h2>Also worth fixing</h2><span className="spacer" /><button className="linkish small" onClick={() => go('applications')}>Applications</button></div>
+              <div className="list" style={{ marginTop: 12 }}>
+                {others.map((x) => <div key={x.id}><div className="strong">{x.title}</div><p className="small muted">{x.evidence}</p></div>)}
+              </div>
+            </section>
+          )}
         </div>
 
         <div className="stack">

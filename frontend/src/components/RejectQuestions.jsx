@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { post } from '../api'
 import { ErrorRetry, useAction } from '../ui'
-import { ENDED, LESSON_LINK, answersKept, endedFrom, useEscape } from '../tracker'
+import { ENDED, ENDED_FOR, LESSON_LINK, answersKept, endedFrom, useEscape } from '../tracker'
 
 // One rejection's lesson: a possibility, never a verdict, and the page that fixes it
 export function Lesson({ lesson, go }) {
@@ -17,13 +17,16 @@ export function Lesson({ lesson, go }) {
 }
 
 // Asked when a card moves to Rejected: where it ended and whether they gave feedback. Nothing
-// changes until it is sent, so Cancel leaves the card where it was.
-export default function RejectQuestions({ app, from, refresh, go, close }) {
-  const [ended, setEnded] = useState(app.rejected_at_stage || endedFrom(from || app.stage))
+// changes until it is sent, so Cancel leaves the card where it was. `target` is a rejected stage the
+// user picked from a menu; the answer the form starts on agrees with it.
+export default function RejectQuestions({ app, from, target, refresh, go, close }) {
+  const fits = (answer) => answer && (!target || ENDED_FOR[target].includes(answer))
+  const [ended, setEnded] = useState(fits(app.rejected_at_stage) ? app.rejected_at_stage : endedFrom(from || app.stage, target))
   const [feedback, setFeedback] = useState(app.feedback_received || '')
   const send = useAction(() => post(`/api/applications/${app.id}/reject`, { ended_at: ended, feedback }))
   const done = send.result
-  useEscape(close)
+  const leave = send.loading ? () => {} : close // once Save is pressed the rejection is on its way: it cannot be cancelled
+  useEscape(leave)
   const submit = async (e) => {
     e.preventDefault()
     await send.run()
@@ -31,7 +34,7 @@ export default function RejectQuestions({ app, from, refresh, go, close }) {
   }
 
   return (
-    <div className="backdrop" onClick={close}>
+    <div className="backdrop" onClick={leave}>
       <div className="dialog card" role="dialog" aria-modal="true" aria-labelledby="reject-title" onClick={(e) => e.stopPropagation()}>
         <h2 id="reject-title">{app.role} at {app.company}</h2>
         {!done ? (
@@ -45,10 +48,10 @@ export default function RejectQuestions({ app, from, refresh, go, close }) {
             <label className="field">Did they give feedback? <span className="muted" style={{ fontWeight: 400 }}>Optional. Their words, as near as you remember them.</span>
               <textarea rows={3} maxLength={2000} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="Leave this blank if they gave none" />
             </label>
-            <p className="small muted">The lesson compares the CV you sent with the job description. It uses one AI action.</p>
+            <p className="small muted">If the CV you sent or the job description was recorded, the app compares them and writes one lesson, using one AI action.</p>
             <div className="row">
               <button className="btn" type="submit" disabled={send.loading}>{send.loading ? 'Saving and writing a lesson' : 'Save'}</button>
-              <button className="btn ghost" type="button" onClick={close}>{answersKept(send.error) ? 'Close' : 'Cancel'}</button>
+              <button className="btn ghost" type="button" disabled={send.loading} onClick={close}>{answersKept(send.error) ? 'Close' : 'Cancel'}</button>
             </div>
             {answersKept(send.error) && <p className="small">The rejection and your answers are saved. You can ask for the lesson again from the application.</p>}
             <ErrorRetry error={send.error} onRetry={async () => { await send.retry(); refresh() }} />

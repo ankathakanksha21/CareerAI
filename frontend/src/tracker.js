@@ -8,8 +8,17 @@ export const CLOSED = new Set(['offer', ...REJECTED]) // an application that has
 // Where a rejection ended, as the user answers it
 export const ENDED = [['cv', 'At the CV stage'], ['screening', 'After a phone screen'], ['interview', 'After an interview'], ['final', 'After a final interview']]
 export const ENDED_LABEL = Object.fromEntries(ENDED)
-// The answer the question form starts on, from where the card was before it was rejected
-export const endedFrom = (stage) => ({ screening: 'screening', interview: 'interview' }[stage] || 'cv')
+// The same, inside a sentence: "Ended at the CV stage."
+export const ENDED_PHRASE = { cv: 'at the CV stage', screening: 'after a phone screen', interview: 'after an interview', final: 'after a final interview' }
+// Which answers fit each rejected stage
+export const ENDED_FOR = { rejected: ['cv', 'screening'], rejected_after_interview: ['interview', 'final'] }
+const FROM_STAGE = { screening: 'screening', interview: 'interview', rejected_after_interview: 'interview', offer: 'final' }
+// The answer the question form starts on: from where the card was, unless the user picked a rejected
+// stage from a menu, which it must agree with
+export const endedFrom = (stage, target = null) => {
+  const guess = FROM_STAGE[stage] || 'cv'
+  return !target || ENDED_FOR[target].includes(guess) ? guess : ENDED_FOR[target][0]
+}
 
 // The page that fixes what a lesson found, and its button
 export const LESSON_LINK = { resume: 'Open Resume', interview: 'Practise an interview', profile: 'Open your profile' }
