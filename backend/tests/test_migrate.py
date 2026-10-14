@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 import psycopg
 import pytest
@@ -10,7 +10,8 @@ pytestmark = pytest.mark.db
 TABLES = ("profiles", "achievements", "role_families", "saved_jobs", "cv_versions", "stories",
           "applications", "journal_entries", "usage_events", "schema_migrations",
           "job_listings", "job_searches", "job_search_results", "sponsors", "reference_meta", "job_matches",
-          "work_history", "education", "application_events", "weekly_goals", "companies", "prep_packs")
+          "work_history", "education", "application_events", "weekly_goals", "companies", "prep_packs",
+          "contacts", "outreach_events", "networking_events")
 
 
 def test_apply_all_is_idempotent(conn):
@@ -397,3 +398,123 @@ def test_backfill_maps_exact_labels(conn, user_a):
     conn.execute(_backfill_statement())
     got = {r["id"]: r["competencies"] for r in conn.execute("select id, competencies from stories where user_id = %s", (user_a,))}
     assert got == {tagged: ["teamwork"], spaced: ["setback"], hyphen: []}
+
+
+# ---------- 009_networking: contacts, their pipeline, saved events, the outreach target ----------
+
+def _insert(conn, table, user, fields):
+    return conn.execute(f"insert into {table} (user_id, {', '.join(fields)}) values (%s, {', '.join(['%s'] * len(fields))}) returning *",
+                        (user, *fields.values())).fetchone()
+
+
+def _contact(conn, user, **kw):
+    return _insert(conn, "contacts", user, {"name": "Zzqx Person", "relationship": "none"} | kw)
+
+
+def _sent(conn, user, contact_id, **kw):
+    return _insert(conn, "outreach_events", user, {"contact_id": contact_id, "kind": "sent", "message_type": "chat_request"} | kw)
+
+
+def _networking_event(conn, user, **kw):
+    fields = {"name": "Zzqx Data Meetup", "starts_at": datetime(2026, 10, 20, 17, 30, tzinfo=timezone.utc), "type": "meetup"} | kw
+    return _insert(conn, "networking_events", user, fields)
+
+
+def test_networking_tables_cascade_on_user_delete(conn, user_a):
+    event = _networking_event(conn, user_a)["id"]
+    contact = _contact(conn, user_a, event_id=event)["id"]
+    _sent(conn, user_a, contact)
+    conn.execute("delete from auth.users where id = %s", (user_a,))
+    for table in ("contacts", "outreach_events", "networking_events"):
+        assert _count(conn, table, "user_id", user_a) == 0
+
+
+def test_deleting_a_contact_keeps_the_application_and_the_messages_sent(conn, user_a):
+    contact = _contact(conn, user_a)["id"]
+    application = _application(conn, user_a, contact_id=contact)["id"]
+    message = _sent(conn, user_a, contact)["id"]
+    conn.execute("delete from contacts where id = %s", (contact,))
+    assert conn.execute("select contact_id from applications where id = %s", (application,)).fetchone()["contact_id"] is None
+    kept = conn.execute("select contact_id, kind from outreach_events where id = %s", (message,)).fetchone()
+    assert kept == {"contact_id": None, "kind": "sent"}
+
+
+def test_deleting_an_event_keeps_its_contacts(conn, user_a):
+    event = _networking_event(conn, user_a)["id"]
+    contact = _contact(conn, user_a, relationship="event", event_id=event)["id"]
+    conn.execute("delete from networking_events where id = %s", (event,))
+    assert conn.execute("select event_id from contacts where id = %s", (contact,)).fetchone()["event_id"] is None
+
+
+@pytest.mark.parametrize("make, value", [
+    (lambda c, u, v: _contact(c, u, relationship=v), "friend"),
+    (lambda c, u, v: _contact(c, u, status=v), "ghosted"),
+    (lambda c, u, v: _sent(c, u, _contact(c, u)["id"], kind=v), "liked"),
+    (lambda c, u, v: _sent(c, u, _contact(c, u)["id"], message_type=v), "poem"),
+    (lambda c, u, v: _networking_event(c, u, type=v), "party"),
+    (lambda c, u, v: _networking_event(c, u, status=v), "maybe"),
+])
+def test_networking_values_are_checked(conn, user_a, make, value):
+    with pytest.raises(psycopg.errors.CheckViolation):
+        make(conn, user_a, value)
+
+
+def test_a_message_type_only_with_a_message_sent(conn, user_a):
+    contact = _contact(conn, user_a)["id"]
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _sent(conn, user_a, contact, message_type=None)
+
+
+def test_a_reply_has_no_message_type(conn, user_a):
+    contact = _contact(conn, user_a)["id"]
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _sent(conn, user_a, contact, kind="replied", message_type="chat_request")
+
+
+def test_the_same_message_marked_sent_twice_on_one_day_is_one_row(conn, user_a):
+    contact = _contact(conn, user_a)["id"]
+    _sent(conn, user_a, contact)
+    _sent(conn, user_a, contact, message_type="follow_up")  # another type the same day is another message
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        _sent(conn, user_a, contact)
+
+
+def test_networking_defaults(conn, user_a):
+    contact = _contact(conn, user_a)
+    assert (contact["status"], contact["role"], contact["company"], contact["notes"], contact["event_id"]) == ("to_contact", "", "", "", None)
+    event = _networking_event(conn, user_a)
+    assert (event["status"], event["online"], event["prep"]) == ("interested", False, None)
+    assert _application(conn, user_a)["contact_id"] is None
+
+
+@pytest.mark.parametrize("outreach, ok", [(None, True), (0, True), (20, True), (21, False), (-1, False)])
+def test_outreach_target_bounds(conn, user_a, outreach, ok):
+    insert = lambda: conn.execute("insert into weekly_goals (user_id, effective_from, applications, practice, outreach) "
+                                  "values (%s, '2026-10-12', 5, 2, %s)", (user_a, outreach))
+    if ok:
+        insert()
+    else:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            insert()
+
+
+def test_a_new_profile_has_an_outreach_target_of_two_and_no_events_page(conn, user_a):
+    row = conn.execute("insert into profiles (user_id, full_name) values (%s, 'Test Person') returning *", (user_a,)).fetchone()
+    assert (row["outreach_default"], row["university_events_url"]) == (2, None)
+
+
+def _outreach_default_statements() -> list[str]:
+    sql = (migrate.MIGRATIONS / "009_networking.sql").read_text(encoding="utf-8")
+    return [s for s in sql.split(";") if "outreach_default" in s]
+
+
+def test_accounts_that_exist_at_the_migration_get_no_outreach_target_and_later_ones_two(conn):
+    statements = _outreach_default_statements()
+    assert len(statements) == 2
+    conn.execute("create temp table zzqx_profiles (user_id int)")
+    conn.execute("insert into zzqx_profiles values (1)")
+    for statement in statements:
+        conn.execute(statement.replace("alter table profiles", "alter table zzqx_profiles"))
+    conn.execute("insert into zzqx_profiles values (2)")
+    rows = conn.execute("select outreach_default from zzqx_profiles order by user_id").fetchall()
+    assert [r["outreach_default"] for r in rows] == [0, 2]
