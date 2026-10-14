@@ -438,3 +438,13 @@ def test_dates():
     assert cv.as_date("2023-07-01T00:00:00") == date(2023, 7, 1)
     assert cv.as_date(None) is None and cv.as_date("") is None and cv.as_date("July 2023") is None and cv.as_date(7) is None
     assert cv.long_date(date(2026, 10, 3)) == "3 October 2026"
+
+
+# ---------- what the profile shows, for checking what a CV may claim ----------
+
+def test_unshown_terms_are_those_nothing_in_the_profile_shows():
+    words = cv.evidence(PROFILE | {"course": "MSc Data Science", "university": "Zzqx City University"}, [COURSE1], [JOB1],
+                        [achievement(1, skills=["SQL"], outcome="Fewer late deliveries")])
+    terms = ["SQL", "Tableau", "Data Analyst", "Junior Analyst", "MSc", "dashboards", "Python", "late deliveries", "Data Science"]
+    assert cv.unshown(terms, words, "Junior Analyst, Operations") == ["Tableau", "dashboards"]
+    assert cv.unshown(terms, "", "") == terms and cv.unshown([], words, "Junior Analyst") == []

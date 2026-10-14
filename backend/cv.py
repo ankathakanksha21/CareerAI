@@ -308,6 +308,26 @@ def has_term(term: str, text: str) -> bool:
                                 for at in range(len(words) - len(wanted) + 1))
 
 
+def _achievement_words(achievement: dict) -> str:
+    return " \n ".join([*(achievement.get(k) or "" for k in ("title", "uk_version", "outcome", "scale")), *(achievement.get("skills") or [])])
+
+
+def evidence(profile: dict, education: list, work_history: list, achievements: list) -> str:
+    """Everything the user's profile says about them, as one text: what a CV may fairly claim."""
+    parts = [profile.get("course"), profile.get("university"), *own_skills(profile, achievements)]
+    for course in education:
+        parts += [course.get(k) for k in ("institution", "qualification", "subject")]
+    for job in work_history:
+        parts += [job.get(k) for k in ("employer", "job_title", "employer_context")]
+    return " \n ".join([*(p for p in parts if p), *(_achievement_words(a) for a in achievements)])
+
+
+def unshown(terms: list[str], shown: str, job_title: str) -> list[str]:
+    """The job's terms that nothing in the profile shows. The title of the job itself is left out:
+    a CV may name the role it is for."""
+    return [term for term in terms if not has_term(term, shown) and not has_term(term, job_title)]
+
+
 def coverage(terms: list[str], content: dict, achievements: list, skills: list[str]) -> dict:
     """Each of the job's main terms in one of three groups: covered (its words are in the CV as it
     will print), available (not in the CV, but in the user's profile, with the unused achievements
@@ -315,8 +335,7 @@ def coverage(terms: list[str], content: dict, achievements: list, skills: list[s
     seen, on_cv = text(content), set()
     for entry in [*_shown(content.get("work")), *_shown(content.get("projects"))]:
         on_cv.update(b.get("achievement_id") for b in _shown(entry.get("bullets")))
-    described = {str(a["id"]): " \n ".join([a.get("title") or "", a.get("uk_version") or "", a.get("outcome") or "", a.get("scale") or "",
-                                             *(a.get("skills") or [])]) for a in achievements}
+    described = {str(a["id"]): _achievement_words(a) for a in achievements}
     covered, available, missing = [], [], []
     for term in terms:
         if has_term(term, seen):

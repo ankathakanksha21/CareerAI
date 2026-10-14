@@ -918,10 +918,10 @@ def test_keywords_must_be_in_the_advert(model):
     assert cv_letter()["keywords"] == ["data", "Report findings"]
 
 
-def test_at_most_fifteen_keywords(model):
+def test_at_most_twelve_keywords(model):
     words = [f"zzqx{n}" for n in range(30)]
     model(LETTER | {"keywords": words})
-    assert cv_letter(JOB | {"description": " ".join(words)})["keywords"] == words[:15]
+    assert cv_letter(JOB | {"description": " ".join(words)})["keywords"] == words[:12]
 
 
 def test_letter_needs_all_three_paragraphs(model):
@@ -961,3 +961,41 @@ def test_job_letter_prompt_cuts_a_long_advert_and_names_nobody(model):
     for private in ("Test Person", "07700", "Zzqxtown", "linkedin", "zzqx-test", "visa"):
         assert private not in prompt, private
     assert "job: Data Analyst at Zzqx Holdings Ltd" in prompt and "MSc Course A at University A" in prompt
+
+
+@pytest.mark.parametrize("wording, kept", [
+    ("Built a weekly SQL delays report for 15 managers, cutting late deliveries by about 8%", True),
+    ("Built a weekly SQL delays report for 15 managers, cutting late deliveries by roughly 8%", True),   # another hedge will do
+    ("Built a weekly SQL delays report for 15 managers, cutting late deliveries by 8%", False),          # "about 8%" became a flat 8%
+])
+def test_a_bullet_that_drops_a_hedge_falls_back_to_the_stored_one(model, wording, kept):
+    hedged = CV_ACHIEVEMENTS[0] | {"uk_version": "Built a weekly delays report in SQL used by 15 managers, cutting late deliveries by about 8%"}
+    model(BODY | {"bullets": [{"achievement_id": "a1", "text": wording}]})
+    out = ai.build_cv(CV_PROFILE, CV_COURSES, CV_JOBS, [hedged, *CV_ACHIEVEMENTS[1:]], CV_SKILLS, JOB, today=DAY)
+    assert out["bullets"][0]["text"] == (wording if kept else hedged["uk_version"])
+
+
+def test_build_cv_prompt_forbids_strengthening_a_claim(model):
+    calls = model(BODY)
+    cv_body()
+    assert "Do not strengthen a claim" in calls[0]["system"] and "about" in calls[0]["system"]
+
+
+def test_build_cv_is_told_what_not_to_claim(model):
+    calls = model(BODY, BODY)
+    ai.build_cv(CV_PROFILE, CV_COURSES, CV_JOBS, CV_ACHIEVEMENTS, CV_SKILLS, JOB, DAY, avoid=["Tableau", "dbt"])
+    cv_body()
+    assert "nothing in the candidate's facts shows them: Tableau, dbt" in calls[0]["system"] and "Do not say or imply" in calls[0]["system"]
+    assert "Tableau" not in calls[1]["system"] and "nothing in the candidate's facts shows" not in calls[1]["system"]
+
+
+def test_build_cv_prompt_limits_the_paragraph_to_what_the_facts_show(model):
+    calls = model(BODY)
+    cv_body()
+    assert "It may claim only what the candidate's facts show" in calls[0]["system"] and "leave it out" in calls[0]["system"]
+
+
+def test_filler_words_are_not_keywords(model):
+    advert = JOB | {"description": "Strong Excel skills and SQL experience are essential. Tableau is desirable. You will build reports."}
+    model(LETTER | {"keywords": ["SQL", "experience", "Desirable", "build", "skills", "Excel skills", "Tableau", "essential"]})
+    assert cv_letter(advert)["keywords"] == ["SQL", "Excel skills", "Tableau"]

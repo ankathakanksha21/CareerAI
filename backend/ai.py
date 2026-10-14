@@ -390,7 +390,11 @@ def summarise_job(title: str, company: str, description: str, family_names: list
 #    by cv.assemble, and the model is never sent the candidate's name or contact details.
 CV_BULLETS = 14     # about what two A4 pages hold beside the facts
 ADVERT_TEXT = 6000  # characters of a job description sent
-MAX_KEYWORDS, MAX_KEYWORD_CHARS, MAX_GAPS = 15, 40, 5
+MAX_KEYWORDS, MAX_KEYWORD_CHARS, MAX_GAPS = 12, 40, 5
+# words an advert is full of that say nothing a CV could be searched for
+FILLER = {"experience", "experienced", "desirable", "essential", "required", "requirements", "skills", "skill", "ability", "abilities",
+          "strong", "good", "excellent", "team", "role", "join", "build", "write", "explain", "work", "working", "knowledge", "candidate",
+          "opportunity", "responsibilities", "benefits"}
 SKILL_GROUPS = ("technical", "tools")
 LETTER_PARTS = ("why_them", "why_you", "what_you_deliver")
 
@@ -438,19 +442,31 @@ def _advert(job: dict) -> str:
     return f"Job title: {job['title']}\nCompany: {job['company']}\nJob description:\n{(job.get('description') or '')[:ADVERT_TEXT]}\n\n"
 
 
+HEDGES = ("about", "around", "roughly", "approximately", "approx", "nearly", "almost", "circa", "estimated", "up to")
+
+
+def _hedged(text: str) -> bool:
+    """Whether the text qualifies a figure: "about 8%", "up to 5 hours"."""
+    words = f" {' '.join(_words(text))} "
+    return any(f" {hedge} " in words for hedge in HEDGES)
+
+
 def _faithful(wording: str, achievement: dict) -> bool:
-    """Whether a reworded bullet kept the achievement's figures: every number of the stored bullet,
-    and none the achievement does not hold."""
+    """Whether a reworded bullet kept the achievement's figures as the user gave them: every number
+    of the stored bullet, none the achievement does not hold, and still "about" if it was "about"."""
+    stored = achievement.get("uk_version") or ""
     held = _numbers(_j({k: achievement.get(k) for k in ("title", "raw", "uk_version", "outcome", "scale", "context_note")}), spelled=True)
-    return _numbers(achievement.get("uk_version") or "") <= _numbers(wording) <= held
+    return _numbers(stored) <= _numbers(wording) <= held and (_hedged(wording) or not _hedged(stored))
 
 
 def build_cv(profile: dict, education: list, work_history: list, achievements: list, skills: list, job: dict | None = None,
-             today: date | None = None) -> dict:
+             today: date | None = None, avoid=()) -> dict:
     """The wording of a CV: {"profile", "bullets": [{"achievement_id", "text"}], "skills": {"technical", "tools"}}.
     A bullet is kept only for one of the user's achievements, once, and only reworded if it kept
     that achievement's numbers; otherwise the stored bullet stands. A skill is kept only if it is
-    one of `skills`. A profile paragraph holding a number the candidate's facts do not is refused."""
+    one of `skills`. A profile paragraph holding a number the candidate's facts do not is refused.
+    `avoid` names things the job asks for that the candidate's facts do not show, when a first
+    attempt claimed one of them."""
     today = today or date.today()
     aim = "this job" if job else "the candidate's field"
     system = (
@@ -459,12 +475,19 @@ def build_cv(profile: dict, education: list, work_history: list, achievements: l
         "Use only the facts given. Never add an employer, a date, a qualification, a skill, a tool or a number that is not in the input. "
         "profile is a personal profile of three to four lines, 50 to 70 words, written without 'I': who they are, their strongest evidence, "
         f"and what they are looking for{', in the words of the job description' if job else ''}. "
+        "It may claim only what the candidate's facts show: where a job asks for a skill or experience they do not show, "
+        "leave it out rather than say or imply they have it. "
         f"bullets are the achievements that best fit {aim}, the most relevant first, each reworded as one CV bullet: an action verb first, "
         "then what was done and its result. Give each bullet the id of the achievement it came from and use an achievement at most once. "
-        "Keep every number exactly as the achievement writes it. "
+        "Keep every number exactly as the achievement writes it. Do not strengthen a claim: keep a hedge such as 'about' or 'roughly' "
+        "where the achievement has one, and add no result, tool or detail the achievement does not state. "
+        f"Within that, do reword: lead with what matters most to {aim}{', use its own words where they mean the same thing' if job else ''}, "
+        "and cut what does not matter. "
         f"The CV must fit two A4 pages: at most five bullets for one job, one for each project, and about {CV_BULLETS} in all. "
         "skills sorts the candidate's own skills into technical (methods, programming languages, subject knowledge) and tools (software and platforms), "
         "the most relevant first. Use only skills from their list, spelled as they are, and leave out any that do not matter here."
+        + (f" The job asks for these, and nothing in the candidate's facts shows them: {', '.join(avoid)}. "
+           "Do not say or imply the candidate has them." if avoid else "")
     )
     facts = (f"Candidate: {_j(_candidate(profile, education, work_history, today))}\n"
              f"The candidate's own skills: {_j(list(skills))}\n"
@@ -503,12 +526,15 @@ def job_letter(job: dict, profile: dict, education: list, work_history: list, ac
     number that is in neither the candidate's facts nor the job's title is refused."""
     system = (
         "Read one UK job advert beside one candidate's achievements and return three things. "
-        "keywords are the 8 to 15 skills, tools, methods and qualifications the advert stresses most, each copied from the advert in the "
-        "advert's own words, one to three words long, the most important first. Leave out benefits and generic wishes such as 'team player'. "
+        f"keywords are up to {MAX_KEYWORDS} skills, tools, methods and qualifications the advert stresses most: the nouns and short noun phrases "
+        "a recruiter would search a CV for, such as 'SQL', 'Power BI' or 'stakeholder management'. Copy each from the advert in the advert's "
+        "own words, one to three words long, the most important first. Give fewer rather than pad: no verbs, no benefits, and no general "
+        "words such as 'experience', 'skills' or 'desirable'. "
         "gaps are up to four honest gaps between what the advert asks for and what the achievements show, each one sentence the candidate "
         "should be ready to talk about. "
         "cover_letter is the body of a UK cover letter in three short paragraphs, under 220 words in all, in the first person: "
-        "why_them (why this company and this role, specific to the advert), why_you (two pieces of evidence from the achievements, with their numbers), "
+        "why_them (why this company and this role, specific to the advert), why_you (two pieces of evidence from the achievements, each number "
+        "as the achievement writes it, with a hedge such as 'about' where it has one), "
         "what_you_deliver (what they will do in their first months). No greeting, sign-off, date or address: those are added. "
         "Use only the facts given. Never add an employer, a skill or a number that is not in the input."
     )
@@ -527,7 +553,7 @@ def job_letter(job: dict, profile: dict, education: list, work_history: list, ac
     advert, keywords, seen = f"{job['title']}\n{job.get('description') or ''}", [], set()
     for term in data["keywords"]:
         term = term.strip().strip(".,;:")
-        if term and len(term) <= MAX_KEYWORD_CHARS and term.lower() not in seen and cv.has_term(term, advert):
+        if term and len(term) <= MAX_KEYWORD_CHARS and term.lower() not in seen | FILLER and cv.has_term(term, advert):
             seen.add(term.lower())
             keywords.append(term)
     return {"keywords": keywords[:MAX_KEYWORDS], "gaps": [g.strip() for g in data["gaps"] if g.strip()][:MAX_GAPS],

@@ -27,14 +27,35 @@ def pages(content: dict) -> int:
 
 def build(*, profile: dict, email: str, education: list, work_history: list, achievements: list, job: dict | None, today: date) -> tuple[dict, int]:
     """A new CV and its page count. For a job, the body and the letter are written side by side,
-    which halves the wait; if either call fails the build fails and there is nothing to save."""
+    which halves the wait; if either call fails the build fails and there is nothing to save.
+
+    A tailored CV must not claim what the job asks for and the profile does not show. If the
+    profile paragraph names such a thing, it is written once more with those things named as not
+    to be claimed, and a second failure fails the build. A reworded bullet that brings one in goes
+    back to the user's stored wording."""
     skills = cv.own_skills(profile, achievements)
-    tasks = [lambda: ai.build_cv(profile, education, work_history, achievements, skills, job, today)]
-    if job:
-        tasks.append(lambda: ai.job_letter(job, profile, education, work_history, achievements))
+
+    def body(avoid=()):
+        if avoid:
+            return ai.build_cv(profile, education, work_history, achievements, skills, job, today, avoid=avoid)
+        return ai.build_cv(profile, education, work_history, achievements, skills, job, today)
+
+    tasks = [body] + ([lambda: ai.job_letter(job, profile, education, work_history, achievements)] if job else [])
     written = {}
     for part in together(lambda task: task(), tasks):
         written |= part
+    if job:
+        unshown = cv.unshown(written.get("keywords") or [], cv.evidence(profile, education, work_history, achievements), job["title"])
+
+        def claims(text: str) -> bool:
+            return any(cv.has_term(term, text) for term in unshown)
+
+        if claims(written["profile"]):
+            written |= body(unshown)
+            if claims(written["profile"]):
+                raise ai.AIError("cv")
+        stored = {str(a["id"]): a.get("uk_version") or "" for a in achievements}
+        written["bullets"] = [b | {"text": stored.get(str(b["achievement_id"])) or b["text"]} if claims(b["text"]) else b for b in written["bullets"]]
     content = cv.assemble(profile=profile, email=email, education=education, work_history=work_history, achievements=achievements,
                           written=written, job=job, today=today)
     return content, pages(content)
