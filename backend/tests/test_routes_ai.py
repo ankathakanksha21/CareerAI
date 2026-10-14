@@ -11,8 +11,6 @@ ITEMS = [{"title": "Thing one", "raw": "r", "uk_version": "Built X for 40 users"
          {"title": "Thing two", "raw": "r", "uk_version": "Automated Y", "skills": [], "outcome": "", "scale": "", "context_note": ""}]
 TRANSCRIPT = "Coach: tell me about your work\nCandidate: I built X for 40 users and automated Y"
 DESCRIPTION = "Analyse customer data and report findings to the team every week. " * 2
-TAILORED = {"profile": "P", "bullets": [{"text": "Built X", "achievement_id": ""}], "keywords": ["SQL"],
-            "cover_letter": {"why_them": "A", "why_you": "B", "what_you_deliver": "C"}, "gaps": []}
 FEEDBACK = {"scores": {"structure": 3, "clarity": 4, "evidence": 2, "uk_tone": 3}, "summary": "Clear but late results.",
             "strengths": [{"point": "s1", "you_said": "I built X"}], "fixes": [{"point": "f1", "you_said": ""}], "rewrite": {"question": "q", "better_answer": "a"}, "uk_tone_notes": []}
 STORY = {"title": "Story", "competency": "c", "situation": "s", "task": "t", "action": "a", "result": "r", "strength": "strong", "tip": ""}
@@ -183,32 +181,7 @@ def test_add_job_short_description_422(client, stub):
     assert client.post("/api/jobs", json=JOB | {"description": "z" * 20001}).status_code == 422
 
 
-# ---------- tailoring and stories ----------
-
-def test_tailor_creates_named_version(client, stub, conn, user_a):
-    a, j = seed_achievement(conn, user_a), seed_job(conn, user_a)
-    stub("tailor", TAILORED | {"bullets": [{"text": "Built X", "achievement_id": a["id"]}]})
-    first = client.post("/api/ai/tailor", json={"job_id": j["id"]}).json()
-    assert first["name"] == "Role A, Company A v1" and first["saved_job_id"] == j["id"]
-    assert first["content"]["cover_letter"]["why_them"] == "A"
-    assert client.post("/api/ai/tailor", json={"job_id": j["id"]}).json()["name"] == "Role A, Company A v2"
-    assert len(state(client)["cv_versions"]) == 2
-
-
-def test_tailor_needs_achievements(client, stub, conn, user_a):
-    stub("tailor", TAILORED)
-    r = client.post("/api/ai/tailor", json={"job_id": seed_job(conn, user_a)["id"]})
-    assert r.status_code == 400 and r.json()["detail"] == "Build your profile first."
-
-
-def test_tailor_other_users_job_404(client, stub, conn, user_a, user_b, as_user):
-    j = seed_job(conn, user_a)
-    seed_achievement(conn, user_b)
-    calls = stub("tailor", TAILORED)
-    as_user(user_b)
-    assert client.post("/api/ai/tailor", json={"job_id": j["id"]}).status_code == 404
-    assert calls == []
-
+# ---------- stories ----------
 
 def test_star_saves_story(client, stub, conn, user_a):
     a = seed_achievement(conn, user_a)

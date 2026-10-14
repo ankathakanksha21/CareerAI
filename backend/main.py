@@ -928,24 +928,6 @@ def add_job(body: JobIn, user: CurrentUser):
                             keywords=summary["keywords"], role_family_id=family_id)
 
 
-class JobRef(BaseModel):
-    job_id: UUID
-
-
-@app.post("/api/ai/tailor")
-def ai_tailor(body: JobRef, user: CurrentUser):
-    with db.transaction() as conn:
-        job = _found(repo.get_job(conn, user.id, str(body.job_id)))
-        achievements = repo.list_achievements(conn, user.id)
-    if not achievements:
-        raise HTTPException(400, "Build your profile first.")
-    profile = _start_ai(user, "tailor")
-    tailored = ai.tailor(job, achievements, profile)
-    with db.transaction() as conn:
-        return repo.add_cv_version(conn, user.id, saved_job_id=job["id"], role_family_id=job["role_family_id"],
-                                   base_name=f"{job['title']}, {job['company']}", content=tailored)
-
-
 class AchievementRef(BaseModel):
     achievement_id: UUID
 

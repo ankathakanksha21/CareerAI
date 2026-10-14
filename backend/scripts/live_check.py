@@ -138,7 +138,6 @@ CHECKS = [
      lambda r: any(p["you_said"] for p in r["strengths"] + r["fixes"])),
     ("families", lambda: ai.suggest_families(ACHIEVEMENTS, PROFILE), lambda r: len(r["families"]) >= 2),
     ("job summary", lambda: ai.summarise_job("Data Analyst", "a UK retailer", DESCRIPTION, ["Data Analyst", "BI Analyst"]), lambda r: bool(r["summary"])),
-    ("tailor", lambda: ai.tailor(JOB, ACHIEVEMENTS, PROFILE), lambda r: len(r["bullets"]) >= 1 and bool(r["cover_letter"]["why_them"])),
     ("star", lambda: ai.star(ACHIEVEMENTS[0]), lambda r: bool(r["action"])),
     ("interview feedback", lambda: ai.interview_feedback(INTERVIEW, JOB, PROFILE, "Behavioural round"), lambda r: bool(r["summary"])),
     ("tone decode", lambda: ai.tone("Not bad at all.", "decode"), lambda r: bool(r["meaning"])),

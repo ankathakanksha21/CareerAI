@@ -10,6 +10,7 @@ from datetime import date
 import anthropic
 import httpx
 
+import cv
 from llm import complete_json
 
 log = logging.getLogger("ai")
@@ -383,33 +384,154 @@ def summarise_job(title: str, company: str, description: str, family_names: list
     return {"summary": data["summary"].strip(), "keywords": data["keywords"], "family": known.get(data["family"].strip().lower(), "")}
 
 
-# 4. A tailored CV and cover letter for one job
-def tailor(job: dict, achievements: list, profile: dict) -> dict:
+# 4. A full CV. The model writes what is a matter of wording: the profile paragraph, which
+#    achievements to use and how each is put, and how the skills are sorted. Every fact on the CV
+#    (employers, titles, dates, courses, grades, contact details) is copied from the stored records
+#    by cv.assemble, and the model is never sent the candidate's name or contact details.
+CV_BULLETS = 14     # about what two A4 pages hold beside the facts
+ADVERT_TEXT = 6000  # characters of a job description sent
+MAX_KEYWORDS, MAX_KEYWORD_CHARS, MAX_GAPS = 15, 40, 5
+SKILL_GROUPS = ("technical", "tools")
+LETTER_PARTS = ("why_them", "why_you", "what_you_deliver")
+
+
+def _year_month(value) -> str:
+    day = cv.as_date(value)
+    return f"{day.year}-{day.month:02d}" if day else ""
+
+
+def _length(job: dict, today: date) -> str:
+    """How long a job lasted, in words, so the model never works a figure out for itself."""
+    years, months = divmod(cv.months_worked([job], today), 12)
+    parts = (f"{years} year{'' if years == 1 else 's'}" if years else "", f"{months} month{'' if months == 1 else 's'}" if months else "")
+    return " ".join(p for p in parts if p)
+
+
+def _candidate(profile: dict, education: list, work_history: list, today: date) -> dict:
+    """What the model may know about the person: their course, their courses and their jobs. Not who they are."""
+    return {
+        "current_course": " at ".join(x for x in (profile.get("course"), profile.get("university")) if x),
+        "graduation": _year_month(profile.get("graduation_date")),
+        "education": [{"qualification": " ".join(x for x in (c.get("qualification"), c.get("subject")) if x), "institution": c.get("institution"),
+                       "finished": _year_month(c.get("end_month")), "grade": c.get("grade") or ""} for c in education],
+        "jobs": [{"job_title": j.get("job_title") or "", "employer": j.get("employer"), "country": j.get("country") or "",
+                  "from": _year_month(j.get("start_month")), "to": "present" if j.get("is_current") else _year_month(j.get("end_month")),
+                  "length": _length(j, today)} for j in work_history],
+    }
+
+
+def _where(achievement: dict, jobs: dict, courses: dict) -> str:
+    """Where an achievement happened, as the model is told it."""
+    job, course = jobs.get(str(achievement.get("work_history_id"))), courses.get(str(achievement.get("education_id")))
+    if job:
+        return f"job: {job.get('job_title') or 'role'} at {job.get('employer')}"
+    return f"project on the course at {course.get('institution')}" if course else "project"
+
+
+def _listed(achievements: list, education: list, work_history: list) -> list[dict]:
+    jobs, courses = {str(j["id"]): j for j in work_history}, {str(c["id"]): c for c in education}
+    return [{"id": str(a["id"]), "where": _where(a, jobs, courses), "bullet": a.get("uk_version") or "", "outcome": a.get("outcome") or "",
+             "scale": a.get("scale") or "", "skills": a.get("skills") or []} for a in achievements]
+
+
+def _advert(job: dict) -> str:
+    return f"Job title: {job['title']}\nCompany: {job['company']}\nJob description:\n{(job.get('description') or '')[:ADVERT_TEXT]}\n\n"
+
+
+def _faithful(wording: str, achievement: dict) -> bool:
+    """Whether a reworded bullet kept the achievement's figures: every number of the stored bullet,
+    and none the achievement does not hold."""
+    held = _numbers(_j({k: achievement.get(k) for k in ("title", "raw", "uk_version", "outcome", "scale", "context_note")}), spelled=True)
+    return _numbers(achievement.get("uk_version") or "") <= _numbers(wording) <= held
+
+
+def build_cv(profile: dict, education: list, work_history: list, achievements: list, skills: list, job: dict | None = None,
+             today: date | None = None) -> dict:
+    """The wording of a CV: {"profile", "bullets": [{"achievement_id", "text"}], "skills": {"technical", "tools"}}.
+    A bullet is kept only for one of the user's achievements, once, and only reworded if it kept
+    that achievement's numbers; otherwise the stored bullet stands. A skill is kept only if it is
+    one of `skills`. A profile paragraph holding a number the candidate's facts do not is refused."""
+    today = today or date.today()
+    aim = "this job" if job else "the candidate's field"
     system = (
-        "Tailor a UK CV and cover letter for one job using only the candidate's achievements. "
-        "UK CV rules: two pages, no photo or date of birth, bullets start with an action verb and carry a number. "
-        "Pick and rewrite the 4 to 5 most relevant achievements in this job's language. "
-        "Cover letter follows three short paragraphs: why them (specific to the company and role), why you (2 pieces of evidence), "
-        "what you will deliver in the first months. Under 220 words total. List honest gaps the candidate should be ready to address."
+        f"Write the parts of a UK CV that are a matter of wording, {'tailored to one job' if job else 'for any job in the field the candidate works in'}. "
+        "The candidate's employers, job titles, dates, courses and grades are printed on the CV from their own records: do not restate or change them. "
+        "Use only the facts given. Never add an employer, a date, a qualification, a skill, a tool or a number that is not in the input. "
+        "profile is a personal profile of three to four lines, 50 to 70 words, written without 'I': who they are, their strongest evidence, "
+        f"and what they are looking for{', in the words of the job description' if job else ''}. "
+        f"bullets are the achievements that best fit {aim}, the most relevant first, each reworded as one CV bullet: an action verb first, "
+        "then what was done and its result. Give each bullet the id of the achievement it came from and use an achievement at most once. "
+        "Keep every number exactly as the achievement writes it. "
+        f"The CV must fit two A4 pages: at most five bullets for one job, one for each project, and about {CV_BULLETS} in all. "
+        "skills sorts the candidate's own skills into technical (methods, programming languages, subject knowledge) and tools (software and platforms), "
+        "the most relevant first. Use only skills from their list, spelled as they are, and leave out any that do not matter here."
     )
-    user = (
-        f"Job title: {job['title']}\nCompany: {job['company']}\nKeywords: {_j(job.get('keywords') or [])}\n"
-        f"Job description:\n{(job.get('description') or '')[:6000]}\n\nCandidate: {_who(profile)}\n"
-        f"Achievements: {_j([{k: a.get(k) for k in ('id', 'uk_version', 'skills', 'outcome')} for a in achievements])}\n\n"
-        'Return {"profile":str (3-line CV profile),"bullets":[{"text":str,"achievement_id":str}],'
-        '"keywords":[str] (job keywords now covered),'
-        '"cover_letter":{"why_them":str,"why_you":str,"what_you_deliver":str},"gaps":[str]}'
-    )
-    template = {"profile": "", "bullets": [{"text": "", "achievement_id": ""}], "keywords": [""],
-                "cover_letter": {"why_them": "", "why_you": "", "what_you_deliver": ""}, "gaps": [""]}
-    data = _run("tailor", system, user, template, 2000, required=("bullets", "cover_letter"))
-    own = {str(a.get("id")) for a in achievements}
-    bullets = [{"text": b["text"].strip(), "achievement_id": b["achievement_id"] if b["achievement_id"] in own else ""}
-               for b in data["bullets"] if b["text"].strip()]
+    facts = (f"Candidate: {_j(_candidate(profile, education, work_history, today))}\n"
+             f"The candidate's own skills: {_j(list(skills))}\n"
+             f"Achievements: {_j(_listed(achievements, education, work_history))}\n\n")
+    user = ((_advert(job) if job else "") + facts
+            + 'Return {"profile":str,"bullets":[{"achievement_id":str,"text":str}],"skills":{"technical":[str],"tools":[str]}}')
+    template = {"profile": "", "bullets": [{"achievement_id": "", "text": ""}], "skills": {"technical": [""], "tools": [""]}}
+    known = _numbers(facts, spelled=True)  # the advert's numbers are not the candidate's: "3 years' experience" asked for is not held
+    data = _run("cv", system, user, template, 2200, required=("profile", "bullets"), check=lambda d: _numbers(d["profile"]) <= known)
+    own, bullets, used = {str(a["id"]): a for a in achievements}, [], set()
+    for item in data["bullets"]:
+        achievement, wording = own.get(item["achievement_id"].strip()), item["text"].strip()
+        if not achievement or str(achievement["id"]) in used:
+            continue
+        used.add(str(achievement["id"]))
+        kept = wording if wording and _faithful(wording, achievement) else (achievement.get("uk_version") or "").strip()
+        if kept:
+            bullets.append({"achievement_id": str(achievement["id"]), "text": kept})
     if not bullets:
-        raise AIError("tailor")
-    return {"profile": data["profile"], "bullets": bullets, "keywords": data["keywords"],
-            "cover_letter": data["cover_letter"], "gaps": data["gaps"]}
+        raise AIError("cv")
+    spelling, listed, taken = {s.lower(): s for s in reversed(list(skills))}, {}, set()
+    for group in SKILL_GROUPS:
+        listed[group] = []
+        for skill in data["skills"][group]:
+            name = spelling.get(skill.strip().lower())
+            if name and name.lower() not in taken:
+                taken.add(name.lower())
+                listed[group].append(name)
+    return {"profile": data["profile"].strip(), "bullets": bullets, "skills": listed}
+
+
+# 4b. For one job: its main terms, the gaps to be ready for, and the body of a cover letter
+def job_letter(job: dict, profile: dict, education: list, work_history: list, achievements: list) -> dict:
+    """{"keywords", "gaps", "cover_letter": {"why_them", "why_you", "what_you_deliver"}}. A keyword is
+    kept only if the advert says it. All three paragraphs are required, and a letter holding a
+    number that is in neither the candidate's facts nor the job's title is refused."""
+    system = (
+        "Read one UK job advert beside one candidate's achievements and return three things. "
+        "keywords are the 8 to 15 skills, tools, methods and qualifications the advert stresses most, each copied from the advert in the "
+        "advert's own words, one to three words long, the most important first. Leave out benefits and generic wishes such as 'team player'. "
+        "gaps are up to four honest gaps between what the advert asks for and what the achievements show, each one sentence the candidate "
+        "should be ready to talk about. "
+        "cover_letter is the body of a UK cover letter in three short paragraphs, under 220 words in all, in the first person: "
+        "why_them (why this company and this role, specific to the advert), why_you (two pieces of evidence from the achievements, with their numbers), "
+        "what_you_deliver (what they will do in their first months). No greeting, sign-off, date or address: those are added. "
+        "Use only the facts given. Never add an employer, a skill or a number that is not in the input."
+    )
+    studying = " at ".join(x for x in (profile.get("course"), profile.get("university")) if x)
+    facts = f"Candidate: {studying}\nAchievements: {_j([{k: a[k] for k in ('where', 'bullet', 'outcome', 'skills')} for a in _listed(achievements, education, work_history)])}\n\n"
+    user = (_advert(job) + facts
+            + 'Return {"keywords":[str],"gaps":[str],"cover_letter":{"why_them":str,"why_you":str,"what_you_deliver":str}}')
+    template = {"keywords": [""], "gaps": [""], "cover_letter": dict.fromkeys(LETTER_PARTS, "")}
+    known = _numbers(f"{job['title']} {job['company']} {facts}", spelled=True)
+
+    def whole(d: dict) -> bool:
+        letter = d["cover_letter"]
+        return all(letter[k].strip() for k in LETTER_PARTS) and _numbers(" ".join(letter[k] for k in LETTER_PARTS)) <= known
+
+    data = _run("cover letter", system, user, template, 1400, check=whole)
+    advert, keywords, seen = f"{job['title']}\n{job.get('description') or ''}", [], set()
+    for term in data["keywords"]:
+        term = term.strip().strip(".,;:")
+        if term and len(term) <= MAX_KEYWORD_CHARS and term.lower() not in seen and cv.has_term(term, advert):
+            seen.add(term.lower())
+            keywords.append(term)
+    return {"keywords": keywords[:MAX_KEYWORDS], "gaps": [g.strip() for g in data["gaps"] if g.strip()][:MAX_GAPS],
+            "cover_letter": {k: data["cover_letter"][k].strip() for k in LETTER_PARTS}}
 
 
 # 5. One achievement to a STAR story
