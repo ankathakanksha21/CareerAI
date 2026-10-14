@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -161,6 +161,161 @@ def test_applications_newest_first(conn, user_a):
     application(conn, user_a, company="Old", applied_on=date(2026, 9, 1))
     application(conn, user_a, company="New", applied_on=date(2026, 10, 1))
     assert [a["company"] for a in repo.list_applications(conn, user_a)] == ["New", "Old"]
+
+
+# ---------- stage history, rejections and follow-ups (step 4) ----------
+
+LESSON = {"likely_reason": "The CV may not have shown enough SQL.", "one_change": "Lead with the SQL project.", "page": "resume",
+          "made_on": "2026-10-14"}
+
+
+def history(conn, user, app_id):
+    return [(e["from_stage"], e["to_stage"]) for e in repo.list_application_events(conn, user) if e["application_id"] == app_id]
+
+
+def test_new_application_records_its_creation(conn, user_a):
+    a = application(conn, user_a, stage="screening")
+    assert history(conn, user_a, a["id"]) == [(None, "screening")]
+    assert repo.list_application_events(conn, user_a)[0]["day"] == repo.today(conn)
+
+
+def test_follow_up_suggested_seven_days_after_applying(conn, user_a):
+    assert application(conn, user_a, applied_on=date(2026, 10, 5))["follow_up_on"] == date(2026, 10, 12)
+    assert application(conn, user_a)["follow_up_on"] == repo.today(conn) + timedelta(days=7)  # applied today by default
+
+
+def test_given_follow_up_kept(conn, user_a):
+    assert application(conn, user_a, applied_on=date(2026, 10, 5), follow_up_on=date(2026, 10, 20))["follow_up_on"] == date(2026, 10, 20)
+
+
+@pytest.mark.parametrize("stage", ["offer", "rejected", "rejected_after_interview"])
+def test_closed_application_gets_no_follow_up(conn, user_a, stage):
+    assert application(conn, user_a, stage=stage)["follow_up_on"] is None
+
+
+def test_stage_change_writes_one_event(conn, user_a):
+    a = application(conn, user_a)
+    repo.update_application(conn, user_a, a["id"], {"stage": "screening"})
+    assert history(conn, user_a, a["id"]) == [(None, "applied"), ("applied", "screening")]
+
+
+def test_same_stage_writes_no_event(conn, user_a):
+    a = application(conn, user_a)
+    repo.update_application(conn, user_a, a["id"], {"stage": "applied"})
+    assert len(history(conn, user_a, a["id"])) == 1
+
+
+def test_other_field_change_writes_no_event(conn, user_a):
+    a = application(conn, user_a)
+    repo.update_application(conn, user_a, a["id"], {"notes": "Rang them"})
+    assert len(history(conn, user_a, a["id"])) == 1
+
+
+def test_history_in_order(conn, user_a):
+    a = application(conn, user_a)  # every event here has the same now(), so the order must come from the id
+    for stage in ("screening", "interview", "offer"):
+        repo.update_application(conn, user_a, a["id"], {"stage": stage})
+    assert [to for _, to in history(conn, user_a, a["id"])] == ["applied", "screening", "interview", "offer"]
+
+
+def test_events_gone_with_the_application(conn, user_a):
+    a = application(conn, user_a)
+    repo.update_application(conn, user_a, a["id"], {"stage": "screening"})
+    repo.delete_application(conn, user_a, a["id"])
+    assert repo.list_application_events(conn, user_a) == []
+
+
+def test_new_applied_on_moves_the_suggested_follow_up(conn, user_a):
+    a = application(conn, user_a, applied_on=date(2026, 10, 5))
+    assert repo.update_application(conn, user_a, a["id"], {"applied_on": date(2026, 10, 2)})["follow_up_on"] == date(2026, 10, 9)
+
+
+def test_chosen_follow_up_not_moved(conn, user_a):
+    a = application(conn, user_a, applied_on=date(2026, 10, 5), follow_up_on=date(2026, 10, 20))
+    assert repo.update_application(conn, user_a, a["id"], {"applied_on": date(2026, 10, 2)})["follow_up_on"] == date(2026, 10, 20)
+    b = application(conn, user_a, applied_on=date(2026, 10, 5))
+    both = repo.update_application(conn, user_a, b["id"], {"applied_on": date(2026, 10, 2), "follow_up_on": date(2026, 10, 30)})
+    assert both["follow_up_on"] == date(2026, 10, 30)
+
+
+def test_followed_up_date_not_moved(conn, user_a):
+    a = application(conn, user_a, applied_on=date(2026, 10, 5))
+    repo.mark_followed_up(conn, user_a, a["id"], date(2026, 10, 12))
+    assert repo.update_application(conn, user_a, a["id"], {"applied_on": date(2026, 10, 2)})["follow_up_on"] == date(2026, 10, 19)
+
+
+@pytest.mark.parametrize("ended_at, stage", [("cv", "rejected"), ("screening", "rejected"),
+                                             ("interview", "rejected_after_interview"), ("final", "rejected_after_interview")])
+def test_reject_sets_stage_from_where_it_ended(conn, user_a, ended_at, stage):
+    a = application(conn, user_a, stage="interview")
+    rejected = repo.reject_application(conn, user_a, a["id"], ended_at=ended_at, feedback="  Too little SQL.  ")
+    assert (rejected["stage"], rejected["rejected_at_stage"], rejected["feedback_received"]) == (stage, ended_at, "Too little SQL.")
+    assert history(conn, user_a, a["id"])[-1] == ("interview", stage)
+
+
+def test_reject_without_feedback_stores_none(conn, user_a):
+    a = application(conn, user_a)
+    assert repo.reject_application(conn, user_a, a["id"], ended_at="cv", feedback="   ")["feedback_received"] is None
+
+
+def test_reject_twice_writes_one_event(conn, user_a):
+    a = application(conn, user_a)
+    repo.reject_application(conn, user_a, a["id"], ended_at="cv", feedback="")
+    again = repo.reject_application(conn, user_a, a["id"], ended_at="screening", feedback="They hired internally")
+    assert len(history(conn, user_a, a["id"])) == 2
+    assert (again["rejected_at_stage"], again["feedback_received"]) == ("screening", "They hired internally")
+
+
+def test_set_lesson_round_trips_and_a_new_rejection_clears_it(conn, user_a):
+    a = application(conn, user_a)
+    repo.reject_application(conn, user_a, a["id"], ended_at="cv", feedback="")
+    assert repo.set_lesson(conn, user_a, a["id"], LESSON)["lesson"] == LESSON
+    assert repo.reject_application(conn, user_a, a["id"], ended_at="screening", feedback="")["lesson"] is None
+
+
+def test_leaving_rejected_clears_answers_and_lesson(conn, user_a):
+    a = application(conn, user_a)
+    repo.reject_application(conn, user_a, a["id"], ended_at="cv", feedback="No")
+    repo.set_lesson(conn, user_a, a["id"], LESSON)
+    back = repo.update_application(conn, user_a, a["id"], {"stage": "screening"})
+    assert (back["rejected_at_stage"], back["feedback_received"], back["lesson"]) == (None, None, None)
+
+
+def test_moving_between_rejected_stages_keeps_answers(conn, user_a):
+    a = application(conn, user_a)
+    repo.reject_application(conn, user_a, a["id"], ended_at="cv", feedback="No")
+    moved = repo.update_application(conn, user_a, a["id"], {"stage": "rejected_after_interview"})
+    assert (moved["rejected_at_stage"], moved["feedback_received"]) == ("cv", "No")
+
+
+def test_mark_followed_up_moves_seven_days_from_today(conn, user_a):
+    a = application(conn, user_a, applied_on=date(2026, 10, 1))
+    marked = repo.mark_followed_up(conn, user_a, a["id"], date(2026, 10, 14))
+    assert (marked["last_followed_up_on"], marked["follow_up_on"]) == (date(2026, 10, 14), date(2026, 10, 21))
+
+
+def test_get_application_only_the_owners(conn, user_a, user_b):
+    a = application(conn, user_a)
+    assert repo.get_application(conn, user_a, a["id"])["id"] == a["id"]
+    assert repo.get_application(conn, user_b, a["id"]) is None
+
+
+def test_user_b_cannot_read_events_reject_set_lesson_or_mark(conn, user_a, user_b):
+    a = application(conn, user_a)
+    assert repo.list_application_events(conn, user_b) == []
+    assert repo.update_application(conn, user_b, a["id"], {"stage": "offer"}) is None
+    assert repo.reject_application(conn, user_b, a["id"], ended_at="cv", feedback="x") is None
+    assert repo.set_lesson(conn, user_b, a["id"], LESSON) is None
+    assert repo.mark_followed_up(conn, user_b, a["id"], date(2026, 10, 14)) is None
+    mine = repo.get_application(conn, user_a, a["id"])
+    assert (mine["stage"], mine["rejected_at_stage"], mine["lesson"], mine["last_followed_up_on"]) == ("applied", None, None, None)
+    assert history(conn, user_a, a["id"]) == [(None, "applied")]
+
+
+def test_contact_name_saved(conn, user_a):
+    a = application(conn, user_a, contact_name="Zzqx Person", contact="zzqx@example.test")
+    assert (a["contact_name"], a["contact"]) == ("Zzqx Person", "zzqx@example.test")
+    assert repo.update_application(conn, user_a, a["id"], {"contact_name": "Other Zzqx"})["contact_name"] == "Other Zzqx"
 
 
 # ---------- journal ----------
