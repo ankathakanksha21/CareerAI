@@ -2,6 +2,8 @@
 user's rows, so no query can run without saying whose data it is.
 
 Rows come back as plain dicts: ids as str, dates as datetime.date, timestamps as datetime."""
+import json
+import re
 import uuid
 from datetime import date
 
@@ -88,6 +90,28 @@ def add_skills(conn, user_id, skills: list[str], languages: list[dict]) -> dict:
     """Add skills and languages the user does not already have, ignoring case. Returns the profile."""
     row = conn.execute("select skills, languages from profiles where user_id = %s", (user_id,)).fetchone() or {"skills": [], "languages": []}
     return set_skills(conn, user_id, [*row["skills"], *skills], [*row["languages"], *languages])
+
+
+def set_contact(conn, user_id, *, phone: str, city: str, linkedin_url: str) -> dict:
+    """The contact line of the user's CVs. Returns the profile."""
+    return _profile(conn.execute(
+        "insert into profiles (user_id, phone, city, linkedin_url) values (%s, %s, %s, %s) on conflict (user_id) do update "
+        "set phone = excluded.phone, city = excluded.city, linkedin_url = excluded.linkedin_url, updated_at = now() returning *",
+        (user_id, phone.strip(), city.strip(), linkedin_url.strip())).fetchone())
+
+
+def set_additional(conn, user_id, lines: list[str]) -> dict:
+    """Replace the lines of "Additional information" (certifications, awards, volunteering),
+    without blanks or a second copy of the same line. Returns the profile."""
+    kept, seen = [], set()
+    for line in lines:
+        text = (line or "").strip()
+        if text and text.lower() not in seen:
+            seen.add(text.lower())
+            kept.append(text)
+    return _profile(conn.execute(
+        "insert into profiles (user_id, additional) values (%s, %s) on conflict (user_id) do update "
+        "set additional = excluded.additional, updated_at = now() returning *", (user_id, kept)).fetchone())
 
 
 def set_github_username(conn, user_id, username: str) -> None:
@@ -257,14 +281,49 @@ def get_cv_version(conn, user_id, cv_version_id) -> dict | None:
     return _row(conn.execute("select * from cv_versions where id = %s and user_id = %s", (cv_version_id, user_id)).fetchone())
 
 
-def add_cv_version(conn, user_id, *, saved_job_id, role_family_id, base_name: str, content: dict) -> dict:
-    """Save a tailored CV. Versions are numbered per job: "<base_name> v1", "v2", ..."""
-    job_id = _own(conn, user_id, "saved_jobs", saved_job_id)
-    n = conn.execute("select count(*) as n from cv_versions where user_id = %s and saved_job_id is not distinct from %s",
-                     (user_id, job_id)).fetchone()["n"]
+def _document(content: dict) -> Jsonb:
+    """A CV as it is stored. A date inside it (a start month copied from a record) becomes ISO text."""
+    return Jsonb(content, dumps=lambda value: json.dumps(value, default=lambda d: d.isoformat()))
+
+
+def _next_version(conn, user_id, base_name: str) -> int:
+    """One more than the highest number used for this name, so a number is never given twice
+    even after a version is deleted."""
+    rows = conn.execute("select name from cv_versions where user_id = %s and starts_with(name, %s)", (user_id, f"{base_name} v")).fetchall()
+    used = [int(number) for r in rows if re.fullmatch(r"\d+", number := r["name"][len(base_name) + 2:])]
+    return max(used, default=0) + 1
+
+
+def add_cv_version(conn, user_id, *, saved_job_id, role_family_id, base_name: str, content: dict, kind: str = "tailored",
+                   format_version: int = 2, pages: int | None = None, contact_name: str = "") -> dict:
+    """Save a CV as a new version, named "<base_name> v1", "v2", ..."""
     return _row(conn.execute(
-        "insert into cv_versions (user_id, name, saved_job_id, role_family_id, content) values (%s, %s, %s, %s, %s) returning *",
-        (user_id, f"{base_name} v{n + 1}", job_id, _own(conn, user_id, "role_families", role_family_id), Jsonb(content))).fetchone())
+        "insert into cv_versions (user_id, name, saved_job_id, role_family_id, content, kind, format_version, pages, contact_name) "
+        "values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
+        (user_id, f"{base_name} v{_next_version(conn, user_id, base_name)}", _own(conn, user_id, "saved_jobs", saved_job_id),
+         _own(conn, user_id, "role_families", role_family_id), _document(content), kind, format_version, pages, contact_name.strip())).fetchone())
+
+
+def update_cv_version(conn, user_id, cv_version_id, *, content: dict, pages: int | None, contact_name: str) -> dict | None:
+    """Save a user's edit over the version itself. Never called for a version an application points at."""
+    return _row(conn.execute(
+        "update cv_versions set content = %s, pages = %s, contact_name = %s, edited_at = now() where id = %s and user_id = %s returning *",
+        (_document(content), pages, contact_name.strip(), cv_version_id, user_id)).fetchone())
+
+
+def cv_version_in_use(conn, user_id, cv_version_id) -> bool:
+    """Whether one of the user's applications was sent with this version: if so it must not change."""
+    return conn.execute("select 1 from applications where user_id = %s and cv_version_id = %s limit 1",
+                        (user_id, cv_version_id)).fetchone() is not None
+
+
+def delete_cv_version(conn, user_id, cv_version_id) -> bool | None:
+    """True once deleted; False if an application points at it, in which case it stays; None if it is not this user's."""
+    if not get_cv_version(conn, user_id, cv_version_id):
+        return None
+    if cv_version_in_use(conn, user_id, cv_version_id):
+        return False
+    return conn.execute("delete from cv_versions where id = %s and user_id = %s", (cv_version_id, user_id)).rowcount == 1
 
 
 # ---------- STAR stories ----------
