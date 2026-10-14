@@ -361,7 +361,9 @@ def test_load_state_only_own_rows(conn, user_a, user_b):
     repo.add_journal_entry(conn, user_a, type="coach", title="t", with_whom="w", summary="s", points=[], actions=[])
     repo.add_entry(conn, user_a, "work_history", {"employer": "Zzqx Holdings Ltd"})
     repo.add_entry(conn, user_a, "education", {"institution": "University of Zzqx"})
-    keys = {"achievements", "work_history", "education", "role_families", "saved_jobs", "cv_versions", "stories", "applications", "journal"}
+    repo.save_pack(conn, user_a, saved_job_id=j["id"], application_id=None, company_id=None, role="Role A", company="Zzqx", content={})
+    keys = {"achievements", "work_history", "education", "role_families", "saved_jobs", "cv_versions", "stories", "applications", "journal",
+            "prep_packs"}
     mine, theirs = repo.load_state(conn, user_a), repo.load_state(conn, user_b)
     assert set(mine) == set(theirs) == keys
     assert all(len(mine[k]) == 1 for k in keys)
