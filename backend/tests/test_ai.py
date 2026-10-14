@@ -1096,6 +1096,14 @@ def test_lesson_single_quoted_phrase_must_be_in_the_inputs(model, quoted):
     assert lesson() == real
 
 
+def test_lesson_change_may_suggest_new_wording_in_single_quotes(model):
+    # the real model suggests wording this way ("such as 'Presented performance insights to senior management'");
+    # it is a suggestion, not a quote of anyone, so only the reason's single quotes are checked
+    suggesting = GOOD_LESSON | {"one_change": "Add a line such as 'Presented findings to senior managers', if accurate."}
+    calls = model(suggesting)
+    assert lesson() == suggesting and len(calls) == 1
+
+
 def test_lesson_apostrophes_are_not_quotes(model):
     plain = GOOD_LESSON | {"likely_reason": "The employer's advert may have wanted SQL that your CV didn't show, and you're close."}
     model(plain)

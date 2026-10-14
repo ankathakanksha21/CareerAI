@@ -702,7 +702,7 @@ The hedge rule, the keyword rules and the last rule were added after the first r
 |---|---|---|
 | A guess, never a verdict | The likely reason must contain "may", "might", "could", "possibly", "probably", "perhaps", "likely", "seems" or "suggests" | Asked once more, then an error with Retry |
 | No invented feedback | With no feedback entered, the reason may not mention feedback, and neither part may say "they said", "you were told" or similar. Suggesting the user ask for feedback is allowed | The same |
-| Quotes are real | A phrase in quotation marks, double or single, straight or curly, must appear in the feedback, the CV or the advert. An apostrophe ("you're", "employer's") is not a quotation mark | The same |
+| Quotes are real | A phrase in quotation marks in the reason, double or single, straight or curly, must appear in the feedback, the CV or the advert; in the suggested change, a phrase in double quotes must. Single quotes in the change are how the model suggests new wording ("such as 'Presented findings to senior managers'") and are allowed. An apostrophe ("you're", "employer's") is not a quotation mark | The same |
 | No advert, no description of it | With no job description recorded, the reason may not mention the advert | The same |
 | Written to the user | "The candidate" is refused | The same |
 | A page that exists | Anything but resume, interview or profile becomes resume for a CV-stage rejection, interview for the rest | Normalised |

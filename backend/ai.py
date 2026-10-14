@@ -662,10 +662,11 @@ CLAIMED_FEEDBACK = re.compile(r"\b(they|the employer|the recruiter|the interview
                               r"(said|told|mentioned|noted|felt|wrote)\b|\byou were told\b|\baccording to (them|the employer)\b", re.I)
 ADVERT_WORDS = re.compile(r"\b(advert|advertisement|job description|job posting|listing)\b", re.I)
 THIRD_PERSON = re.compile(r"\bthe candidate\b", re.I)
-# a phrase in double or single quotes, straight or curly. A straight single quote opens only where no
-# letter comes before it and closes only where none follows, so "you're" and "employer's" are not quotes
-QUOTED = re.compile(r"[\"“”]([^\"“”]{3,})[\"“”]|‘([^‘’]{3,})’"
-                    r"|(?<![\w'])'([^'\n]{3,}?)'(?![\w'])")
+# a phrase in double quotes, straight or curly
+DOUBLE_QUOTED = re.compile(r"[\"“”]([^\"“”]{3,})[\"“”]")
+# a phrase in single quotes, curly or straight. A straight one opens only where no letter comes before it
+# and closes only where none follows, so "you're" and "employer's" are not quotes
+SINGLE_QUOTED = re.compile(r"‘([^‘’]{3,})’|(?<![\w'])'([^'\n]{3,}?)'(?![\w'])")
 
 
 def _lesson_page(value, ended_at: str) -> str:
@@ -712,7 +713,10 @@ def rejection_lesson(*, job: dict | None, cv_text: str, ended_at: str, feedback:
             return False
         if THIRD_PERSON.search(reason) or THIRD_PERSON.search(change):
             return False
-        quotes = ["".join(groups) for groups in QUOTED.findall(f"{reason} {change}")]
+        # in the reason any quoted phrase claims someone's words; in the change, single quotes are how the
+        # model suggests new wording, so only double quotes there are taken as a quote
+        quotes = (DOUBLE_QUOTED.findall(f"{reason} {change}")
+                  + ["".join(groups) for groups in SINGLE_QUOTED.findall(reason)])
         return all(f" {' '.join(_words(q))} " in f" {sources} " for q in quotes)
 
     template = {"likely_reason": "", "one_change": "", "page": ""}
