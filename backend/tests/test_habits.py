@@ -174,6 +174,11 @@ def test_offer_and_rejected_have_no_follow_up_due():
         assert habits.follow_ups_due([tracked(stage=stage, applied_on=TODAY - timedelta(days=60), follow_up_on=TODAY)], [], TODAY) == []
 
 
+def test_no_reply_has_no_follow_up_due():
+    # found in the browser check: "Move to No reply" left the application asking to be followed up
+    assert habits.follow_ups_due([tracked(stage="no_response", follow_up_on=TODAY - timedelta(days=3))], [], TODAY) == []
+
+
 def test_quiet_for_21_days_at_applied():
     assert habits.follow_ups_due([tracked(applied_on=TODAY - timedelta(days=20))], [], TODAY) == []
     quiet = habits.follow_ups_due([tracked(applied_on=TODAY - timedelta(days=21))], [], TODAY)
@@ -184,6 +189,13 @@ def test_quiet_counts_from_the_last_stage_change():
     events = [event("applied", TODAY - timedelta(days=40)), event("screening", TODAY - timedelta(days=30), "applied"),
               event("applied", TODAY - timedelta(days=10), "screening")]
     assert habits.follow_ups_due([tracked(applied_on=TODAY - timedelta(days=40))], events, TODAY) == []
+
+
+def test_logging_an_application_late_is_not_a_change():
+    # found in the browser check: an application sent 25 days ago and logged today was not flagged
+    logged_today = [event("applied", TODAY)]
+    quiet = habits.follow_ups_due([tracked(applied_on=TODAY - timedelta(days=25))], logged_today, TODAY)
+    assert [f["quiet_days"] for f in quiet] == [25]
 
 
 def test_only_an_application_at_applied_goes_quiet():

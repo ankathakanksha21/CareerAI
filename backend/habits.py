@@ -104,14 +104,15 @@ def this_week(*, applications: list, practice_days: list[date], goals: list[dict
 
 def follow_ups_due(applications: list, events: list, today: date) -> list[dict]:
     """Open applications whose follow-up date has come, and those still at Applied with no change
-    for three weeks, which the user may want to move to No reply. An application with no history
-    (made before stage changes were recorded) counts from the day it was sent."""
+    for three weeks, which the user may want to move to No reply. Quiet is counted from the last
+    stage change, else from the day it was sent: logging an application late is not a change."""
     last_change = {}
     for e in events:
-        last_change[e["application_id"]] = max(e["day"], last_change.get(e["application_id"], e["day"]))
+        if e["from_stage"] is not None:
+            last_change[e["application_id"]] = max(e["day"], last_change.get(e["application_id"], e["day"]))
     listed = []
     for a in applications:
-        if a["stage"] in CLOSED:
+        if a["stage"] in CLOSED or a["stage"] == "no_response":  # at No reply the user has stopped waiting
             continue
         due = a["follow_up_on"] is not None and a["follow_up_on"] <= today
         changed = last_change.get(a["id"], a["applied_on"])
