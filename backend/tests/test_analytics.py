@@ -118,10 +118,10 @@ def test_story_rule_counts_weak_stories():
 
 # ---------- rule 3: referrals ----------
 
-def test_network_rule_has_no_link():
+def test_network_rule_links_to_finding_people():
     apps = [app(source="Referral", stage="screening") for _ in range(2)] + [app(source="LinkedIn", stage="no_response") for _ in range(10)]
     f = finding(analytics.compute(apps, [], [], []), "network")
-    assert f["link"] is None
+    assert f["link"] == {"page": "networking", "label": "Find people"}
     assert f["evidence"] == "Referrals got replies 2 of 2 times. Job boards: 0 of 10."
     assert f["action"] == "Ask people you know inside companies that are hiring for a referral before you apply."
 

@@ -6,6 +6,7 @@ import habits
 MON = date(2026, 10, 12)  # a Monday; "today" in these tests is the Wednesday of that week
 TODAY = MON + timedelta(days=2)
 SMALL = {"applications": 1, "practice": 0}
+NO_OUTREACH = {"outreach": 0}
 
 
 def week(n: int) -> date:
@@ -17,8 +18,9 @@ def app(day: date, cv: bool = True, **kw) -> dict:
     return {"applied_on": day, "cv_version_id": "cv-1" if cv else None, "stage": "applied"} | kw
 
 
-def goal(monday: date, applications: int, practice: int) -> dict:
-    return {"effective_from": monday, "applications": applications, "practice": practice}
+def goal(monday: date, applications: int, practice: int, outreach: int | None = None) -> dict:
+    """A goal row; outreach None is a goal saved before the outreach target existed."""
+    return {"effective_from": monday, "applications": applications, "practice": practice, "outreach": outreach}
 
 
 def met(monday: date) -> tuple[list, list]:
@@ -34,8 +36,9 @@ def activity(*mondays: date) -> tuple[list, list]:
     return apps, practice
 
 
-def streaks(apps=(), practice=(), goals=(), started=week(-20), today=TODAY) -> dict:
-    return habits.streaks(applications=list(apps), practice_days=list(practice), goals=list(goals), started=started, today=today)
+def streaks(apps=(), practice=(), goals=(), started=week(-20), today=TODAY, outreach=(), default_outreach=0) -> dict:
+    return habits.streaks(applications=list(apps), practice_days=list(practice), goals=list(goals), started=started, today=today,
+                          outreach_days=list(outreach), default_outreach=default_outreach)
 
 
 # ---------- weeks and goals ----------
@@ -60,7 +63,7 @@ def test_sunday_counts_in_its_own_week_and_monday_in_the_next():
     sunday = week(-1) + timedelta(days=6)
     assert habits.week_counts(week(-1), [app(sunday)], [])["applications"] == 1
     assert habits.week_counts(MON, [app(sunday)], [sunday])["applications"] == 0
-    assert habits.week_counts(MON, [app(MON)], [MON]) == {"applications": 1, "practice": 1, "without_cv": 0}
+    assert habits.week_counts(MON, [app(MON)], [MON]) == {"applications": 1, "practice": 1, "without_cv": 0, "outreach": 0}
 
 
 def test_application_without_cv_does_not_count():
@@ -70,9 +73,9 @@ def test_application_without_cv_does_not_count():
 
 def test_goal_for_a_week_is_the_latest_that_had_started():
     goals = [goal(week(-4), 3, 1), goal(week(-1), 4, 2)]
-    assert habits.goal_for(week(-6), goals) == habits.DEFAULT_GOAL
-    assert habits.goal_for(week(-2), goals) == {"applications": 3, "practice": 1}
-    assert habits.goal_for(MON, goals) == {"applications": 4, "practice": 2}
+    assert habits.goal_for(week(-6), goals) == habits.DEFAULT_GOAL | NO_OUTREACH
+    assert habits.goal_for(week(-2), goals) == {"applications": 3, "practice": 1} | NO_OUTREACH
+    assert habits.goal_for(MON, goals) == {"applications": 4, "practice": 2} | NO_OUTREACH
 
 
 def test_first_goal_applies_this_week():
@@ -83,8 +86,8 @@ def test_goal_change_applies_from_next_monday_and_leaves_earlier_weeks():
     goals = [goal(MON, 3, 1)]
     assert habits.goal_starts(MON + timedelta(days=6), goals) == week(1)  # set on the Sunday: still next Monday
     changed = goals + [goal(week(1), **SMALL)]
-    assert habits.goal_for(MON, changed) == {"applications": 3, "practice": 1}
-    assert habits.goal_for(week(1), changed) == SMALL
+    assert habits.goal_for(MON, changed) == {"applications": 3, "practice": 1} | NO_OUTREACH
+    assert habits.goal_for(week(1), changed) == SMALL | NO_OUTREACH
 
 
 # ---------- streaks ----------
@@ -141,15 +144,66 @@ def test_best_streak_survives_a_break():
 def test_this_week_counts_against_its_goal():
     apps = [app(MON), app(MON, cv=False), app(week(-1))]
     week_now = habits.this_week(applications=apps, practice_days=[TODAY], goals=[], today=TODAY)
-    assert week_now == {"week_of": MON, "applications": 1, "practice": 1, "without_cv": 1, "goal": habits.DEFAULT_GOAL,
-                        "met": False, "next_goal": None}
+    assert week_now == {"week_of": MON, "applications": 1, "practice": 1, "without_cv": 1, "outreach": 0,
+                        "goal": habits.DEFAULT_GOAL | NO_OUTREACH, "met": False, "next_goal": None, "outreach_chosen": False}
 
 
 def test_next_goal_shown_only_when_it_differs():
     set_before = [goal(week(-2), 3, 1)]
     assert habits.this_week(applications=[], practice_days=[], goals=set_before, today=TODAY)["next_goal"] is None
     pending = set_before + [goal(week(1), 4, 1)]
-    assert habits.this_week(applications=[], practice_days=[], goals=pending, today=TODAY)["next_goal"] == {"applications": 4, "practice": 1}
+    assert habits.this_week(applications=[], practice_days=[], goals=pending, today=TODAY)["next_goal"] == {"applications": 4, "practice": 1,
+                                                                                                           "outreach": 0}
+
+
+# ---------- the outreach target ----------
+
+def test_a_target_of_zero_messages_is_always_met():
+    apps, practice = met(week(-1))
+    assert streaks(apps, practice, goals=[goal(week(-8), 5, 2, outreach=0)])["current"] == 1
+
+
+def test_messages_sent_count_toward_the_outreach_target():
+    goals = [goal(week(-8), 1, 0, outreach=2)]
+    two = [week(-1) + timedelta(days=1), week(-1) + timedelta(days=4)]
+    assert streaks([app(week(-1))], goals=goals, outreach=two)["current"] == 1
+    assert streaks([app(week(-1))], goals=goals, outreach=two[:1])["current"] == 0
+
+
+def test_a_goal_saved_before_the_outreach_target_existed_asks_for_no_messages():
+    goals = [goal(week(-8), 5, 2)]  # outreach None
+    assert habits.goal_for(week(-1), goals, default_outreach=2)["outreach"] == 0
+    assert streaks(*activity(week(-3), week(-2), week(-1)), goals=goals, default_outreach=2) == {"current": 3, "best": 3}
+
+
+def test_the_default_outreach_target_applies_until_goals_are_saved():
+    apps, practice = activity(week(-2), week(-1))
+    assert streaks(apps, practice, default_outreach=0)["current"] == 2  # an account from before this step
+    assert streaks(apps, practice, default_outreach=2)["current"] == 0  # a new account: two messages a week
+    sends = [week(-2), week(-2), week(-1), week(-1)]
+    assert streaks(apps, practice, outreach=sends, default_outreach=2)["current"] == 2
+
+
+def test_a_message_counts_in_the_week_of_its_day():
+    sunday = week(-1) + timedelta(days=6)
+    assert habits.week_counts(week(-1), [], [], [sunday])["outreach"] == 1
+    assert habits.week_counts(MON, [], [], [sunday])["outreach"] == 0
+
+
+def test_this_week_shows_messages_and_whether_a_target_was_chosen():
+    now = habits.this_week(applications=[], practice_days=[], goals=[goal(week(-2), 3, 1)], today=TODAY,
+                           outreach_days=[MON], default_outreach=0)
+    assert (now["outreach"], now["goal"]["outreach"], now["outreach_chosen"]) == (1, 0, False)
+    chosen = habits.this_week(applications=[], practice_days=[], goals=[goal(week(-2), 3, 1, outreach=0)], today=TODAY)
+    assert chosen["outreach_chosen"] is True
+    fresh = habits.this_week(applications=[], practice_days=[], goals=[], today=TODAY, default_outreach=2)
+    assert (fresh["goal"]["outreach"], fresh["outreach_chosen"]) == (2, False)
+
+
+def test_a_new_outreach_target_shows_as_next_weeks_goal():
+    pending = [goal(week(-2), 3, 1), goal(week(1), 3, 1, outreach=4)]
+    assert habits.this_week(applications=[], practice_days=[], goals=pending, today=TODAY)["next_goal"] == {
+        "applications": 3, "practice": 1, "outreach": 4}
 
 
 # ---------- follow-ups due ----------
@@ -209,9 +263,9 @@ def test_old_application_without_history_counts_from_date_applied():
 
 # ---------- milestones ----------
 
-def reached(apps=(), events=(), practice_count=0, story_count=0, best_streak=0) -> list:
+def reached(apps=(), events=(), practice_count=0, story_count=0, best_streak=0, outreach=(), contacts=()) -> list:
     return habits.milestones(applications=list(apps), events=list(events), practice_count=practice_count,
-                             story_count=story_count, best_streak=best_streak)
+                             story_count=story_count, best_streak=best_streak, outreach=list(outreach), contacts=list(contacts))
 
 
 def test_milestones_from_data():
@@ -228,7 +282,8 @@ def test_milestones_from_data():
     assert reached(best_streak=8) == ["streak-4", "streak-8"]
     assert reached([tracked(stage="offer")]) == ["applications-1", "first-reply", "first-interview", "first-offer"]
     assert list(habits.MILESTONES) == ["applications-1", "applications-10", "applications-25", "applications-50", "first-reply",
-                                       "first-interview", "first-offer", "first-mock-interview", "story-bank-6", "streak-4", "streak-8"]
+                                       "first-interview", "first-offer", "first-mock-interview", "story-bank-6", "streak-4", "streak-8",
+                                       "first-message-sent", "first-contact-reply", "first-chat", "first-referral"]
 
 
 def test_reply_reached_through_history_counts():
@@ -237,13 +292,32 @@ def test_reply_reached_through_history_counts():
     assert reached([now_rejected], history) == ["applications-1", "first-reply", "first-interview"]
 
 
+def step(kind: str) -> dict:
+    return {"contact_id": "c1", "kind": kind, "message_type": "chat_request" if kind == "sent" else None, "on_day": MON}
+
+
+def test_networking_milestones_from_steps_recorded():
+    assert reached(outreach=[step("sent")]) == ["first-message-sent"]
+    assert reached(outreach=[step("sent"), step("replied")]) == ["first-message-sent", "first-contact-reply"]
+    assert reached(outreach=[step("chat_done")]) == ["first-contact-reply", "first-chat"]
+    assert reached(outreach=[step("referral_offered")]) == ["first-contact-reply", "first-referral"]
+
+
+def test_networking_milestones_from_a_status_set_by_hand():
+    person = lambda status: {"id": "c1", "status": status}  # noqa: E731
+    assert reached(contacts=[person("to_contact")]) == []
+    assert reached(contacts=[person("messaged")]) == ["first-message-sent"]
+    assert reached(contacts=[person("chat_done")]) == ["first-message-sent", "first-contact-reply", "first-chat"]
+    assert reached(contacts=[person("referral_offered")]) == ["first-message-sent", "first-contact-reply", "first-referral"]
+
+
 def test_rejection_after_a_phone_screen_is_a_reply():
     assert reached([tracked(stage="rejected", rejected_at_stage="screening")]) == ["applications-1", "first-reply"]
 
 
 # ---------- the weekly plan ----------
 
-PAGES = {"applications", "interview", "profile", "resume", "jobs"}
+PAGES = {"applications", "interview", "profile", "resume", "jobs", "networking"}
 FINDING = {"id": "cv-none", "title": "T", "action": "Tailor a CV to each job.", "evidence": "0 responses from 4 applications.",
            "link": {"page": "resume", "label": "Tailor a CV"}}
 DUE = {"id": "app-1", "company": "Zzqx Holdings Ltd", "role": "Role A", "follow_up_on": TODAY, "due": True, "quiet_days": None}
@@ -305,6 +379,50 @@ def test_met_goal_gives_no_goal_task():
     apps, practice = met(MON)
     done = habits.this_week(applications=apps, practice_days=practice, goals=[], today=TODAY)
     assert ids(plan(week=done)) == []
+
+
+PERSON = {"id": "c1", "name": "Zzqx Priya", "status": "messaged"}
+
+
+def outreach_week(goal_messages: int, sent: int = 0) -> dict:
+    apps, practice = met(MON)
+    return habits.this_week(applications=apps, practice_days=practice, goals=[goal(week(-4), 5, 2, outreach=goal_messages)],
+                            today=TODAY, outreach_days=[MON] * sent)
+
+
+def test_contact_follow_ups_come_after_application_follow_ups():
+    tasks = plan(follow_ups=[DUE], contact_follow_ups=[PERSON])
+    assert ids(tasks)[:2] == ["follow-ups", "contact-follow-ups"]
+    task = tasks[1]
+    assert (task["text"], task["page"], task["tab"], task["label"]) == ("Follow up with Zzqx Priya", "networking", "people", "Open People")
+    two = plan(contact_follow_ups=[PERSON, PERSON | {"id": "c2", "name": "Zzqx Sam"}])
+    assert two[0]["text"] == "Follow up with 2 people"
+
+
+def test_an_unmet_outreach_target_names_who_to_message():
+    task = next(t for t in plan(week=outreach_week(2, sent=1), to_message=PERSON | {"name": "Zzqx Sam"}) if t["id"] == "outreach")
+    assert (task["text"], task["why"], task["page"], task["tab"]) == (
+        "Message Zzqx Sam", "Your target is 2 messages this week and you have sent 1.", "networking", "people")
+
+
+def test_with_nobody_to_message_the_task_is_to_find_someone():
+    task = next(t for t in plan(week=outreach_week(1)) if t["id"] == "outreach")
+    assert (task["text"], task["label"]) == ("Find someone to message", "Find people")
+
+
+def test_a_met_outreach_target_gives_no_task():
+    assert "outreach" not in ids(plan(week=outreach_week(2, sent=2), to_message=PERSON))
+    assert "outreach" not in ids(plan(week=outreach_week(0), to_message=PERSON))
+
+
+def test_outreach_comes_after_practice():
+    fresh = habits.this_week(applications=[], practice_days=[], goals=[], today=TODAY, default_outreach=2)
+    assert ids(plan(story_count=2, to_message=PERSON, week=fresh)) == ["applications", "practice", "outreach", "stories"]
+
+
+def test_no_networking_task_without_the_networking_page():
+    tasks = plan(to_message=PERSON, contact_follow_ups=[PERSON], pages=PAGES - {"networking"}, week=outreach_week(2))
+    assert "outreach" not in ids(tasks) and "contact-follow-ups" not in ids(tasks)
 
 
 def test_six_stories_and_no_missing_numbers_give_no_task():
