@@ -47,9 +47,11 @@ def gather(**kw):
 
 # ---------- the cache key ----------
 
-def test_lookup_key_by_number_and_host():
-    assert research.lookup_key(name="Zzqx Holdings Ltd", number="01234567", website="https://www.zzqx.test/") == "ch:01234567|zzqx.test"
-    assert research.lookup_key(name="Zzqx", number="01234567", website=None) == "ch:01234567|"
+def test_lookup_key_by_number_name_and_host():
+    assert research.lookup_key(name="Zzqx Holdings Ltd", number="01234567", website="https://www.zzqx.test/") == "ch:01234567|zzqx|zzqx.test"
+    assert research.lookup_key(name="ZZQX", number="01234567", website=None) == "ch:01234567|zzqx|"
+    # the name is searched for, so a different name is a different record even with the same number
+    assert research.lookup_key(name="Some Other Co", number="01234567", website=None) == "ch:01234567|some other|"
 
 
 def test_lookup_key_by_name_when_not_on_the_register():

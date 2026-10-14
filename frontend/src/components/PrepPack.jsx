@@ -47,10 +47,13 @@ export default function PrepPack({ id, s, go, refresh, notify, onBack }) {
   const [error, setError] = useState(null)
   useEffect(() => { api(`/api/prep/${id}`).then(setPack).catch(setError) }, [id])
   const save = (changes) => attempt(notify)(async () => setPack(await patch(`/api/prep/${id}`, changes)))
+  const [researched, setResearched] = useState(null) // a refresh's research, so a failed rewrite is retried without researching again
   const again = useAction(async () => {
-    const company = await post(`/api/prep/${id}/refresh`)
+    const company = researched || await post(`/api/prep/${id}/refresh`)
+    setResearched(company)
     const target = pack.saved_job_id ? { job_id: pack.saved_job_id } : { application_id: pack.application_id }
     setPack(await post('/api/ai/prep', { company_id: company.company_id, ...target }))
+    setResearched(null)
     await refresh()
     notify('Pack refreshed')
   })

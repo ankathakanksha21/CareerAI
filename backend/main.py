@@ -1343,7 +1343,6 @@ def ai_diagnosis(user: CurrentUser):
 PREP_OFF = "Interview prep is not set up on the server."
 BAD_WEBSITE = "Enter the company's website, for example acme.co.uk."
 BAD_TICKS = "Tick at most three of the questions shown."
-RESEARCH_RETRY_S = 600  # a repeat of the same company within this time is the same attempt, not a new use
 CompanyNumber = Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, pattern=r"^[A-Z0-9]{8}$")]
 
 
@@ -1387,7 +1386,7 @@ def _research(user: User, *, name: str, number: str | None, website: str | None,
         kept = None if again else repo.find_company(conn, key, research.FRESH_DAYS)
         if kept:
             return _company(kept, cached=True)
-        limits.check_and_record(conn, user.id, "research", f"research {key}", retry_window_s=RESEARCH_RETRY_S)
+        limits.check_and_record(conn, user.id, "research", f"research {key}")  # every attempt costs searches, so every attempt counts
         today = repo.today(conn)
     gathered = research.gather(name=name, number=number, website=website, today=today)
     found = research.brief(name, gathered, today)

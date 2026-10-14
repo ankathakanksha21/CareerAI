@@ -40,10 +40,12 @@ def _host(url: str | None) -> str:
 
 
 def lookup_key(*, name: str, number: str | None, website: str | None) -> str:
-    """Where a company's research is kept: its Companies House number, or its normalised name when
-    it has none, with the website's host, so a different website is a different record."""
-    who = f"ch:{number}" if number else f"name:{sponsors.normalise(name)}"
-    return f"{who}|{_host(website)}"
+    """Where a company's research is kept: its Companies House number (when confirmed), the name
+    searched for and the website's host. The name and the website are what the user typed and what
+    the searches use, so a different name or website is a different record: what one user typed
+    never changes what another user is shown."""
+    who = f"ch:{number}|" if number else "name:"
+    return f"{who}{sponsors.normalise(name)}|{_host(website)}"
 
 
 # ---------- reading the sources ----------

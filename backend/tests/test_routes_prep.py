@@ -170,6 +170,15 @@ def test_research_counts_once_and_is_shared(client, outside, conn, user_a, user_
     assert usage(conn, user_a, "research") == 1 and usage(conn, user_b, "research") == 0
 
 
+def test_a_different_name_with_the_same_number_never_changes_anothers_research(client, outside, user_b, as_user):
+    count = outside()
+    planted = research(client, name="Qqzx Planted Name", website="").json()
+    as_user(user_b)
+    real = research(client, website="").json()
+    assert real["company_id"] != planted["company_id"] and real["cached"] is False and real["name"] == NAME
+    assert count["news"] == 2
+
+
 def test_different_website_is_a_different_record(client, outside):
     count = outside()
     first = research(client).json()
@@ -185,14 +194,21 @@ def test_research_older_than_14_days_is_done_again(client, outside, conn):
     assert again["cached"] is False and again["company_id"] == first["company_id"] and count["news"] == 2
 
 
-def test_research_retry_within_window_not_counted_twice(client, outside, conn, user_a):
+def test_every_research_attempt_counts_and_a_failure_keeps_nothing(client, outside, conn, user_a):
     outside(brief=ai.AIError("brief"))
     r = research(client)
     assert r.status_code == 502 and r.json()["detail"] == AI_FAILED
-    assert conn.execute("select count(*) as n from companies where lookup_key = %s", (f"ch:{NUMBER}|{SITE}",)).fetchone()["n"] == 0
+    assert conn.execute("select count(*) as n from companies where company_number = %s", (NUMBER,)).fetchone()["n"] == 0
     outside()
     assert research(client).status_code == 200
-    assert usage(conn, user_a, "research") == 1
+    assert usage(conn, user_a, "research") == 2  # every search costs money, so a retry is a use too
+
+
+def test_parallel_or_repeated_research_cannot_run_past_the_limit(client, outside, monkeypatch):
+    count = outside(brief=ai.AIError("brief"))
+    monkeypatch.setenv("DAILY_RESEARCH_LIMIT", "3")
+    codes = [research(client).status_code for _ in range(5)]
+    assert codes == [502, 502, 502, 429, 429] and count["news"] == 3
 
 
 def test_research_limit_reached_is_429(client, outside, monkeypatch):
@@ -414,10 +430,17 @@ def test_refresh_researches_again_and_counts(client, outside, conn, user_a):
     pack, count = built(client, outside, conn, user_a)
     r = client.post(f"/api/prep/{pack['id']}/refresh")
     assert r.status_code == 200 and r.json()["cached"] is False and r.json()["company_id"] == pack["company_id"]
-    assert count["news"] == 2 and count["website"] == 2 and usage(conn, user_a, "research") == 1  # within the retry window
-    conn.execute("update usage_events set created_at = created_at - interval '1 hour' where user_id = %s", (user_a,))
+    assert count["news"] == 2 and count["website"] == 2 and usage(conn, user_a, "research") == 2
     client.post(f"/api/prep/{pack['id']}/refresh")
-    assert usage(conn, user_a, "research") == 2
+    assert usage(conn, user_a, "research") == 3  # straight away, again: still a use
+
+
+def test_refresh_stops_at_the_limit(client, outside, conn, user_a, monkeypatch):
+    pack, count = built(client, outside, conn, user_a)
+    monkeypatch.setenv("DAILY_RESEARCH_LIMIT", "2")
+    assert client.post(f"/api/prep/{pack['id']}/refresh").status_code == 200
+    r = client.post(f"/api/prep/{pack['id']}/refresh")
+    assert r.status_code == 429 and count["news"] == 2
 
 
 def test_stored_packs_work_without_the_settings(client, outside, conn, user_a, no_env_file, monkeypatch):
