@@ -125,3 +125,8 @@ def test_delete_other_users_version_returns_none(conn, user_a, user_b):
 
 def test_delete_a_version_that_does_not_exist_returns_none(conn, user_a):
     assert repo.delete_cv_version(conn, user_a, "00000000-0000-0000-0000-000000000000") is None
+
+
+def test_today_is_the_date_in_london(conn):
+    row = conn.execute("select (now() at time zone 'Europe/London')::date as london").fetchone()
+    assert repo.today(conn) == row["london"] and isinstance(repo.today(conn), date)

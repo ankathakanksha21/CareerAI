@@ -536,6 +536,11 @@ def load_state(conn, user_id) -> dict:
 _LONDON_MIDNIGHT = "(date_trunc('day', now() at time zone 'Europe/London') at time zone 'Europe/London')"
 
 
+def today(conn) -> date:
+    """Today's date in London: the day a cover letter is dated, and the day "recently graduated" is judged from."""
+    return conn.execute("select (now() at time zone 'Europe/London')::date as today").fetchone()["today"]
+
+
 def count_usage_today(conn, user_id, kind: str) -> int:
     return conn.execute(f"select count(*) as n from usage_events where user_id = %s and kind = %s and created_at >= {_LONDON_MIDNIGHT}",
                         (user_id, kind)).fetchone()["n"]
