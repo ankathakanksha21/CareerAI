@@ -333,13 +333,14 @@ def list_stories(conn, user_id) -> list[dict]:
 
 
 def add_story(conn, user_id, achievement_id, story: dict) -> dict:
-    fields = ("title", "competency", "situation", "task", "action", "result", "strength", "tip")
+    fields = ("title", "competency", "situation", "task", "action", "result", "strength", "tip", "competencies")
     return _row(conn.execute(
         f"insert into stories (user_id, achievement_id, {', '.join(fields)}) values (%s, %s, {', '.join(['%s'] * len(fields))}) returning *",
-        (user_id, _own(conn, user_id, "achievements", achievement_id), *(story.get(f, "") for f in fields))).fetchone())
+        (user_id, _own(conn, user_id, "achievements", achievement_id),
+         *(story.get(f, [] if f == "competencies" else "") for f in fields))).fetchone())
 
 
-STORY_FIELDS = ("title", "competency", "situation", "task", "action", "result")  # what a user may edit
+STORY_FIELDS = ("title", "competency", "situation", "task", "action", "result", "competencies")  # what a user may edit
 
 
 def get_story(conn, user_id, story_id) -> dict | None:
@@ -356,6 +357,12 @@ def update_story(conn, user_id, story_id, fields: dict) -> dict | None:
     assignments = ", ".join(f"{k} = %s" for k in fields)
     return _row(conn.execute(f"update stories set {assignments} where id = %s and user_id = %s returning *",
                              (*fields.values(), story_id, user_id)).fetchone())
+
+
+def set_story_competencies(conn, user_id, tags: dict) -> int:
+    """Set the competencies of the user's stories named in `tags` ({story id: [keys]}). Returns how many changed."""
+    return sum(conn.execute("update stories set competencies = %s where id = %s and user_id = %s",
+                            (keys, story_id, user_id)).rowcount for story_id, keys in tags.items())
 
 
 def delete_story(conn, user_id, story_id) -> bool:
@@ -940,3 +947,27 @@ def family_market(conn, user_id, since: date) -> dict[str, dict]:
 
 def set_include_senior(conn, user_id, value: bool) -> None:
     conn.execute("update profiles set include_senior = %s, updated_at = now() where user_id = %s", (value, user_id))
+
+
+# ---------- company research (shared public data, no user_id) ----------
+
+def find_company(conn, lookup_key: str, fresh_days: int) -> dict | None:
+    """The research kept under this key, if it is younger than fresh_days."""
+    return _row(conn.execute("select * from companies where lookup_key = %s and researched_at > now() - make_interval(days => %s)",
+                             (lookup_key, fresh_days)).fetchone())
+
+
+def save_company(conn, lookup_key: str, *, name: str, company_number: str | None, website: str | None, registry: dict | None,
+                 facts: list, missing: list) -> dict:
+    """Keep a company's research, replacing what was kept under the same key."""
+    return _row(conn.execute(
+        "insert into companies (lookup_key, name, company_number, website, registry, facts, missing) values (%s, %s, %s, %s, %s, %s, %s) "
+        "on conflict (lookup_key) do update set name = excluded.name, company_number = excluded.company_number, "
+        "website = excluded.website, registry = excluded.registry, facts = excluded.facts, missing = excluded.missing, researched_at = now() "
+        "returning *",
+        (lookup_key, name, company_number, website, _document(registry) if registry is not None else None, _document(facts),
+         _document(missing))).fetchone())
+
+
+def get_company(conn, company_id) -> dict | None:
+    return _row(conn.execute("select * from companies where id = %s", (company_id,)).fetchone())

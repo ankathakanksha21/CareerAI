@@ -701,7 +701,7 @@ def test_story_bank_writes_one_story_per_achievement_sent(model):
     found = ai.story_bank(BANK)
     assert set(found) == {1, 2}
     assert found[1] == {"title": "The delays report", "competency": "Problem solving", "situation": "s", "task": "t", "action": "a", "result": "r",
-                        "strength": "strong", "tip": ""}
+                        "strength": "strong", "tip": "", "competencies": ["problem_solving"]}
     assert found[2]["title"] == "Merge script" and found[2]["strength"] == "needs detail"
 
 
@@ -1241,3 +1241,170 @@ def test_draft_own_greeting_and_sign_off_removed(model):
     model(framed)
     message = draft()["message"]
     assert message == f"Dear Zzqx Person,\n\n{GOOD_DRAFT['body']}\n\nKind regards,\nTest Person"
+
+
+# ---------- the company brief ----------
+
+TODAY = date(2026, 10, 14)
+PASSAGES = [
+    {"n": 1, "kind": "website", "url": "https://zzqx.test/", "title": "Zzqx | Home", "published_on": None,
+     "text": "Zzqx builds payment software for 1,200 UK councils. Our values: “Do the right thing” and Be curious."},
+    {"n": 2, "kind": "news", "url": "https://news.test/a", "title": "Zzqx opens Leeds office", "published_on": date(2026, 9, 1),
+     "text": "Zzqx Holdings opened a second office in Leeds with 40 staff."},
+    {"n": 3, "kind": "news", "url": "https://news.test/old", "title": "Zzqx founded", "published_on": date(2025, 9, 1),
+     "text": "Zzqx was founded in a garage."},
+    {"n": 4, "kind": "competitors", "url": "https://compare.test/zzqx", "title": "Zzqx alternatives", "published_on": None,
+     "text": "Alternatives to Zzqx include Qqzx Pay and Xxqz Ltd."},
+]
+
+
+def brief_reply(*statements):
+    return {"statements": list(statements)}
+
+
+def said(section, text, source, quote=""):
+    return {"section": section, "text": text, "source": source, "quote": quote}
+
+
+GOOD = said("what_they_do", "Zzqx builds payment software for UK councils.", 1)
+
+
+def brief(model, *statements, retry=None):
+    model(brief_reply(*statements), *( [retry] if retry else []))
+    return ai.company_brief("Zzqx", PASSAGES, TODAY)
+
+
+@pytest.mark.parametrize("source", [99, 0, -1, None, "x", 5])
+def test_brief_drops_statement_with_unknown_source(model, source):
+    got = brief(model, GOOD, said("products", "Zzqx sells payment software.", source))
+    assert got == [GOOD]
+
+
+@pytest.mark.parametrize("source", ["1", "[1]", " 1 ", 1.0])
+def test_brief_reads_source_written_as_text(model, source):
+    assert brief(model, said("what_they_do", "Zzqx builds payment software for UK councils.", source)) == [GOOD]
+
+
+def test_brief_drops_value_whose_quote_is_not_in_its_passage(model):
+    got = brief(model, GOOD, said("values", "Zzqx says it values honesty.", 1, "Honesty above all"),
+                said("values", "Zzqx says it values curiosity.", 1, ""))
+    assert got == [GOOD]
+
+
+def test_brief_value_quote_matches_across_curly_quotes_case_and_spacing(model):
+    value = said("values", "Zzqx says it aims to do the right thing.", 1, '"do the  RIGHT thing"')
+    assert brief(model, value) == [value | {"quote": "Do the right thing"}]  # the page's own words
+
+
+def test_brief_drops_statement_with_number_not_in_its_passage(model):
+    got = brief(model, GOOD, said("size", "Zzqx serves 1,500 councils.", 1))
+    assert got == [GOOD]
+
+
+def test_brief_number_matches_with_thousands_separator(model):
+    size = said("size", "Zzqx serves 1200 councils.", 1)
+    assert brief(model, size) == [size]
+
+
+def test_brief_drops_double_quoted_phrase_not_in_its_passage(model):
+    got = brief(model, GOOD, said("what_they_do", 'Zzqx calls itself "the best in Europe".', 1))
+    assert got == [GOOD]
+
+
+def test_news_must_cite_a_news_result(model):
+    news = said("news", "Zzqx opened a second office in Leeds.", 2)
+    got = brief(model, news, said("news", "Zzqx builds payment software.", 1))
+    assert got == [news]
+
+
+def test_news_older_than_12_months_dropped(model):
+    got = brief(model, GOOD, said("news", "Zzqx was founded in a garage.", 3))
+    assert got == [GOOD]
+
+
+def test_competitor_from_any_passage_that_names_it(model):
+    rival = said("competitors", "Qqzx Pay is named as an alternative to Zzqx.", 4)
+    assert brief(model, rival) == [rival]
+
+
+def test_unknown_section_and_empty_text_dropped(model):
+    got = brief(model, GOOD, said("history", "Zzqx has a history.", 1), said("products", "  ", 1), said("", "Zzqx exists.", 1))
+    assert got == [GOOD]
+
+
+def test_quote_kept_only_on_values(model):
+    assert brief(model, GOOD | {"quote": "builds payment software"}) == [GOOD]
+
+
+def test_duplicates_and_caps(model):
+    many = [said("what_they_do", f"Zzqx builds payment software, point {n}.", 1) for n in "abcdef"]
+    got = brief(model, GOOD, GOOD | {"text": " zzqx builds payment software for UK councils. "}, *many)
+    assert got[0] == GOOD and len(got) == ai.SECTION_CAP["what_they_do"]
+
+
+def test_brief_retries_then_fails_when_nothing_survives(model):
+    bad = brief_reply(said("products", "Zzqx sells 9,999 things.", 1))
+    calls = model(bad, bad)
+    with pytest.raises(ai.AIError):
+        ai.company_brief("Zzqx", PASSAGES, TODAY)
+    assert len(calls) == 2
+
+
+def test_brief_with_nothing_to_say_is_empty_not_an_error(model):
+    calls = model(brief_reply())
+    assert ai.company_brief("Zzqx", PASSAGES, TODAY) == [] and len(calls) == 1
+
+
+def test_brief_prompt_holds_only_the_passages(model):
+    calls = model(brief_reply(GOOD))
+    ai.company_brief("Zzqx", PASSAGES, TODAY)
+    for p in PASSAGES:
+        assert f"[{p['n']}]" in calls[0]["user"] and p["text"] in calls[0]["user"] and p["title"] in calls[0]["user"]
+    assert "own knowledge" in calls[0]["system"]
+    assert "1 September 2026" in calls[0]["user"]  # a news passage carries its date
+
+
+# ---------- story competencies ----------
+
+STORY_REPLY = {"title": "t", "competency": "Teamwork", "situation": "s", "task": "t", "action": "a", "result": "r",
+               "strength": "strong", "tip": ""}
+
+
+def test_star_returns_known_competencies(model):
+    model(STORY_REPLY | {"competencies": ["Teamwork", "cooking", "teamwork", "Problem solving", "initiative", "leadership"]})
+    assert ai.star(ACHIEVEMENTS[0])["competencies"] == ["teamwork", "problem_solving", "initiative"]
+
+
+def test_star_without_competencies_falls_back_to_its_label(model):
+    model(STORY_REPLY, STORY_REPLY | {"competency": "Delivering results"})
+    assert ai.star(ACHIEVEMENTS[0])["competencies"] == ["teamwork"]  # the label is exactly one of the eight
+    assert ai.star(ACHIEVEMENTS[0])["competencies"] == []
+
+
+def test_story_bank_returns_competencies(model):
+    model({"stories": [{"n": 1} | STORY_REPLY | {"competencies": ["Handling a setback", "Working to deadlines"]}]})
+    assert ai.story_bank([ACHIEVEMENTS[0] | {"n": 1}])[1]["competencies"] == ["setback", "deadlines"]
+
+
+def test_story_prompts_list_the_eight_competencies(model):
+    calls = model(STORY_REPLY, {"stories": [{"n": 1} | STORY_REPLY]})
+    ai.star(ACHIEVEMENTS[0])
+    ai.story_bank([ACHIEVEMENTS[0] | {"n": 1}])
+    for call in calls:
+        assert all(label in call["user"] for label in ai.COMPETENCIES.values())
+
+
+def test_tag_stories_keeps_only_sent_stories_and_known_keys(model):
+    stories = [{"id": "s1", "title": "Fixed a report", "situation": "s", "task": "t", "action": "a", "result": "r"},
+               {"id": "s2", "title": "Led a club", "situation": "s", "task": "t", "action": "a", "result": "r"}]
+    calls = model({"stories": [{"n": 1, "competencies": ["Problem solving", "Communication"]}, {"n": 9, "competencies": ["Teamwork"]},
+                               {"n": 2, "competencies": ["cooking"]}]})
+    assert ai.tag_stories(stories) == {"s1": ["problem_solving", "communication"]}
+    assert "s1" not in calls[0]["user"] and "Fixed a report" in calls[0]["user"]  # ids stay on the server
+
+
+def test_tag_stories_fails_when_no_story_gets_a_competency(model):
+    stories = [{"id": "s1", "title": "Fixed a report", "situation": "s", "task": "t", "action": "a", "result": "r"}]
+    model({"stories": [{"n": 1, "competencies": ["cooking"]}]}, {"stories": []})
+    with pytest.raises(ai.AIError):
+        ai.tag_stories(stories)

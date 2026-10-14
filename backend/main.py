@@ -262,6 +262,12 @@ class StoryPatch(BaseModel):
     task: Text(2000, 0) = None
     action: Text(2000, 0) = None
     result: Text(2000, 0) = None
+    competencies: list[Literal[tuple(ai.COMPETENCIES)]] = Field(None, max_length=ai.MAX_COMPETENCIES)
+
+    @field_validator("competencies")
+    @classmethod
+    def _once_each(cls, value):
+        return list(dict.fromkeys(value)) if value is not None else value
 
 
 @app.patch("/api/stories/{story_id}")
@@ -1248,11 +1254,29 @@ def ai_story_bank(user: CurrentUser):
     if not without:
         raise HTTPException(400, "Every achievement already has a story.")
     _start_ai(user, "story bank")
-    written, missed = stories.write(stories.pick(without, len(existing)), sorted({s["competency"] for s in existing if s["competency"]}))
+    covered = sorted({ai.COMPETENCIES[k] for s in existing for k in s["competencies"]})
+    written, missed = stories.write(stories.pick(without, len(existing)), covered)
     with db.transaction() as conn:
         room = stories.BANK - len(repo.list_stories(conn, user.id))  # counted again: another request may have added some meanwhile
         saved = [repo.add_story(conn, user.id, achievement_id, story) for achievement_id, story in written[:max(0, room)]]
     return {"stories": saved, "notice": "Some stories could not be written. Try again to write the rest." if missed else None}
+
+
+@app.post("/api/ai/stories/tag")
+def ai_tag_stories(user: CurrentUser):
+    """Competencies for the user's stories that have none. One AI action."""
+    with db.transaction() as conn:
+        existing = repo.list_stories(conn, user.id)
+    if not existing:
+        raise HTTPException(400, "You have no stories yet.")
+    untagged = [s for s in existing if not s["competencies"]]
+    if not untagged:
+        raise HTTPException(400, "Every story already has competencies.")
+    _start_ai(user, "tag stories")
+    tags = ai.tag_stories(untagged)
+    with db.transaction() as conn:
+        repo.set_story_competencies(conn, user.id, {k: v for k, v in tags.items() if k in {s["id"] for s in untagged}})
+        return {"stories": repo.list_stories(conn, user.id)}
 
 
 class InterviewIn(BaseModel):

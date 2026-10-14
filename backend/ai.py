@@ -5,7 +5,7 @@ failed call, so a user never sees content that did not come from their own data.
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import anthropic
 import httpx
@@ -563,14 +563,33 @@ def job_letter(job: dict, profile: dict, education: list, work_history: list, ac
 
 # 5. One achievement to a STAR story
 STORY_KEYS = ("title", "competency", "situation", "task", "action", "result", "strength", "tip")
+# The common UK competencies a story can show, as stored and as shown
+COMPETENCIES = {"teamwork": "Teamwork", "leadership": "Leadership", "problem_solving": "Problem solving",
+                "communication": "Communication", "setback": "Handling a setback", "initiative": "Initiative",
+                "influencing": "Influencing", "deadlines": "Working to deadlines"}
+MAX_COMPETENCIES = 3
+_COMPETENCY_KEYS = {k: k for k in COMPETENCIES} | {label.lower(): k for k, label in COMPETENCIES.items()}
+COMPETENCY_LIST = ", ".join(COMPETENCIES.values())
+
+
+def _competencies(value) -> list[str]:
+    """Competencies the model named, as stored keys: known ones only, no repeats, at most three."""
+    found = []
+    for item in value if isinstance(value, list) else []:
+        key = _COMPETENCY_KEYS.get(" ".join(str(item).lower().replace("_", " ").split())) or _COMPETENCY_KEYS.get(str(item).strip().lower())
+        if key and key not in found:
+            found.append(key)
+    return found[:MAX_COMPETENCIES]
 
 
 def _story(data: dict, achievement: dict) -> dict:
-    """A story as the model wrote it, with a title and a strength the UI knows."""
+    """A story as the model wrote it, with a title, a strength and competencies the UI knows."""
     strength = data["strength"].strip().lower()
     return {k: data[k] for k in STORY_KEYS} | {
         "title": data["title"].strip() or achievement.get("title", ""),
         "strength": strength if strength in STRENGTHS else "needs detail",
+        # with none named, the story's own label counts when it is exactly one of the eight
+        "competencies": _competencies(data.get("competencies")) or _competencies([data["competency"]]),
     }
 
 
@@ -583,9 +602,10 @@ def star(achievement: dict) -> dict:
     user = (
         f"Achievement: {_j({k: achievement.get(k) for k in ('title', 'raw', 'uk_version', 'skills', 'outcome', 'scale')})}\n\n"
         'Return {"title":str,"competency":str (e.g. Influencing, Problem solving),"situation":str,"task":str,'
-        '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str}'
+        '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str,'
+        f'"competencies":[str] (one to three of: {COMPETENCY_LIST}; the ones this story shows)}}'
     )
-    data = _run("star", system, user, dict.fromkeys(STORY_KEYS, ""), 900, required=("situation", "action"))
+    data = _run("star", system, user, dict.fromkeys(STORY_KEYS, "") | {"competencies": [""]}, 900, required=("situation", "action"))
     return _story(data, achievement)
 
 
@@ -901,9 +921,10 @@ def story_bank(achievements: list, taken=()) -> dict:
     user = (
         f"Achievements: {_j(listed)}\n\n"
         'Return {"stories":[{"n":int (the achievement number),"title":str,"competency":str,"situation":str,"task":str,'
-        '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str}]}'
+        '"action":str,"result":str,"strength":"strong"|"needs a number"|"needs detail","tip":str,'
+        f'"competencies":[str] (one to three of: {COMPETENCY_LIST}; the ones this story shows)}}]}}'
     )
-    template = {"stories": [{"n": 0} | dict.fromkeys(STORY_KEYS, "")]}
+    template = {"stories": [{"n": 0} | dict.fromkeys(STORY_KEYS, "") | {"competencies": [""]}]}
     data = _run("story bank", system, user, template, 300 + 450 * len(achievements), required=("stories",))
     sent, found = {a["n"]: a for a in achievements}, {}
     for story in data["stories"]:
@@ -913,3 +934,128 @@ def story_bank(achievements: list, taken=()) -> dict:
     if not found:
         raise AIError("story bank")
     return found
+
+
+# 14. Competencies for stories written before they were tagged
+def tag_stories(stories: list[dict]) -> dict[str, list[str]]:
+    """The competencies each story shows: {story id: [keys]}. Stories are sent by number, so ids stay
+    on the server; a number that was not sent is ignored, and a story given none is left out."""
+    numbered = {n: s for n, s in enumerate(stories, start=1)}
+    system = (f"Say which of these UK interview competencies each STAR story shows: {COMPETENCY_LIST}. "
+              "Give one to three per story, the ones its facts really show.")
+    listed = [{"n": n} | {k: s.get(k, "") for k in ("title", "situation", "task", "action", "result")} for n, s in numbered.items()]
+    user = f"Stories: {_j(listed)}\n\n" + 'Return {"stories":[{"n":int (the story number),"competencies":[str]}]}'
+
+    def tagged(data: dict) -> dict:
+        found = {}
+        for item in data["stories"]:
+            story = numbered.get(item["n"])
+            keys = _competencies(item.get("competencies"))
+            if story and keys and story["id"] not in found:
+                found[story["id"]] = keys
+        return found
+    data = _run("tag stories", system, user, {"stories": [{"n": 0, "competencies": [""]}]}, 200 + 60 * len(stories),
+                check=lambda d: bool(tagged(d)))
+    return tagged(data)
+
+
+# 13. A company brief from numbered passages the app fetched
+BRIEF_SECTIONS = ("what_they_do", "size", "values", "products", "news", "competitors")
+SECTION_CAP = {"what_they_do": 3, "size": 2, "values": 4, "products": 5, "news": 5, "competitors": 5}
+NEWS_DAYS = 365
+STATEMENT_CHARS = 300
+
+
+def _long_date(value: date) -> str:
+    return f"{value.day} {value:%B %Y}"
+
+
+def _source(value, passages: dict) -> int | None:
+    """A passage number the model wrote as 3, "3" or "[3]", if it is one that was sent."""
+    if isinstance(value, bool) or value is None:
+        return None
+    m = re.fullmatch(r"\s*\[?\s*(\d+)(?:\.0+)?\s*\]?\s*", str(value))
+    return int(m.group(1)) if m and int(m.group(1)) in passages else None
+
+
+def _straight(text: str) -> str:
+    return text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+
+
+def _found_in(quote: str, text: str) -> str:
+    """The words of `quote` as `text` writes them, ignoring case, spacing and curly quotes; "" if absent."""
+    words = _straight(quote).strip(" \"'").split()
+    if not words:
+        return ""
+    m = re.search(r"\s+".join(map(re.escape, words)), _straight(text), re.I)
+    return text[m.start():m.end()] if m else ""
+
+
+def _passage_words(p: dict) -> str:
+    return f"{p['title']} {p['text']}" + (f" {_long_date(p['published_on'])} {p['published_on'].isoformat()}" if p.get("published_on") else "")
+
+
+def _brief_statement(raw: dict, passages: dict, since: date) -> dict | None:
+    """One statement, if code can check it against the passage it cites; otherwise None."""
+    section, text = raw["section"].strip().lower(), " ".join(raw["text"].split())
+    n = _source(raw.get("source"), passages)
+    if section not in BRIEF_SECTIONS or not text or len(text) > STATEMENT_CHARS or n is None:
+        return None
+    p = passages[n]
+    if section == "news" and (p["kind"] != "news" or (p.get("published_on") and p["published_on"] < since)):
+        return None
+    source_text = _passage_words(p)
+    if not _numbers(text) <= _numbers(source_text, spelled=True):
+        return None  # a figure the page does not give
+    if any(not _found_in(q, source_text) for q in DOUBLE_QUOTED.findall(_straight(text))):
+        return None  # words put in the company's mouth
+    quote = ""
+    if section == "values":
+        quote = _found_in(raw["quote"], p["text"])
+        if not quote:
+            return None  # a value is shown in the company's own words, or not at all
+    return {"section": section, "text": text, "source": n, "quote": quote}
+
+
+def _brief_checked(data: dict, passages: dict, since: date) -> list[dict]:
+    kept, seen, per_section = [], set(), {}
+    for raw in data["statements"]:
+        statement = _brief_statement(raw, passages, since)
+        if not statement:
+            continue
+        key = _key(statement["text"])
+        if key in seen or per_section.get(statement["section"], 0) >= SECTION_CAP[statement["section"]]:
+            continue
+        seen.add(key)
+        per_section[statement["section"]] = per_section.get(statement["section"], 0) + 1
+        kept.append(statement)
+    return kept
+
+
+def company_brief(company: str, passages: list[dict], today: date) -> list[dict]:
+    """Short statements about a company, each citing the one passage that says it. Only passages
+    the app fetched are sent; a statement code cannot check against its passage is dropped. A reply
+    with statements of which none survive is asked for once more; a reply with none is an honest
+    "nothing to say"."""
+    by_n = {p["n"]: p for p in passages}
+    since = today - timedelta(days=NEWS_DAYS)
+    system = (
+        "You write a short factual brief about one company for someone preparing for an interview there. "
+        "Use only the numbered passages given. Never add anything from your own knowledge, even about a company you know. "
+        "Each statement is one short sentence about the company, in the third person, and cites the one passage number that says it. "
+        "Sections: what_they_do (what the company does); size (how big or how old it is); "
+        "values (what it says it stands for, with the exact words from the passage in quote); products (products, services or projects); "
+        "news (one news item, citing a news passage); competitors (a company the passage names as a competitor or alternative). "
+        "Use no figure that is not in the passage you cite. Leave out a section no passage supports. "
+        "If nothing in the passages is about this company, return no statements."
+    )
+
+    def heading(p: dict) -> str:
+        return f"[{p['n']}] {p['kind']}" + (f", {_long_date(p['published_on'])}" if p.get("published_on") else "") + f": {p['title']}"
+    listed = "\n\n".join(f"{heading(p)}\n{p['text']}" for p in passages)
+    user = (f"Company: {company}\n\nPassages:\n{listed}\n\n"
+            'Return {"statements":[{"section":str,"text":str,"source":int (the passage number),"quote":str (values only, else "")}]}')
+    template = {"statements": [{"section": "", "text": "", "source": "", "quote": ""}]}
+    data = _run("brief", system, user, template, 2000,
+                check=lambda d: not d["statements"] or bool(_brief_checked(d, by_n, since)))
+    return _brief_checked(data, by_n, since)
