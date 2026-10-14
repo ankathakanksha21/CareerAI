@@ -6,3 +6,5 @@ python-dotenv
 psycopg[binary]
 PyJWT[crypto]
 pypdf
+python-docx
+fpdf2
