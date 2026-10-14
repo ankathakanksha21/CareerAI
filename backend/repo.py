@@ -5,9 +5,11 @@ Rows come back as plain dicts: ids as str, dates as datetime.date, timestamps as
 import json
 import re
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from psycopg.types.json import Jsonb
+
+import networking
 
 
 def _row(row: dict | None) -> dict | None:
@@ -372,8 +374,11 @@ def delete_story(conn, user_id, story_id) -> bool:
 # ---------- applications ----------
 
 APPLICATION_FIELDS = ("company", "role", "role_family_id", "cv_version_id", "saved_job_id", "source", "stage",
-                      "applied_on", "posted_on", "job_url", "contact_name", "contact", "notes", "sponsor_licence", "follow_up_on")
-_REFERENCES = {"role_family_id": "role_families", "cv_version_id": "cv_versions", "saved_job_id": "saved_jobs"}
+                      "applied_on", "posted_on", "job_url", "contact_name", "contact", "notes", "sponsor_licence", "follow_up_on",
+                      "contact_id")
+_REFERENCES = {"role_family_id": "role_families", "cv_version_id": "cv_versions", "saved_job_id": "saved_jobs",
+               "contact_id": "contacts"}
+REFERRAL = "Referral"
 REJECTED = ("rejected", "rejected_after_interview")
 CLOSED = ("offer", *REJECTED)  # an application that has ended: nothing to follow up
 FOLLOW_UP_DAYS = 7
@@ -385,7 +390,15 @@ def _application_values(conn, user_id, fields: dict) -> dict:
     unknown = set(fields) - set(APPLICATION_FIELDS)
     if unknown:
         raise ValueError(f"not application fields: {sorted(unknown)}")
-    return {k: _own(conn, user_id, _REFERENCES[k], v) if k in _REFERENCES else v for k, v in fields.items()}
+    values = {k: _own(conn, user_id, _REFERENCES[k], v) if k in _REFERENCES else v for k, v in fields.items()}
+    if values.get("contact_id"):
+        # the saved contact behind it: their name is the application's contact, and a referral they offered is its source
+        contact = get_contact(conn, user_id, values["contact_id"])
+        if "contact_name" not in fields:
+            values["contact_name"] = contact["name"]
+        if contact["status"] == "referral_offered":
+            values["source"] = REFERRAL
+    return values
 
 
 def list_applications(conn, user_id) -> list[dict]:
@@ -519,17 +532,17 @@ def get_journal_transcript(conn, user_id, entry_id) -> str | None:
 
 def list_goals(conn, user_id) -> list[dict]:
     """Every goal the user has set, each applying from its Monday, oldest first."""
-    return _rows(conn.execute("select effective_from, applications, practice from weekly_goals where user_id = %s "
+    return _rows(conn.execute("select effective_from, applications, practice, outreach from weekly_goals where user_id = %s "
                               "order by effective_from", (user_id,)))
 
 
-def set_goal(conn, user_id, *, effective_from: date, applications: int, practice: int) -> dict:
+def set_goal(conn, user_id, *, effective_from: date, applications: int, practice: int, outreach: int | None = None) -> dict:
     """Set the goal from one Monday. A second change before that Monday replaces the first."""
     return _row(conn.execute(
-        "insert into weekly_goals (user_id, effective_from, applications, practice) values (%s, %s, %s, %s) "
+        "insert into weekly_goals (user_id, effective_from, applications, practice, outreach) values (%s, %s, %s, %s, %s) "
         "on conflict (user_id, effective_from) do update set applications = excluded.applications, practice = excluded.practice, "
-        "created_at = now() returning effective_from, applications, practice",
-        (user_id, effective_from, applications, practice)).fetchone())
+        "outreach = excluded.outreach, created_at = now() returning effective_from, applications, practice, outreach",
+        (user_id, effective_from, applications, practice, outreach)).fetchone())
 
 
 def account_started(conn, user_id) -> date | None:
@@ -548,6 +561,120 @@ def mark_milestones_seen(conn, user_id, ids: list[str]) -> list[str]:
     seen += [i for i in dict.fromkeys(ids) if i not in seen]
     conn.execute("update profiles set milestones_seen = %s where user_id = %s", (Jsonb(seen), user_id))
     return seen
+
+
+# ---------- networking: contacts, their pipeline, saved events ----------
+
+CONTACT_FIELDS = ("name", "role", "company", "relationship", "link", "notes", "event_id", "status")
+NETWORKING_EVENT_FIELDS = ("name", "starts_at", "place", "online", "link", "type", "status", "notes")
+_EVENT = "*, (starts_at at time zone 'Europe/London')::date as on_day"  # with the London date it falls on
+
+
+def _checked(fields: dict, allowed: tuple, what: str) -> None:
+    unknown = set(fields) - set(allowed)
+    if unknown:
+        raise ValueError(f"not {what} fields: {sorted(unknown)}")
+
+
+def _contact_values(conn, user_id, fields: dict) -> dict:
+    _checked(fields, CONTACT_FIELDS, "contact")
+    return fields | ({"event_id": _own(conn, user_id, "networking_events", fields["event_id"])} if "event_id" in fields else {})
+
+
+def list_contacts(conn, user_id) -> list[dict]:
+    return _rows(conn.execute("select * from contacts where user_id = %s order by created_at, id", (user_id,)))
+
+
+def get_contact(conn, user_id, contact_id) -> dict | None:
+    return _row(conn.execute("select * from contacts where id = %s and user_id = %s", (contact_id, user_id)).fetchone())
+
+
+def add_contact(conn, user_id, fields: dict) -> dict:
+    """Add someone the user wants to contact. An event link is kept only if the event is theirs."""
+    values = _contact_values(conn, user_id, fields)
+    columns = ["user_id", *values]
+    return _row(conn.execute(f"insert into contacts ({', '.join(columns)}) values ({', '.join(['%s'] * len(columns))}) returning *",
+                             (user_id, *values.values())).fetchone())
+
+
+def update_contact(conn, user_id, contact_id, fields: dict) -> dict | None:
+    """Change only the fields given, the status among them when the user corrects it by hand."""
+    values = _contact_values(conn, user_id, fields)
+    assignments = ", ".join([f"{k} = %s" for k in values] + ["updated_at = now()"])
+    return _row(conn.execute(f"update contacts set {assignments} where id = %s and user_id = %s returning *",
+                             (*values.values(), contact_id, user_id)).fetchone())
+
+
+def delete_contact(conn, user_id, contact_id) -> bool:
+    """Their details go; the messages sent to them stay, unnamed, so each still counts in its week."""
+    return conn.execute("delete from contacts where id = %s and user_id = %s", (contact_id, user_id)).rowcount == 1
+
+
+def record_outreach(conn, user_id, contact_id, kind: str, message_type: str | None = None) -> dict | None:
+    """Record a step with one of the user's contacts (a message sent, a reply, a chat, a referral)
+    and move them forward to it, never back. The same step for the same person on one London day is
+    recorded once. Returns the contact, or None if it is not this user's."""
+    contact = _row(conn.execute("select * from contacts where id = %s and user_id = %s for update", (contact_id, user_id)).fetchone())
+    if contact is None:
+        return None
+    conn.execute("insert into outreach_events (user_id, contact_id, kind, message_type) values (%s, %s, %s, %s) "
+                 "on conflict (user_id, contact_id, kind, coalesce(message_type, ''), on_day) do nothing",
+                 (user_id, contact_id, kind, message_type))
+    status = networking.advanced(contact["status"], kind)
+    if status == contact["status"]:
+        return contact
+    return _row(conn.execute("update contacts set status = %s, updated_at = now() where id = %s and user_id = %s returning *",
+                             (status, contact_id, user_id)).fetchone())
+
+
+def list_outreach(conn, user_id) -> list[dict]:
+    """Every step the user recorded with their contacts, with its London day, oldest first."""
+    return _rows(conn.execute("select contact_id, kind, message_type, at, on_day from outreach_events where user_id = %s "
+                              "order by at, id", (user_id,)))
+
+
+def _when(key: str, value) -> str:
+    """A start time typed without a zone is London time."""
+    return "(%s::timestamp at time zone 'Europe/London')" if key == "starts_at" and isinstance(value, datetime) and value.tzinfo is None else "%s"
+
+
+def list_networking_events(conn, user_id) -> list[dict]:
+    return _rows(conn.execute(f"select {_EVENT} from networking_events where user_id = %s order by starts_at, id", (user_id,)))
+
+
+def get_networking_event(conn, user_id, event_id) -> dict | None:
+    return _row(conn.execute(f"select {_EVENT} from networking_events where id = %s and user_id = %s", (event_id, user_id)).fetchone())
+
+
+def add_networking_event(conn, user_id, fields: dict) -> dict:
+    _checked(fields, NETWORKING_EVENT_FIELDS, "event")
+    columns = ["user_id", *fields]
+    marks = ["%s", *[_when(k, v) for k, v in fields.items()]]
+    return _row(conn.execute(f"insert into networking_events ({', '.join(columns)}) values ({', '.join(marks)}) returning {_EVENT}",
+                             (user_id, *fields.values())).fetchone())
+
+
+def update_networking_event(conn, user_id, event_id, fields: dict) -> dict | None:
+    _checked(fields, NETWORKING_EVENT_FIELDS, "event")
+    assignments = ", ".join([f"{k} = {_when(k, v)}" for k, v in fields.items()] + ["updated_at = now()"])
+    return _row(conn.execute(f"update networking_events set {assignments} where id = %s and user_id = %s returning {_EVENT}",
+                             (*fields.values(), event_id, user_id)).fetchone())
+
+
+def set_event_prep(conn, user_id, event_id, prep: dict) -> dict | None:
+    return _row(conn.execute(f"update networking_events set prep = %s, updated_at = now() where id = %s and user_id = %s "
+                             f"returning {_EVENT}", (Jsonb(prep), event_id, user_id)).fetchone())
+
+
+def delete_networking_event(conn, user_id, event_id) -> bool:
+    """The event goes; contacts met there stay, with the link cleared."""
+    return conn.execute("delete from networking_events where id = %s and user_id = %s", (event_id, user_id)).rowcount == 1
+
+
+def set_university_events_url(conn, user_id, url: str | None) -> dict:
+    """The user's university careers events page, already checked as a safe address, or None to clear it."""
+    return _profile(conn.execute("update profiles set university_events_url = %s, updated_at = now() where user_id = %s returning *",
+                                 (url, user_id)).fetchone())
 
 
 # ---------- work history and education ----------
@@ -646,6 +773,9 @@ def load_state(conn, user_id) -> dict:
         "applications": list_applications(conn, user_id),
         "journal": list_journal(conn, user_id),
         "prep_packs": list_packs(conn, user_id),
+        "contacts": list_contacts(conn, user_id),
+        "networking_events": list_networking_events(conn, user_id),
+        "outreach": list_outreach(conn, user_id),
     }
 
 

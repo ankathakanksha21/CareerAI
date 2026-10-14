@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -362,8 +362,11 @@ def test_load_state_only_own_rows(conn, user_a, user_b):
     repo.add_entry(conn, user_a, "work_history", {"employer": "Zzqx Holdings Ltd"})
     repo.add_entry(conn, user_a, "education", {"institution": "University of Zzqx"})
     repo.save_pack(conn, user_a, saved_job_id=j["id"], application_id=None, company_id=None, role="Role A", company="Zzqx", content={})
+    contact = repo.add_contact(conn, user_a, {"name": "Zzqx Person", "relationship": "none"})
+    repo.record_outreach(conn, user_a, contact["id"], "sent", "chat_request")
+    repo.add_networking_event(conn, user_a, {"name": "Zzqx Meetup", "starts_at": datetime(2026, 10, 20, 18, 30), "type": "meetup"})
     keys = {"achievements", "work_history", "education", "role_families", "saved_jobs", "cv_versions", "stories", "applications", "journal",
-            "prep_packs"}
+            "prep_packs", "contacts", "networking_events", "outreach"}
     mine, theirs = repo.load_state(conn, user_a), repo.load_state(conn, user_b)
     assert set(mine) == set(theirs) == keys
     assert all(len(mine[k]) == 1 for k in keys)
