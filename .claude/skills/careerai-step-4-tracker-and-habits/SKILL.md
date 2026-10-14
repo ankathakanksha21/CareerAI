@@ -5,8 +5,38 @@ description: Use when building, continuing or reviewing step 4 of the CareerAI r
 
 # Step 4: tracker and habits
 
-**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Uses steps 2 and 3 where they exist (sponsor status, full CV versions) and must work without them. **Size:** medium.
+**Status:** Built on branch `step-4-tracker-and-habits`, 14 October 2026; not yet merged. **Not finished:** the owner's hand checks. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Uses steps 2 and 3 where they exist (sponsor status, full CV versions) and must work without them. **Size:** medium.
 **REQUIRED:** follow `careerai-building-a-step`.
+
+## Where it stands (14 October 2026)
+
+- Built and committed, tasks 1 to 11 of `docs/superpowers/plans/2026-10-14-step-4-tracker-and-habits.md`. What it does and how is in `docs/ARCHITECTURE.md` section 21; what was verified and what was not is in section 22.
+- Verified by the automated suite, by the real-model checks (the four new ones read by eye as well), and by running Home and Applications against the real backend and model as a temporary user whose data was never saved.
+- **Left for the owner:** the hand checks below with their own login, in particular a real rejection with their own CV, a second account, and dragging a card with a mouse.
+
+## Changed at build time (14 October 2026)
+
+Where what was built differs from the sections below, this table is what is true.
+
+| Change | Why | Decided by |
+|---|---|---|
+| "Where it ended" sets the stage: CV stage or phone screen give `rejected`, interview or final interview give `rejected_after_interview`; the answer is kept in `rejected_at_stage`. A rejection after a phone screen counts as a reply | Keeps the stage list and board; a rejection after a screen was a reply | Owner, with the plan |
+| A lesson is asked for when either the CV or the job description was recorded | This document refuses only when neither is | Owner, with the plan |
+| A lesson must be a possibility, claim no feedback that was not entered, quote only the inputs, and be written to "you"; checked in code | The real model wrote "the candidate" | Owner, with the plan; the last rule found by the real-model check |
+| A lesson with no CV recorded may still say what the CV may not have shown | The real model wrote about the CV every time; refusing it left those applications with no lesson | Found by the real-model check |
+| The follow-up draft's greeting and sign-off are added in code, with the user's name; the model never sees it. Body at most 80 words, no invented number, no placeholder | Under 90 words, nothing personal in the prompt | Owner, with the plan |
+| A new application gets a follow-up date a week after applying; the migration gave open applications one too | The suggestion exists for every open application | Owner, with the plan |
+| "Mark as followed up" sets the next follow-up a week after today | A late follow-up should not be due again the next day | Owner, with the plan |
+| "No change for 21 days" applies at Applied only and counts from the last stage change, or the date applied; logging an application late is not a change | Only an unanswered application can have no reply | Owner, with the plan; the last part found by the browser check |
+| An application at No reply asks for no follow-up | The browser check showed "Move to No reply" leaving it on Follow-ups due | Found by the browser check |
+| Stage history starts on 14 October 2026; older applications show no history | Only real data | Owner, with the plan |
+| Goals: applications 1 to 30, practice 0 to 14 | A goal of nothing would build a streak from nothing | Owner, with the plan |
+| Several new milestones show in one banner, all marked seen | Otherwise an existing user would see a banner on each of the next visits | Owner, with the plan |
+| The getting-started checklist stays on Home until it is complete | A new user's plan would otherwise ask for applications before they have a profile | Owner, with the plan |
+| A lesson keeps the date it was made (`made_on`) | "What you have learned" lists the newest first | Owner, with the plan |
+| The "few sponsor-listed roles" finding was already built in step 2; the new finding is three lessons pointing to the same page | – | – |
+| `GET /api/state` gives each application its `history` | The detail panel needs it | Owner, with the plan |
+| The migration is `007_tracker_habits` | 006 was used by step 3 | – |
 
 ## Goal
 
