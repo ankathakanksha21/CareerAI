@@ -125,7 +125,7 @@ def test_registry_facts_for_a_dissolved_company_with_little_on_record():
 
 def test_passages_numbered_and_split(monkeypatch):
     monkeypatch.setattr(research, "PASSAGE_CHARS", 50)
-    got = research.passages({"registry": REGISTRY, "pages": PAGES, "news": NEWS, "competitors": RIVALS, "missing": []})
+    got = research.passages({"registry": REGISTRY, "pages": PAGES, "news": NEWS, "competitors": RIVALS, "missing": []}, "Zzqx")
     assert [p["n"] for p in got] == list(range(1, len(got) + 1))
     assert [p["kind"] for p in got] == ["website", "website", "website", "news", "news", "competitors"]
     assert got[0]["text"] == "Zzqx builds payment software for councils."  # one-word lines (menus) are left out
@@ -138,8 +138,29 @@ def test_passages_numbered_and_split(monkeypatch):
 def test_website_passages_are_limited(monkeypatch):
     monkeypatch.setattr(research, "PASSAGE_CHARS", 30)
     page = {"url": "https://zzqx.test/", "title": "Zzqx", "text": "\n".join(f"Line number {i} of the page" for i in range(60))}
-    got = research.passages({"registry": None, "pages": [page], "news": [], "competitors": [], "missing": []})
+    got = research.passages({"registry": None, "pages": [page], "news": [], "competitors": [], "missing": []}, "Zzqx")
     assert len(got) == research.MAX_WEBSITE_PASSAGES
+
+
+def test_search_results_that_do_not_name_the_company_are_left_out():
+    news = NEWS + [{"title": "Qqzx Bank raises funds", "url": "https://news.test/other", "snippet": "Qqzx Bank raised money.", "published_on": None}]
+    rivals = RIVALS + [{"title": "Best banks", "url": "https://compare.test/banks", "snippet": "A list of banks.", "published_on": None}]
+    got = research.passages({"registry": None, "pages": [], "news": news, "competitors": rivals, "missing": []}, "Zzqx Holdings Ltd")
+    assert [p["url"] for p in got] == ["https://news.test/a", "https://news.test/b", "https://compare.test/zzqx"]
+
+
+@pytest.mark.parametrize("name, text, kept", [("The Zzqx Group Ltd", "ZZQX opens a shop", True), ("BT Group plc", "BT launches a plan", True),
+                                              ("Zzqx", "Zzqxs opens a shop", False), ("Zzqx & Co", "news about Zzqx", True)])
+def test_a_result_names_the_company_by_its_first_word(name, text, kept):
+    result = {"title": "", "url": "https://news.test/x", "snippet": text, "published_on": None}
+    got = research.passages({"registry": None, "pages": [], "news": [result], "competitors": [], "missing": []}, name)
+    assert bool(got) is kept
+
+
+def test_the_companys_own_pages_are_never_left_out():
+    page = {"url": "https://zzqx.test/", "title": "Home", "text": "We build bridges for councils."}
+    got = research.passages({"registry": None, "pages": [page], "news": [], "competitors": [], "missing": []}, "Zzqx")
+    assert len(got) == 1
 
 
 # ---------- the brief ----------
@@ -159,7 +180,7 @@ def test_brief_with_only_the_register_has_its_lines_and_no_model_call(stub):
 
 def test_brief_attaches_source_details_by_code(stub):
     gathered = {"registry": REGISTRY, "pages": PAGES, "news": NEWS, "competitors": RIVALS, "missing": []}
-    numbered = research.passages(gathered)
+    numbered = research.passages(gathered, "Zzqx")
     news_n = next(p["n"] for p in numbered if p["url"] == "https://news.test/a")
     stub("company_brief", [{"section": "news", "text": "Zzqx opened a Leeds office.", "source": news_n, "quote": ""},
                            {"section": "what_they_do", "text": "Zzqx builds payment software for councils.", "source": 1, "quote": ""}])
@@ -174,7 +195,7 @@ def test_brief_attaches_source_details_by_code(stub):
 
 def test_untitled_source_is_named_by_its_site(stub):
     gathered = {"registry": None, "pages": [], "news": [], "missing": [],
-                "competitors": [{"title": "", "url": "https://www.compare.test/x", "snippet": "Qqzx Pay is an alternative.", "published_on": None}]}
+                "competitors": [{"title": "", "url": "https://www.compare.test/x", "snippet": "Qqzx Pay is an alternative to Zzqx.", "published_on": None}]}
     stub("company_brief", [{"section": "competitors", "text": "Qqzx Pay is named as an alternative.", "source": 1, "quote": ""}])
     assert research.brief("Zzqx", gathered, TODAY)["facts"][0]["source_title"] == "compare.test"
 

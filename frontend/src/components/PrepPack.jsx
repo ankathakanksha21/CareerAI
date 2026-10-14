@@ -19,7 +19,8 @@ function Line({ f }) {
     return <li><span className="muted">{f.published_on ? fmtDate(f.published_on, { day: 'numeric', month: 'short', year: 'numeric' }) : 'Undated'}: </span>{f.text} <Source f={f} /></li>
   }
   if (f.section === 'competitors') return <li>According to {f.source_title || host(f.url)}: {f.text} <Source f={f} /></li>
-  return <li>{f.text}{f.quote && <> In their words: <q>{f.quote}</q></>} <Source f={f} /></li>
+  const quoted = f.quote && !f.text.toLowerCase().includes(f.quote.toLowerCase()) // a sentence that already quotes it says it once
+  return <li>{f.text}{quoted && <> In their words: <q>{f.quote}</q></>} <Source f={f} /></li>
 }
 
 function Brief({ brief }) {
@@ -115,7 +116,7 @@ export default function PrepPack({ id, s, go, refresh, notify, onBack }) {
 
       <section className="card pack-section">
         <h2>Tell me about yourself</h2>
-        <p className="small muted no-print">About 90 seconds spoken. Edit it into your own words; your version is kept when the pack is refreshed.</p>
+        <p className="small muted no-print">About a minute to 90 seconds spoken. Edit it into your own words; your version is kept when the pack is refreshed.</p>
         <textarea key={`pitch:${c.pitch}`} rows={9} defaultValue={c.pitch} maxLength={2500} onBlur={blur('pitch', c.pitch)} aria-label="Tell me about yourself" />
         <p className="print-only draft">{c.pitch}</p>
       </section>

@@ -1440,7 +1440,7 @@ def test_pack_maps_short_ids_back_to_real_ones(model):
     got, _ = pack(model, pack_reply())
     assert got["talking_points"] == [{"text": "You serve 1,200 councils, and my report helped 15 managers act on delays.", "fact_id": "f1",
                                       "achievement_id": PACK_ACHIEVEMENTS[0]["id"]}]
-    assert got["likely_questions"][0] == {"question": "Question 0?", "competency": "problem_solving", "story_id": PACK_STORIES[0]["id"], "why": "w"}
+    assert got["likely_questions"][0] == {"question": "Question 0?", "competency": "problem_solving", "story_id": PACK_STORIES[0]["id"], "why": "W"}
     assert got["questions_to_ask"][0] == {"question": "Ask 0?", "fact_id": "f2"}
     assert got["pitch"] == PITCH
 
@@ -1526,3 +1526,32 @@ def test_pack_with_an_empty_brief_needs_no_talking_points(model):
     calls = model(pack_reply(talking_points=[], questions_to_ask=[{"question": f"Ask {i}?", "fact_id": ""} for i in range(5)]))
     got = ai.prep_pack(job=PACK_JOB, brief=[], achievements=PACK_ACHIEVEMENTS, stories=PACK_STORIES, profile=PACK_PROFILE)
     assert got["talking_points"] == [] and len(calls) == 1
+
+
+def test_pack_pitch_may_use_a_figure_from_the_company_facts(model):
+    pitch = PITCH + " I would like to help a company that serves 1,200 councils."
+    got, _ = pack(model, pack_reply(pitch=pitch))
+    assert got["pitch"] == pitch
+
+
+def test_pack_pitch_of_about_a_minute_is_enough(model):
+    words = PITCH.split()
+    got, _ = pack(model, pack_reply(pitch=" ".join(words[:110])))
+    assert len(got["pitch"].split()) == 110
+    with pytest.raises(ai.AIError):
+        pack(model, pack_reply(pitch=" ".join(words[:109])), pack_reply(pitch=" ".join(words[:109])))
+
+
+def test_pack_pitch_in_paragraphs_is_kept_as_paragraphs(model):
+    parts = [PITCH[:300], PITCH[300:600], PITCH[600:]]
+    got, calls = pack(model, pack_reply(pitch=[" " + parts[0] + "  ", parts[1], parts[2]]))
+    assert got["pitch"] == "\n\n".join(" ".join(x.split()) for x in parts)
+    assert "three short paragraphs" in calls[0]["system"]
+
+
+
+def test_pack_question_reason_starts_with_a_capital(model):
+    reply = pack_reply()
+    reply["likely_questions"][0]["why"] = "you built a report for 15 managers"
+    got, _ = pack(model, reply)
+    assert got["likely_questions"][0]["why"] == "You built a report for 15 managers"

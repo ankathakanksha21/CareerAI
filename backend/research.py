@@ -7,6 +7,7 @@ given only numbered passages of what was fetched and must cite one for each stat
 (ai.company_brief checks each against its passage). A brief is shared by every user for
 FRESH_DAYS, found by its lookup key."""
 import logging
+import re
 from datetime import date
 from urllib.parse import urlsplit
 
@@ -122,9 +123,18 @@ def _chunks(text: str) -> list[str]:
     return chunks + ([current] if current else [])
 
 
-def passages(gathered: dict) -> list[dict]:
+def _names(result: dict, name: str) -> bool:
+    """Whether a search result names the company: the first word of its name, as a whole word.
+    A result about someone else is not something to say about this company."""
+    words = websearch.plain(name).split()
+    words = words[1:] if len(words) > 1 and words[0].lower() == "the" else words
+    return not words or bool(re.search(rf"(?<!\w){re.escape(words[0])}(?!\w)", f"{result['title']} {result['snippet']}", re.I))
+
+
+def passages(gathered: dict, name: str) -> list[dict]:
     """Every passage, numbered from 1: the website's (each page in turn, so every page is heard
-    before any is heard twice, at most MAX_WEBSITE_PASSAGES), then news, then competitors."""
+    before any is heard twice, at most MAX_WEBSITE_PASSAGES), then the news and competitor results
+    that name the company."""
     found, seen = [], set()
     per_page = [[(page, chunk) for chunk in _chunks(page["text"])] for page in gathered["pages"]]
     turn = 0
@@ -137,7 +147,7 @@ def passages(gathered: dict) -> list[dict]:
         turn += 1
     for kind in ("news", "competitors"):
         found += [{"kind": kind, "url": r["url"], "title": r["title"], "text": r["snippet"], "published_on": r["published_on"]}
-                  for r in gathered[kind]]
+                  for r in gathered[kind] if _names(r, name)]
     return [{"n": n} | p for n, p in enumerate(found, start=1)]
 
 
@@ -148,7 +158,7 @@ def brief(name: str, gathered: dict, today: date) -> dict:
     its source's address, title, kind and date, ordered by section. With nothing fetched at all, no
     model call is made and the notice says nothing was found. A failed model call raises AIError."""
     facts = registry_facts(gathered["registry"]) if gathered["registry"] else []
-    numbered = passages(gathered)
+    numbered = passages(gathered, name)
     by_n = {p["n"]: p for p in numbered}
     for s in ai.company_brief(name, numbered, today) if numbered else []:
         p = by_n[s["source"]]

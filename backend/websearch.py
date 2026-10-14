@@ -75,7 +75,7 @@ def _result(raw: dict) -> dict | None:
             "published_on": _date(raw.get("published_date"))}
 
 
-def _plain(company: str) -> str:
+def plain(company: str) -> str:
     """The name as people write it: no quotes, no "Ltd" or "plc" at the end."""
     return LEGAL_FORM.sub("", " ".join(company.replace('"', " ").split()))
 
@@ -84,7 +84,7 @@ def news(company: str, today: date) -> list[dict]:
     """News naming the company from the last NEWS_DAYS days, as {title, url, snippet, published_on}.
     A result dated before that is left out; one with no date is kept, with published_on None."""
     since = today - timedelta(days=NEWS_DAYS)
-    raw = _search({"query": f'"{_plain(company)}"', "topic": "news", "start_date": since.isoformat(),
+    raw = _search({"query": f'"{plain(company)}"', "topic": "news", "start_date": since.isoformat(),
                    "max_results": MAX_NEWS, "search_depth": "basic", "include_published_date": True})
     found = [r for r in map(_result, raw) if r]
     return [r for r in found if r["published_on"] is None or r["published_on"] >= since]
@@ -92,6 +92,6 @@ def news(company: str, today: date) -> list[dict]:
 
 def competitors(company: str) -> list[dict]:
     """Pages about the company's competitors, in the same shape as news."""
-    raw = _search({"query": f"{_plain(company)} competitors", "topic": "general", "country": "united kingdom",
+    raw = _search({"query": f"{plain(company)} competitors", "topic": "general", "country": "united kingdom",
                    "max_results": MAX_COMPETITORS, "search_depth": "basic", "include_published_date": True})
     return [r for r in map(_result, raw) if r]

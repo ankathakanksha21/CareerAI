@@ -23,6 +23,21 @@ def no_real_model(monkeypatch):
     monkeypatch.setattr(ai, "complete_json", refuse)
 
 
+@pytest.fixture(autouse=True)
+def no_real_research(monkeypatch):
+    """No test reaches Companies House, an employer's website or the search service by accident, even
+    with real keys in backend/.env: a test that needs one of them installs its own client."""
+    import companies_house
+    import fetcher
+    import websearch
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a test reached a real outside service: replace the client it uses")
+    for module in (companies_house, fetcher, websearch):
+        monkeypatch.setattr(module, "_client", refuse)
+    monkeypatch.setattr(fetcher, "_resolve", refuse)
+
+
 @pytest.fixture
 def stub(monkeypatch):
     """Replace one ai.<name> with a function returning `result` (or raising it). Returns the calls made."""

@@ -1062,9 +1062,15 @@ def company_brief(company: str, passages: list[dict], today: date) -> list[dict]
 
 
 # 15. The prep pack: talking points, the pitch, likely questions and questions to ask
-PITCH_WORDS = (150, 260)
+PITCH_WORDS = (110, 260)  # about a minute to 90 seconds spoken; the model writes about 120 to 140 words
 MAX_TALKING_POINTS, MAX_QUESTIONS, MIN_QUESTIONS, MAX_TO_ASK, MIN_TO_ASK = 3, 8, 5, 5, 3
 NO_ADVERT = "No job description was recorded for this role."
+
+
+def _sentence(text: str) -> str:
+    """Tidied, and starting with a capital letter."""
+    text = " ".join(text.split())
+    return text[:1].upper() + text[1:]
 
 
 def _question_kind(value) -> str:
@@ -1075,7 +1081,7 @@ def _question_kind(value) -> str:
 
 def prep_pack(*, job: dict, brief: list[dict], achievements: list, stories: list, profile: dict) -> dict:
     """The parts of a prep pack the model writes, checked: every talking point joins a real company
-    fact to one of the user's achievements and uses only their figures; the pitch is 150 to 260
+    fact to one of the user's achievements and uses only their figures; the pitch is 110 to 260
     words with no figure from outside the input; a likely question points only to one of the user's
     own stories. Achievements and stories are sent with short ids, mapped back here. Nothing that
     identifies the user is sent: no name, contact details or visa."""
@@ -1093,12 +1099,14 @@ def prep_pack(*, job: dict, brief: list[dict], achievements: list, stories: list
     system = (
         "You help a graduate prepare for one interview with a UK employer. Use only the facts given. "
         "talking_points: three answers to 'Why this company?', each joining one company fact (fact_id) to one of the candidate's "
-        "achievements (achievement_id), in the first person, one or two sentences, using no figure that is not in that fact or achievement. "
-        "pitch: the candidate's answer to 'Tell me about yourself' for this role, about 90 seconds spoken (150 to 250 words), in the first "
-        "person: their course, two or three achievements that fit the role, and why this role. Use no figure that is not in the input. "
+        "achievements (achievement_id, the id of the achievement the point describes), in the first person, one or two sentences, "
+        "using no figure that is not in that fact or that achievement. "
+        "pitch: the candidate's answer to 'Tell me about yourself' for this role, about 90 seconds spoken, in the first person, as "
+        "three short paragraphs of 60 to 80 words each: their course and background; two achievements that fit this role, with their "
+        "figures; why this role and this company. Use no figure that is not in the input. "
         "likely_questions: eight questions this interviewer is likely to ask, some from what the advert asks for and some standard UK "
         f"competency questions. competency is one of: {COMPETENCY_LIST}, Motivation or Role knowledge. story_id is the id of the "
-        "candidate's story that best answers it, or \"\" when none fits. why is one short sentence on why it is likely. "
+        "candidate's story that best answers it, or \"\" when none fits. why is one short sentence on why it is likely, written to the candidate as 'you'. "
         "questions_to_ask: five questions the candidate could ask at the end, each drawn from a company fact (fact_id) where possible. "
         "Do not ask anything the company facts already answer; ask about the team, the work, how success is judged, or what a fact "
         "means for the role. No em dashes."
@@ -1107,12 +1115,12 @@ def prep_pack(*, job: dict, brief: list[dict], achievements: list, stories: list
         f"Role: {job['title']} at {job['company']}\nAdvert: {advert[:ADVERT_TEXT] if advert else NO_ADVERT}\n\n"
         f"Company facts: {_j([{'id': i, 'text': f['text']} for i, f in facts.items()]) if facts else '(none found)'}\n\n"
         f"Candidate: {_j(candidate)}\nAchievements: {_j(listed)}\nStories: {_j(story_list) if story_list else '(none yet)'}\n\n"
-        'Return {"talking_points":[{"text":str,"fact_id":str,"achievement_id":str}],"pitch":str,'
+        'Return {"talking_points":[{"text":str,"fact_id":str,"achievement_id":str}],"pitch":[str, str, str],'
         '"likely_questions":[{"question":str,"competency":str,"story_id":str,"why":str}],'
         '"questions_to_ask":[{"question":str,"fact_id":str}]}'
     )
     said = {item["id"]: _j(item) for item in listed}  # what each achievement told the model, figures included
-    sent = f"{_j(candidate)} {advert} {_j(listed)} {_j(story_list)}"
+    sent = f"{_j(candidate)} {advert} {_j(listed)} {_j(story_list)} {_j([f['text'] for f in facts.values()])}"
     allowed = _numbers(sent, spelled=True)
 
     def shaped(d: dict) -> dict | None:
@@ -1123,7 +1131,7 @@ def prep_pack(*, job: dict, brief: list[dict], achievements: list, stories: list
             if text and fact and achievement and _key(text) not in seen and _numbers(text) <= _numbers(source, spelled=True):
                 seen.add(_key(text))
                 points.append({"text": text, "fact_id": fact["id"], "achievement_id": achievement["id"]})
-        pitch = " ".join(d["pitch"].split())
+        pitch = "\n\n".join(" ".join(p.split()) for p in d["pitch"] if p.strip())  # its paragraphs, each tidied
         questions, asked = [], set()
         for q in d["likely_questions"]:
             text = " ".join(q["question"].split())
@@ -1131,7 +1139,7 @@ def prep_pack(*, job: dict, brief: list[dict], achievements: list, stories: list
                 asked.add(_key(text))
                 story = told.get(q["story_id"].strip())
                 questions.append({"question": text, "competency": _question_kind(q["competency"]),
-                                  "story_id": story["id"] if story else None, "why": " ".join(q["why"].split())})
+                                  "story_id": story["id"] if story else None, "why": _sentence(q["why"])})
         to_ask = [{"question": " ".join(q["question"].split()), "fact_id": q["fact_id"].strip() if q["fact_id"].strip() in facts else None}
                   for q in d["questions_to_ask"] if q["question"].strip()][:MAX_TO_ASK]
         if ((facts and not points) or not PITCH_WORDS[0] <= len(pitch.split()) <= PITCH_WORDS[1] or not _numbers(pitch) <= allowed
@@ -1140,7 +1148,7 @@ def prep_pack(*, job: dict, brief: list[dict], achievements: list, stories: list
         return {"talking_points": points[:MAX_TALKING_POINTS], "pitch": pitch, "likely_questions": questions[:MAX_QUESTIONS],
                 "questions_to_ask": to_ask}
 
-    template = {"talking_points": [{"text": "", "fact_id": "", "achievement_id": ""}], "pitch": "",
+    template = {"talking_points": [{"text": "", "fact_id": "", "achievement_id": ""}], "pitch": [""],
                 "likely_questions": [{"question": "", "competency": "", "story_id": "", "why": ""}],
                 "questions_to_ask": [{"question": "", "fact_id": ""}]}
     return shaped(_run("prep", system, user, template, 3000, check=lambda d: shaped(d) is not None))

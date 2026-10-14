@@ -30,6 +30,8 @@ export default function Privacy({ go, signedIn }) {
           <li>Job descriptions you add, which matched jobs you save or dismiss, and the applications you log: each one's stage changes with their dates, notes, follow-up dates, and the name and contact details of anyone you dealt with there.</li>
           <li>When an application is rejected, where it ended and any feedback you type. To write a lesson from it, the CV you sent, the job description, where it ended and that feedback are sent to the AI. Your name and contact details are not.</li>
           <li>To draft a follow-up, only the role, the company, the date you applied and your contact's name are sent to the AI. How to reach them and your own name are not; your name is added to the draft afterwards. Nothing is ever sent to an employer for you.</li>
+          <li>For a prep pack: the company you prepare for, its website if you give it, the pack written for you, the questions you tick and your edits. To write the pack, the job description, your achievements, your stories and your course are sent to the AI. Your name, contact details and visa are not; your right-to-work line is written by the app from your visa details.</li>
+          <li>The competencies each of your stories shows.</li>
           <li>Your weekly goals and which milestones you have already been shown. Streaks and the weekly plan are worked out from your data each time and not stored.</li>
           <li>Content the AI writes for you: achievements, CVs, cover letters, interview stories, feedback and lessons from rejections.</li>
           <li>The wording of each CV and cover letter you build or edit. The Word and PDF files are made when you download them and are not kept.</li>
@@ -45,6 +47,10 @@ export default function Privacy({ go, signedIn }) {
           <li><span className="strong">Amazon Web Services (Bedrock)</span> runs the AI model that writes text for you, in the United States.</li>
           <li><span className="strong">ElevenLabs</span> runs voice calls and turns them into text.</li>
           <li><span className="strong">GitHub</span> supplies public repository details when you import projects. We send it the username you type, nothing else about you.</li>
+          <li><span className="strong">Companies House</span> supplies a company's official record when you prepare for an interview. We send it the company name you confirm, nothing about you.</li>
+          <li><span className="strong">Tavily</span>, a web search service, finds a company's recent news and competitors. We send it the company's name only.</li>
+          <li><span className="strong">The employer's own website</span>: our server reads up to six of its public pages, identifying itself as this app and following the site's rules for automated readers. Nothing about you is sent.</li>
+          <li><span className="strong">Shared company research</span>: what was found about a company is kept for 14 days and reused when anyone prepares for it. It holds only public facts about the company, never your pack or anything about you.</li>
           <li><span className="strong">Reed</span> supplies job adverts. We send it job titles and locations from your target roles, never your name or anything else about you.</li>
         </ul>
 
