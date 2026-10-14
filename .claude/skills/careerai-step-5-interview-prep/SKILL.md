@@ -5,14 +5,14 @@ description: Use when building, continuing or reviewing step 5 of the CareerAI r
 
 # Step 5: interview preparation
 
-**Status:** Built on branch `step-5-interview-prep`, 14 October 2026; not yet merged. **Not finished:** the rest of the final review's fixes and the owner's hand checks. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Better after step 1 (story bank) and step 4 (application stages). **Size:** medium to large, mostly because of the research.
+**Status:** Built on branch `step-5-interview-prep`, 14 October 2026; not yet merged. **Not finished:** the owner's hand checks. Design approved by the owner, 12 October 2026. **Depends on:** step 0. Better after step 1 (story bank) and step 4 (application stages). **Size:** medium to large, mostly because of the research.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Where it stands (14 October 2026)
 
 - Built and committed, tasks 1 to 13 of `docs/superpowers/plans/2026-10-14-step-5-interview-prep.md`. What it does and how is in `docs/ARCHITECTURE.md` section 23; what was verified and what was not is in section 24.
 - Verified by the automated suite, by the real-model checks, by real research of one company through Tavily and its own website, and by running the Prep packs tab, story coverage and an application's Prepare button against the real backend and model as a temporary user whose data was never saved.
-- **Still open:** four fixes from the final review and three of its minor points re-graded as important, listed in ARCHITECTURE section 24.
+- A fresh review of the whole branch found nothing critical; every finding, the minor ones included, is fixed (ARCHITECTURE section 24).
 - **Left for the owner:** the hand checks below with their own login, including printing a pack and a mock interview that uses one. The live Companies House key is now set.
 
 ## Changed at build time (14 October 2026)
@@ -31,6 +31,12 @@ Where what was built differs from the sections below, this table is what is true
 | A news or competitor result is used only if it names the company (the first word of its name) | The browser check showed results about another company reaching the brief | Build-time ruling |
 | A story the model gives no competencies takes its one-word label when that is exactly one of the eight | The same rule the migration uses for existing stories; no extra call | Build-time ruling |
 | The pitch may use figures from the company facts as well as the user's records and the advert | The real model's pitch quoted a company figure ("140 shops") and was refused | Build-time ruling |
+| Every research counts against the daily limit, Refresh and a retry after a failure included (the plan let the same company again within 10 minutes go free) | The free window let repeated or parallel research run past the limit | Final review |
+| Research is kept by the Companies House number together with the name searched for, and the website | A name typed with a real company number changed every user's research for that company | Final review |
+| Research that missed a source for a passing reason is shared for an hour, not 14 days | One timeout for one user was everyone's brief for a fortnight | Final review |
+| A pack is saved part by part, and a rebuild re-reads it under a lock; an emptied pitch is not the user's own | Edits were lost between two quick saves or during a rebuild | Final review |
+| The right-to-work line is filled when the pack is read, while it is empty and the user has not written or cleared one | Visa details added after the pack was built did not show | Final review |
+| Form controls, not forms, are left out of a page; a figure written in words for ten or more must be in its page | Older public-sector sites read as empty; "five thousand" was not checked | Final review |
 
 ## Goal
 

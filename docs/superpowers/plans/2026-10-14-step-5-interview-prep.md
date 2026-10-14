@@ -2,7 +2,7 @@
 
 > **For agentic workers:** follow `careerai-building-a-step` stage 4. Every task is test-first: write the tests, watch them fail for the right reason, write the code, watch them pass, run the whole suite on its own, commit. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status, 14 October 2026:** tasks 1 to 13 are built and committed. A fresh review of the whole branch found nothing critical; two of its findings are fixed and the rest are listed as still open in ARCHITECTURE section 24. Changes from this plan made while building are the rulings in the step document's "Changed at build time" table.
+**Status, 14 October 2026:** tasks 1 to 13 are built and committed. A fresh review of the whole branch found nothing critical; all its findings are fixed (ARCHITECTURE section 24). Changes from this plan made while building are the rulings in the step document's "Changed at build time" table.
 
 **Goal:** For a saved job or an application, the user confirms the company and gets one printable prep pack: a company brief in which every line links to the page it came from, three talking points joining a company fact to one of their achievements, a 90-second "tell me about yourself", eight likely questions each matched to one of their stories or a named gap, five questions to ask, their right-to-work line and an "On the day" checklist. Stories carry competencies shown as a coverage grid, and the mock interviewer asks from the pack.
 

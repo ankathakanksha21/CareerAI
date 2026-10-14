@@ -26,7 +26,7 @@ Every step has a document holding its goal, every decision made for it, the desi
 | 2 | Real jobs from Reed, fit scoring, sponsor register, visa salary facts | 0 | Built and merged into `main`. Some hand checks are left (section 16) | `careerai-step-2-real-jobs` |
 | 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Built and merged into `main`. The owner's hand checks are left (section 20) | `careerai-step-3-full-uk-cv` |
 | 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Built and merged into `main`. The owner's hand checks are left (section 22) | `careerai-step-4-tracker-and-habits` |
-| 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Built on branch `step-5-interview-prep`. Some fixes from the final review and the owner's hand checks are left (section 24) | `careerai-step-5-interview-prep` |
+| 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Built on branch `step-5-interview-prep`. The owner's hand checks are left (section 24) | `careerai-step-5-interview-prep` |
 | 6 | Hidden market: contacts, outreach drafts, saved events, referrals | 4 | Designed | `careerai-step-6-hidden-market` |
 | 7 | Peers: opt-in buddy groups of two or three | 4 | Designed | `careerai-step-7-peers` |
 
@@ -143,13 +143,15 @@ Minimum versions: Node 20.19 or 22.12 (Vite 8 will not run on older), Python 3.1
 | Stage history starts with step 4 | Only real data | Older applications show no history | – |
 | An application at No reply asks for no follow-up | The user has said they have stopped waiting | A reminder set on it is not listed on Home | Users ask for it |
 | Every line of a company brief cites a passage the app fetched, and code checks it against that passage | Nothing about a company comes from the model's memory | An honest line worded with a figure the page writes differently is dropped | – |
-| Company research is shared by everyone for 14 days, kept by Companies House number (or name) and website | One search per company, not per user; a wrong website typed by one user never changes another's brief | The same company can be researched twice under two websites | – |
+| Company research is shared by everyone for 14 days, kept by the Companies House number with the name searched for, and the website | One search per company, not per user; a wrong name or website typed by one user never changes another's brief | The same company can be researched twice under two spellings or websites | – |
+| Research that missed a source for a passing reason (a timeout, Companies House or the search service down) is shared for an hour, not 14 days | One bad moment for one user is not everyone's brief for a fortnight | A failing source is tried again by the next user after an hour | – |
 | A pack keeps its own copy of the brief | Another user refreshing the company never changes it; talking points always point at facts the pack shows | A pack shows its own research date until Refresh | – |
 | Research and the pack are two requests | Each fits the 120-second limit, and the page shows progress between them | One more route | – |
 | Companies House lines are written by code | Exact register facts need no model | None | – |
 | A news or competitor result must name the company (the first word of its name) | A result about another company never reaches the brief | Two companies sharing a first word are not told apart | Users report a wrong line |
 | The pitch is accepted at 110 to 260 words | The real model writes about 120 to 140 words even when asked for more | Pitches run about a minute rather than a full 90 seconds | The model changes |
-| Research is limited to 5 new companies a day, separately from the AI limit; a cached company is free, and the same company again within 10 minutes is the same attempt | Searches cost money; a failed attempt does not use two of five | A user can refresh the same company for free within 10 minutes | Abuse is seen |
+| Research is limited to 5 a day, separately from the AI limit. Every research counts, Refresh and a retry after a failure included; a shared, fresh company is free | Searches cost money, and nothing can run past the limit | A failed research uses one of the day's five | Users hit the limit because of failures |
+| Edits to a pack are saved part by part, and a rebuild re-reads the pack under a lock | Two saves a moment apart, or an edit made while the pack is rewritten, are never lost | – | – |
 
 Smaller behaviours worth knowing:
 
@@ -407,7 +409,7 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 | What GitHub is told | A username the user typed, to list its public repositories and read the READMEs they pick. Usernames and repository names are checked against GitHub's own naming rules before they are put in an address. A repository link is stored only if it is on github.com |
 | The scheduled reload | Refused unless the request carries the secret; refused always when no secret is set. Compared in constant time |
 | Links from outside | An advert's link is used only if it is on reed.co.uk over https; anything else is replaced by Reed's standard address |
-| Reading employers' websites | Only http and https on the standard ports, only a typed host name (never an IP address, user name or port). The server resolves every address itself and refuses unless all of them are public, then connects to the address it checked, so a redirect or a second lookup cannot reach a private network. Redirects are followed by hand and checked the same way. robots.txt is respected for "UKCareerNavigator". At most 1 MB of text and 8 seconds a page, six pages, HTML only. Tested against private, loopback, link-local and mapped addresses |
+| Reading employers' websites | Only http and https on the standard ports, only a typed host name (never an IP address, user name or port). The server resolves every address itself and refuses unless all of them are public, then connects to the address it checked, so a redirect or a second lookup cannot reach a private network. Redirects are followed by hand and checked the same way. robots.txt is respected for "UKCareerNavigator". Pages are asked for uncompressed. At most 1 MB of text and 8 seconds a page, the clock read after every piece that arrives, six pages, HTML only; all four sources together get 30 seconds. IPv6 forms that carry an IPv4 address (mapped, NAT64, 6to4, IPv4-compatible) are judged by that address or refused. Tested against private, loopback, link-local and each of those forms |
 | What Companies House, Tavily and employers' sites are told | A company name and its website. Nothing about the user. A Companies House number is checked as eight letters or digits before it is put in an address |
 | Shared research | `companies` holds public facts about companies only. A user's pack, ticks and edits are in `prep_packs`, filtered by user id |
 | Right to erasure | "Delete my account" removes the login; cascading deletes remove every row |
@@ -553,6 +555,7 @@ No test can reach the real model, Companies House, a website or Tavily: an AI ta
 - A search result is kept only if it names the company's first word, so two companies that share a first word are not told apart.
 - "None that the company's own site already answers" is asked of the model for questions to ask; code cannot check it.
 - A site that blocks automated readers in robots.txt, or that builds its pages with JavaScript, gives no website lines.
+- A figure in a brief statement, in digits or in words for ten or more, must be in its page; "5,000" and "five thousand" are not taken as the same, so an honest line worded differently from its page is dropped.
 - Looking up Companies House is not limited per user; heavy use by one person could use up the app's allowance of 600 requests in 5 minutes.
 - A pack does not change when the user's stories or achievements change; Refresh rebuilds it.
 
@@ -815,7 +818,7 @@ The last three rules came from the real model on 14 October 2026, which wrote "T
 | News is news, and recent | It cites a news result; the date shown is the result's; a result older than 12 months is left out; one with no date is shown as "Undated" |
 | Competitors are attributed | Shown as "According to <source>" |
 
-If statements came back but none survived, the model is asked once more, then the page shows Retry; nothing is kept from a failed attempt. If nothing was fetched at all, the model is not asked and the brief says nothing was found. The result is stored in `companies` and reused by anyone who prepares for the same company and website within 14 days. On 14 October 2026, for Monzo with the register left out (see section 24), the sources took 2.3 seconds and the brief 30: four pages, eight news results from the last three weeks, five competitor pages, nineteen lines.
+If statements came back but none survived, the model is asked once more, then the page shows Retry; nothing is kept from a failed attempt. If nothing was fetched at all, the model is not asked and the brief says nothing was found. The result is stored in `companies` and reused by anyone who prepares for the same company, under the same name and website, within 14 days, or within an hour if a source was missing for a passing reason. Form controls are left out of a page's text, not whole forms, so older sites built inside one form are read; a page with no text counts as unread. On 14 October 2026, for Monzo with the register left out (see section 24), the sources took 2.3 seconds and the brief 30: four pages, eight news results from the last three weeks, five competitor pages, nineteen lines.
 
 **The pack** (`POST /api/ai/prep`), one AI action, built from the research, the advert (or a note that none was recorded), the user's course, achievements and stories:
 
@@ -839,32 +842,25 @@ The pack prints from the browser: the menu, buttons and boxes are left out, the 
 
 | Check | Result | Date |
 |---|---|---|
-| Automated backend suite | 1,642 passed, 0 skipped, against the real database | 14 Oct 2026 |
+| Automated backend suite | 1,679 passed, 0 skipped, against the real database | 14 Oct 2026 |
 | Frontend | Lints with no errors and no new warnings; builds | 14 Oct 2026 |
 | Migration `008_interview_prep` | Applied to the real database | 14 Oct 2026 |
-| Real model, one call per AI task (`live_check.py`) | 33 of 33 passed: the 28 from before and 5 new (a cited company brief, real research of one company, a prep pack, tagging stories, a story's competencies) | 14 Oct 2026 |
-| Real research | Monzo through the live Companies House register, its own website (4 pages), Tavily (8 news results from the last three weeks, 5 competitor pages) and the model: a 28-line brief in 14.5 seconds, nothing missing. Every line cited its page and every value was quoted word for word | 14 Oct 2026 |
+| Real model, one call per AI task (`live_check.py`) | 33 of 33 passed: the 28 from before and 5 new (a cited company brief, real research of one company, a prep pack, tagging stories, a story's competencies). After the review fixes the six step 5 checks passed again | 14 Oct 2026 |
+| Real research | Monzo through the live Companies House register, its own website (4 pages), Tavily (8 news results from the last three weeks, 5 competitor pages) and the model: a 28-line brief in 14.5 seconds, nothing missing (21 lines in 10 seconds after figures in words were checked too). Every line cited its page and every value was quoted word for word | 14 Oct 2026 |
 | Companies House key | The first key given was for Companies House's test environment: it worked on their sandbox and was refused by the live service. The Live key added afterwards works | 14 Oct 2026 |
 | What the real model showed, each fixed test first | It wrote the pitch at about 120 to 140 words even when asked for more (now three paragraphs, 110 to 260 words, and the page says "About a minute to 90 seconds"); a pitch quoting a company figure was refused (figures from the company facts are now allowed); it sometimes named the wrong achievement for a talking point (that point is dropped by the figure check; the prompt now asks for the achievement the point describes) | 14 Oct 2026 |
 | Interview coach against the real backend and model, as a temporary user whose data was never saved, with Companies House, the website and the search replaced by made-up company pages | Prep packs tab with its empty state; Prepare from a saved job: two register matches with town, status and year, a website typed, the pack built in about 20 seconds with every section; source links open the page in a new tab; three questions ticked and the other two refused; an edited pitch and the interview type kept on the server; Refresh kept the edited pitch and the type and cleared the ticks; Prepare from an application at Phone screen with no saved job and "It is not a UK company": a second pack, starting at Phone; STAR stories: the coverage grid, "Tag my stories" with the real model, three tick boxes at most when editing; Practice sessions with a packed job says "Using your prep pack" | 14 Oct 2026 |
 | Defects that check found, each fixed | Search results about another company reached the brief (a news or competitor result must now name the company); a value's quote was shown twice; the reasons for likely questions spoke of "the candidate" and started in lower case | 14 Oct 2026 |
 | Voice agents | The mock interviewer's prompt updated on ElevenLabs with `setup_agents.py` (both agents updated in place) | 14 Oct 2026 |
-| A fresh review of the whole branch (a separate reviewer on the most capable model) | Ready with fixes; nothing critical. Fixed so far, each with a test that failed first: refreshing or repeating research within 10 minutes cost nothing against the daily limit (every research now counts, and a failed rewrite after a refresh does not research again); a different typed name with a real company number changed every user's research for that company (the name is now part of the key) | 14 Oct 2026 |
+| A fresh review of the whole branch (a separate reviewer on the most capable model) | Ready with fixes; nothing critical. All findings fixed, each with a test that failed first: refreshing or repeating research within 10 minutes cost nothing against the daily limit (every research now counts, and a failed rewrite after a refresh does not research again); a different typed name with a real company number changed every user's research for that company (the name is now part of the key); an edit could be lost while the pack was rewritten or between two quick saves; a slowly sent page was not cut off; a passing failure was shared for 14 days; pages built inside one form read as empty; figures in words were not checked; the right-to-work line did not appear after visa details were added. The smaller points were fixed too, at the owner's request: a page cut through a character or with one stray byte read as mojibake; a compressed page could expand in memory; IPv6 forms of private IPv4 addresses passed; a malformed link could stop a site being read; an emptied pitch was kept as the user's own; linking an application to a job after its pack was made gave two packs and a 500 when the job was deleted; a call could restart as the pack loaded | 14 Oct 2026 |
+| The fixes against the real model, as a temporary user (direct requests to a scratch server, canned company pages) | Research 3.7 seconds, a pack 14.9 seconds with every part; two saves made from the same old copy both kept; Refresh counted against the limit, kept the edited pitch and cleared the ticks; an emptied pitch was no longer marked as the user's own | 14 Oct 2026 |
+| The owner's missing transcript | The owner's mock interview on 14 October 2026 was heard by ElevenLabs (one answer of 20 words) and scored, but the page kept only the interviewer's line: pressing End before the last sentence's text arrived lost it, and the stored copy was read only when nothing at all had arrived. The page now reads ElevenLabs' stored copy whenever the user's own words are missing | 14 Oct 2026 |
 | The database afterwards | No temporary user and no test company left | 14 Oct 2026 |
-
-**Still open from the review** (to be fixed before merging):
-
-- A user's edit to a pack can be lost: one made while Refresh is rewriting the pack, or one of two saves made a moment apart (the pack is read without a lock).
-- A website that sends its page very slowly is not cut off at 8 seconds; research can then wait until the platform's limit.
-- A source that fails for a moment (a timeout, Companies House or the search service down) is kept in the shared research for 14 days.
-- A page wrapped in one form, as on many older NHS, council and university sites, reads as empty, silently.
-- A figure written in words ("five thousand people") in a brief statement is not checked against its page.
-- The right-to-work line is fixed when the pack is built, so adding visa details afterwards does not show it without a Refresh.
 
 **Not yet verified:**
 
-- **The owner's report that a transcript did not show** after a mock interview on 14 October 2026. The server log shows the call, the transcript reaching the server and the feedback; where it failed to appear on screen is being asked.
-- **A signed-in session.** The pages were driven without the login screen, through a temporary check page.
+- **The transcript fix in a real call.** It reads ElevenLabs' stored copy when the user's words are missing; a call ended straight after speaking has not been tried since.
+- **A signed-in session.** The pages were driven without the login screen, through a temporary check page (removed afterwards); the review fixes were checked by direct requests, not on the pages.
 - **Printing a pack**, and **a voice call that uses a pack** (the interviewer's questions were not heard).
 - **The owner's hand checks** in the step document: a well-known employer with five sources followed, a small company, an employer not on Companies House, news dates, story matching, a mock interview with a pack, printing.
 - **A second account in the browser.** Proved by automated tests only.
