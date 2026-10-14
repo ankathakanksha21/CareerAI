@@ -25,6 +25,18 @@ The owner's notes: many UK roles are filled through referrals or never advertise
 | No invented connection | A draft may mention only the link the user entered ("how you know them"). It must not claim a shared history, mutual contact or meeting that was not entered | Recommended; approved 12 Oct 2026 |
 | Existing users | The outreach target starts at 0 for accounts created before this step, with an invitation to set one, so nobody's streak breaks without warning. New accounts start at 2 | Recommended; approved 12 Oct 2026 |
 | What counts | Each message the user marks as sent, of any type, counts once toward the week | Recommended; approved 12 Oct 2026 |
+| Start date in a recruiter introduction | An optional "When can you start?" box, used as typed. Left empty, the draft says only when the course ends, from the profile. Nothing about visas | Owner, 14 Oct 2026 |
+| Deleting a contact | Their name, role, company, link and notes are deleted; each message marked as sent still counts in its week, so a past week or a streak never changes | Owner, 14 Oct 2026 |
+| Connection note limit | 200 characters, the limit LinkedIn's help page gives, which fits every account | Owner, 14 Oct 2026 |
+
+## Verified at build time (14 October 2026)
+
+- **LinkedIn.** The help page "Personalize invitations to connect" gives 200 characters for a note, and a free account can add one to about three invitations a month. People search: `https://www.linkedin.com/search/results/people/?keywords=<terms>`. Signed out, LinkedIn shows its sign-in page and returns to the search afterwards; the terms are shown beside the link too.
+- **Meetup.** `https://www.meetup.com/find/?keywords=<field>&location=gb--<City>&source=EVENTS` lands on "<Field> events near <City>, GB" (checked for London and Milton Keynes).
+- **Eventbrite.** `https://www.eventbrite.co.uk/d/united-kingdom--<city-slug>/<keyword-slug>/` and `https://www.eventbrite.co.uk/d/online/<keyword-slug>/` land on the matching search (checked for Manchester, Milton Keynes and online).
+- **Professional bodies**, each events page opened: BCS, Royal Statistical Society, CIPD (its branch network; branches are open to non-members and students), CIM, ICAEW, APM, CIPS, IET, IMechE, ICE.
+- **Guide sources.** gov.uk's volunteering page (it lists NCVO, Reach Volunteering, NHS Volunteering and others); Reach Volunteering (skills-based, asks for three years' professional experience); Prospects' work experience and internships hub; UKCISA's student work page (volunteering is different from "voluntary work", which is unpaid employment and counts toward the weekly hours); gov.uk "Your rights as an agency worker: fees" (agencies cannot charge for finding you work). **Do-it.org now redirects to an unrelated domain and is left out.**
+- **Step 4's streak** takes a third target without changing past weeks: goals set before this step count as an outreach target of 0.
 
 ## In scope
 
