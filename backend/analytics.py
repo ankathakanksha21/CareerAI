@@ -7,6 +7,7 @@ SOURCES = ("Company site", "Referral", "LinkedIn", "Indeed", "Reed", "Graduate j
            "University careers service", "Recruiter", "Other")
 RESPONDED = {"screening", "interview", "rejected_after_interview", "offer"}
 INTERVIEWED = {"interview", "rejected_after_interview", "offer"}
+REJECTED = {"rejected", "rejected_after_interview"}
 JOB_BOARDS = {"LinkedIn", "Indeed", "Reed", "Graduate job board"}
 
 MIN_APPS_FOR_REPLY_RULE = 4
@@ -173,7 +174,7 @@ def lesson_findings(apps):
     by_page = defaultdict(list)
     for a in apps:
         lesson = a.get("lesson") or {}
-        if lesson.get("page") in LESSON_PAGES:
+        if a["stage"] in REJECTED and lesson.get("page") in LESSON_PAGES:
             by_page[lesson["page"]].append(a)
     findings = []
     for page, rejected in by_page.items():

@@ -662,7 +662,10 @@ CLAIMED_FEEDBACK = re.compile(r"\b(they|the employer|the recruiter|the interview
                               r"(said|told|mentioned|noted|felt|wrote)\b|\byou were told\b|\baccording to (them|the employer)\b", re.I)
 ADVERT_WORDS = re.compile(r"\b(advert|advertisement|job description|job posting|listing)\b", re.I)
 THIRD_PERSON = re.compile(r"\bthe candidate\b", re.I)
-QUOTED = re.compile(r"[\"“”]([^\"“”]{3,})[\"“”]")
+# a phrase in double or single quotes, straight or curly. A straight single quote opens only where no
+# letter comes before it and closes only where none follows, so "you're" and "employer's" are not quotes
+QUOTED = re.compile(r"[\"“”]([^\"“”]{3,})[\"“”]|‘([^‘’]{3,})’"
+                    r"|(?<![\w'])'([^'\n]{3,}?)'(?![\w'])")
 
 
 def _lesson_page(value, ended_at: str) -> str:
@@ -709,7 +712,8 @@ def rejection_lesson(*, job: dict | None, cv_text: str, ended_at: str, feedback:
             return False
         if THIRD_PERSON.search(reason) or THIRD_PERSON.search(change):
             return False
-        return all(f" {' '.join(_words(q))} " in f" {sources} " for q in QUOTED.findall(f"{reason} {change}"))
+        quotes = ["".join(groups) for groups in QUOTED.findall(f"{reason} {change}")]
+        return all(f" {' '.join(_words(q))} " in f" {sources} " for q in quotes)
 
     template = {"likely_reason": "", "one_change": "", "page": ""}
     data = _run("lesson", system, user, template, 700, required=("likely_reason", "one_change"), check=honest)
@@ -719,12 +723,14 @@ def rejection_lesson(*, job: dict | None, cv_text: str, ended_at: str, feedback:
 
 # 8c. A follow-up message to copy
 FOLLOW_UP_WORDS = 80  # the body; with the greeting and sign-off the message stays under 90
-GREETING = re.compile(r"\s*(dear|hello|hi)\b[^,\n]*(,|\n|$)\s*", re.I)  # "Dear Priya," with or without the body on the same line
+# "Dear Priya," or "Hello!", with or without the body on the same line; short, so it never eats a sentence
+GREETING = re.compile(r"\s*(dear|hello|hi)\b[^,!.:\n]{0,40}([,!.:\n]|$)\s*", re.I)
 SIGN_OFF = re.compile(r"\s*(kind regards|best regards|warm regards|regards|best wishes|many thanks|thanks|thank you|"
                       r"yours sincerely|yours faithfully|sincerely|best)\s*,?\s*$", re.I)
-# a sign-off after the last sentence, on the same line, with anything after it: "...can share. Best wishes"
+# a sign-off after the last sentence, with at most a name after it: "...can share. Best wishes". A closing
+# sentence such as "Many thanks for considering my application." is not a sign-off and stays
 TRAILING_SIGN_OFF = re.compile(r"(?<=[.!?])\s+(kind regards|best regards|warm regards|regards|best wishes|many thanks|"
-                               r"yours sincerely|yours faithfully|sincerely)\b.*$", re.I | re.S)
+                               r"yours sincerely|yours faithfully|sincerely)\b\s*,?[^.!?]{0,40}$", re.I)
 PLACEHOLDER = re.compile(r"[\[\]<>{}]")
 
 
@@ -757,7 +763,8 @@ def follow_up(*, role: str, company: str, applied_on: date, contact_name: str, s
 
     def usable(data: dict) -> bool:
         body = _message_body(data["body"])
-        return (bool(body) and len(body.split()) <= FOLLOW_UP_WORDS and not PLACEHOLDER.search(body + data["subject"])
+        return (bool(body) and not body[0].islower() and len(body.split()) <= FOLLOW_UP_WORDS  # lower case: it starts mid-sentence
+                and not PLACEHOLDER.search(body + data["subject"])
                 and _numbers(body + " " + data["subject"]) <= allowed)
 
     data = _run("follow up", system, user, {"subject": "", "body": ""}, 500, required=("subject", "body"), check=usable)

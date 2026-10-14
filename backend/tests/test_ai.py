@@ -1084,6 +1084,24 @@ def test_lesson_quote_must_be_in_the_inputs(model):
     assert lesson(feedback="Not enough SQL, sorry.") == from_feedback
 
 
+@pytest.mark.parametrize("quoted", ["'five years of Tableau'", "‘five years of Tableau’"])
+def test_lesson_single_quoted_phrase_must_be_in_the_inputs(model, quoted):
+    # found in review: British single quotes skipped the check
+    made_up = GOOD_LESSON | {"likely_reason": f"The advert asked for {quoted}, which your CV may not show."}
+    model(made_up, made_up)
+    with pytest.raises(ai.AIError):
+        lesson()
+    real = GOOD_LESSON | {"likely_reason": "The advert asked for 'strong SQL', which your CV may not show."}
+    model(real)
+    assert lesson() == real
+
+
+def test_lesson_apostrophes_are_not_quotes(model):
+    plain = GOOD_LESSON | {"likely_reason": "The employer's advert may have wanted SQL that your CV didn't show, and you're close."}
+    model(plain)
+    assert lesson() == plain
+
+
 def test_lesson_without_advert_may_not_describe_it(model):
     describing = GOOD_LESSON | {"likely_reason": "The job description may have wanted more SQL."}
     model(describing, describing)
@@ -1191,6 +1209,23 @@ def test_draft_sign_off_at_the_end_of_the_body_removed(model, ending):
     # as the real model wrote it on 14 October 2026: "...any update you can share. Best wishes"
     model(GOOD_DRAFT | {"body": GOOD_DRAFT["body"] + ending})
     assert draft()["message"] == f"Dear Zzqx Person,\n\n{GOOD_DRAFT['body']}\n\nKind regards,\nTest Person"
+
+
+def test_draft_short_greeting_ending_in_a_mark_keeps_the_first_sentence(model):
+    # found in review: "Hello! I wanted to..., which I sent" lost everything up to the first comma
+    model(GOOD_DRAFT | {"body": "Hello! " + GOOD_DRAFT["body"]})
+    assert draft()["message"] == f"Dear Zzqx Person,\n\n{GOOD_DRAFT['body']}\n\nKind regards,\nTest Person"
+
+
+def test_draft_closing_sentence_of_thanks_is_kept(model):
+    body = GOOD_DRAFT["body"] + " Many thanks for considering my application."
+    model(GOOD_DRAFT | {"body": body})
+    assert f"\n\n{body}\n\nKind regards," in draft()["message"]
+
+
+def test_draft_starting_mid_sentence_is_retried(model):
+    calls = model(GOOD_DRAFT | {"body": "which I sent on 7 October 2026. Is there any news?"}, GOOD_DRAFT)
+    assert GOOD_DRAFT["body"] in draft()["message"] and len(calls) == 2
 
 
 def test_draft_own_greeting_and_sign_off_removed(model):

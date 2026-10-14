@@ -400,8 +400,8 @@ def add_application(conn, user_id, fields: dict) -> dict:
         f"insert into applications ({', '.join(columns)}) values ({', '.join(['%s'] * len(columns))}) returning *",
         (user_id, *values.values())).fetchone())
     if row["follow_up_on"] is None and row["stage"] not in CLOSED:
-        row = _row(conn.execute("update applications set follow_up_on = applied_on + %s::int where id = %s returning *",
-                                (FOLLOW_UP_DAYS, row["id"])).fetchone())
+        row = _row(conn.execute("update applications set follow_up_on = applied_on + %s::int where id = %s and user_id = %s returning *",
+                                (FOLLOW_UP_DAYS, row["id"], user_id)).fetchone())
     _record_stage(conn, user_id, row["id"], None, row["stage"])
     return row
 
@@ -450,9 +450,12 @@ def reject_application(conn, user_id, app_id, *, ended_at: str, feedback: str) -
         "where id = %s and user_id = %s returning *", (ended_at, feedback.strip() or None, app_id, user_id)).fetchone())
 
 
-def set_lesson(conn, user_id, app_id, lesson: dict) -> dict | None:
-    return _row(conn.execute("update applications set lesson = %s, updated_at = now() where id = %s and user_id = %s returning *",
-                             (Jsonb(lesson), app_id, user_id)).fetchone())
+def set_lesson(conn, user_id, app_id, lesson: dict, *, ended_at: str) -> dict | None:
+    """Save a lesson onto the rejection it was written for. None if the application is not this
+    user's, or has left Rejected or been answered differently since: the lesson would not fit."""
+    return _row(conn.execute(
+        "update applications set lesson = %s, updated_at = now() where id = %s and user_id = %s "
+        "and stage = any(%s) and rejected_at_stage = %s returning *", (Jsonb(lesson), app_id, user_id, list(REJECTED), ended_at)).fetchone())
 
 
 def mark_followed_up(conn, user_id, app_id, today: date) -> dict | None:

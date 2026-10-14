@@ -16,6 +16,7 @@ AI_FAILED = "The AI did not respond properly. Try again."
 NOTHING_TO_COMPARE = ("No CV or job description was recorded for this application, so there is nothing to compare. "
                       "Attach both next time.")
 ENDED = "This application has ended, so there is nothing to follow up."
+CHANGED = "This application changed while the lesson was being written, so it was not saved. Ask for it again from the application."
 LESSON = {"likely_reason": "The CV may not have shown enough SQL.", "one_change": "Put SQL in the first bullet.", "page": "resume"}
 DRAFT = {"subject": "Zzqx Analyst application", "message": "Dear Zzqx Person,\n\nIs there any news?\n\nKind regards,\nTest Person"}
 APP = {"company": "Zzqx Holdings Ltd", "role": "Zzqx Analyst", "source": "Company site"}
@@ -128,6 +129,19 @@ def test_failed_lesson_keeps_the_rejection_and_a_retry_adds_no_event(client, mon
     capture(monkeypatch, "rejection_lesson", LESSON)
     assert reject(client, app, feedback="No SQL").json()["lesson"]["one_change"] == LESSON["one_change"]
     assert stages(conn, user_a, app["id"]) == ["applied", "rejected"]
+
+
+def test_lesson_for_an_application_moved_meanwhile_is_not_saved(client, monkeypatch, conn, user_a):
+    app = add(client, cv_version_id=sent_cv(conn, user_a)["id"])
+
+    def moved_meanwhile(**kwargs):
+        repo.update_application(conn, user_a, app["id"], {"stage": "applied"})  # the card is dragged out while the model writes
+        return dict(LESSON)
+    monkeypatch.setattr(ai, "rejection_lesson", moved_meanwhile)
+    r = reject(client, app)
+    assert r.status_code == 200 and (r.json()["lesson"], r.json()["notice"]) == (None, CHANGED)
+    row = repo.get_application(conn, user_a, app["id"])
+    assert (row["stage"], row["lesson"]) == ("applied", None)
 
 
 def test_limit_reached_keeps_the_rejection(client, monkeypatch, conn, user_a):

@@ -285,6 +285,11 @@ def test_two_lessons_make_no_finding():
     assert finding(analytics.compute(apps, [], [], []), "lessons-interview") is None
 
 
+def test_lessons_on_applications_no_longer_rejected_do_not_count():
+    apps = [rejected(name, "resume") | {"stage": "screening"} for name in ("Zzqx One", "Zzqx Two", "Zzqx Three")]
+    assert finding(analytics.compute(apps, [], [], []), "lessons-resume") is None
+
+
 def test_lessons_on_different_pages_do_not_combine():
     apps = [rejected("Zzqx One", "resume"), rejected("Zzqx Two", "interview"), rejected("Zzqx Three", "profile")]
     assert [f for f in analytics.compute(apps, [], [], [])["findings"] if f["type"] == "lessons"] == []

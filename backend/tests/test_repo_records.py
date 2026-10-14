@@ -269,14 +269,23 @@ def test_reject_twice_writes_one_event(conn, user_a):
 def test_set_lesson_round_trips_and_a_new_rejection_clears_it(conn, user_a):
     a = application(conn, user_a)
     repo.reject_application(conn, user_a, a["id"], ended_at="cv", feedback="")
-    assert repo.set_lesson(conn, user_a, a["id"], LESSON)["lesson"] == LESSON
+    assert repo.set_lesson(conn, user_a, a["id"], LESSON, ended_at="cv")["lesson"] == LESSON
     assert repo.reject_application(conn, user_a, a["id"], ended_at="screening", feedback="")["lesson"] is None
+
+
+def test_lesson_lands_only_on_the_rejection_it_was_written_for(conn, user_a):
+    # found in review: a lesson still being written could land on a card moved out of Rejected meanwhile
+    a = application(conn, user_a)
+    assert repo.set_lesson(conn, user_a, a["id"], LESSON, ended_at="cv") is None  # not rejected
+    repo.reject_application(conn, user_a, a["id"], ended_at="screening", feedback="")
+    assert repo.set_lesson(conn, user_a, a["id"], LESSON, ended_at="cv") is None  # answered differently meanwhile
+    assert repo.set_lesson(conn, user_a, a["id"], LESSON, ended_at="screening")["lesson"] == LESSON
 
 
 def test_leaving_rejected_clears_answers_and_lesson(conn, user_a):
     a = application(conn, user_a)
     repo.reject_application(conn, user_a, a["id"], ended_at="cv", feedback="No")
-    repo.set_lesson(conn, user_a, a["id"], LESSON)
+    repo.set_lesson(conn, user_a, a["id"], LESSON, ended_at="cv")
     back = repo.update_application(conn, user_a, a["id"], {"stage": "screening"})
     assert (back["rejected_at_stage"], back["feedback_received"], back["lesson"]) == (None, None, None)
 
@@ -305,7 +314,7 @@ def test_user_b_cannot_read_events_reject_set_lesson_or_mark(conn, user_a, user_
     assert repo.list_application_events(conn, user_b) == []
     assert repo.update_application(conn, user_b, a["id"], {"stage": "offer"}) is None
     assert repo.reject_application(conn, user_b, a["id"], ended_at="cv", feedback="x") is None
-    assert repo.set_lesson(conn, user_b, a["id"], LESSON) is None
+    assert repo.set_lesson(conn, user_b, a["id"], LESSON, ended_at="cv") is None
     assert repo.mark_followed_up(conn, user_b, a["id"], date(2026, 10, 14)) is None
     mine = repo.get_application(conn, user_a, a["id"])
     assert (mine["stage"], mine["rejected_at_stage"], mine["lesson"], mine["last_followed_up_on"]) == ("applied", None, None, None)

@@ -696,6 +696,8 @@ def delete_application(app_id: UUID, user: CurrentUser):
 NOTHING_TO_COMPARE = ("No CV or job description was recorded for this application, so there is nothing to compare. "
                       "Attach both next time.")
 ENDED = "This application has ended, so there is nothing to follow up."
+LESSON_CHANGED = ("This application changed while the lesson was being written, so it was not saved. "
+                  "Ask for it again from the application.")
 
 
 class RejectIn(BaseModel):
@@ -730,8 +732,10 @@ def reject_application(app_id: UUID, body: RejectIn, user: CurrentUser):
     lesson = ai.rejection_lesson(job=job, cv_text=cv_text, ended_at=body.ended_at, feedback=application["feedback_received"] or "")
     with db.transaction() as conn:
         lesson["made_on"] = repo.today(conn).isoformat()
-        application = _found(repo.set_lesson(conn, user.id, application["id"], lesson))
-    return {"application": application, "lesson": application["lesson"], "notice": None}
+        saved = repo.set_lesson(conn, user.id, application["id"], lesson, ended_at=body.ended_at)
+        if saved is None:  # moved out of Rejected, or answered again, while the model was writing
+            return {"application": _found(repo.get_application(conn, user.id, application["id"])), "lesson": None, "notice": LESSON_CHANGED}
+    return {"application": saved, "lesson": saved["lesson"], "notice": None}
 
 
 @app.post("/api/ai/applications/{app_id}/follow-up")
