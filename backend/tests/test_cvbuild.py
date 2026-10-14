@@ -63,13 +63,24 @@ def test_a_paragraph_claiming_what_the_profile_does_not_show_is_asked_for_again(
     assert content["profile"] == BODY["profile"]
 
 
-def test_a_paragraph_that_still_claims_it_fails_the_build(bodies, stub):
-    claiming = BODY | {"profile": "Analyst skilled in SQL and Tableau."}
+def test_a_paragraph_that_still_claims_it_loses_those_sentences(bodies, stub):
+    claiming = BODY | {"profile": "Analyst with two years of SQL reporting. Skilled in Tableau and dashboard design! Seeking a Junior Analyst role."}
     avoided = bodies(claiming, claiming)
     stub("job_letter", LETTER)
-    with pytest.raises(ai.AIError):
+    content, _ = build()
+    assert len(avoided) == 2  # asked again first; the sentence is only cut when that did not help
+    assert content["profile"] == "Analyst with two years of SQL reporting. Seeking a Junior Analyst role."
+    assert content["keywords"]["covered"] == ["SQL", "Junior Analyst"] and content["keywords"]["missing"] == ["Tableau", "dashboards"]
+
+
+def test_a_paragraph_that_claims_it_in_every_sentence_fails_the_build(bodies, stub, caplog):
+    claiming = BODY | {"profile": "Analyst skilled in SQL and Tableau. Builds dashboards daily."}
+    avoided = bodies(claiming, claiming)
+    stub("job_letter", LETTER)
+    with caplog.at_level("WARNING"), pytest.raises(ai.AIError):
         build()
     assert len(avoided) == 2
+    assert "cv build" in caplog.text and "Tableau" not in caplog.text and "Analyst skilled" not in caplog.text  # the reason, never the wording
 
 
 def test_the_jobs_own_title_may_be_named(bodies, stub):

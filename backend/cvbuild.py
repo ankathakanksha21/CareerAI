@@ -4,6 +4,8 @@ cvprint (what is printed) and the two writers.
 
 No database here: the routes read the user's records first and save what comes back. Files are
 made in memory and returned; nothing is kept."""
+import logging
+import re
 from datetime import date
 
 import ai
@@ -13,7 +15,8 @@ import cvprint
 import cvword
 from parallel import together
 
-MEDIA = {"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "pdf": "application/pdf"}
+log = logging.getLogger("cvbuild")
+MEDIA ={"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "pdf": "application/pdf"}
 
 
 def _about(content: dict, part: str) -> dict:
@@ -31,8 +34,9 @@ def build(*, profile: dict, email: str, education: list, work_history: list, ach
 
     A tailored CV must not claim what the job asks for and the profile does not show. If the
     profile paragraph names such a thing, it is written once more with those things named as not
-    to be claimed, and a second failure fails the build. A reworded bullet that brings one in goes
-    back to the user's stored wording."""
+    to be claimed. Any sentence that still names one is then taken out, and the build fails only
+    if that leaves no paragraph. A reworded bullet that brings one in goes back to the user's
+    stored wording."""
     skills = cv.own_skills(profile, achievements)
 
     def body(avoid=()):
@@ -53,7 +57,11 @@ def build(*, profile: dict, email: str, education: list, work_history: list, ach
         if claims(written["profile"]):
             written |= body(unshown)
             if claims(written["profile"]):
-                raise ai.AIError("cv")
+                kept = [sentence for sentence in re.split(r"(?<=[.!?])\s+", written["profile"]) if not claims(sentence)]
+                if not kept:  # the reason only: the wording is the user's own data and stays out of the log
+                    log.warning("cv build: every sentence of the profile paragraph claimed something the profile does not show")
+                    raise ai.AIError("cv")
+                written["profile"] = " ".join(kept)
         stored = {str(a["id"]): a.get("uk_version") or "" for a in achievements}
         written["bullets"] = [b | {"text": stored.get(str(b["achievement_id"])) or b["text"]} if claims(b["text"]) else b for b in written["bullets"]]
     content = cv.assemble(profile=profile, email=email, education=education, work_history=work_history, achievements=achievements,
