@@ -416,3 +416,31 @@ button.me:hover { border-color: var(--green-line); }
 .card.editing { border-color: var(--green); }
 input[type=file] { font-size: 14px; max-width: 100%; }
 input:disabled, select:disabled, textarea:disabled { background: var(--soft); color: var(--ink-3); }
+
+/* ---------- step 3: the CV as it will print, edited where it stands ---------- */
+.cvdoc { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 30px 34px; font-family: Arial, Helvetica, sans-serif; font-size: 13.5px; line-height: 1.4; color: #000; font-variant-numeric: normal; }
+.cvdoc .cv-name { font-size: 21px; font-weight: 700; line-height: 1.25; }
+.cvdoc .cv-h { font-size: 14.5px; font-weight: 700; flex: 1; }
+.cvdoc .cv-h-row { border-bottom: 1px solid #000; margin: 16px 0 6px; padding-bottom: 1px; align-items: center; }
+.cvdoc .cv-entry { margin-top: 7px; }
+.cvdoc .cv-line { display: flex; gap: 14px; justify-content: space-between; flex: 1; min-width: 0; }
+.cvdoc .cv-strong { font-weight: 700; }
+.cvdoc .cv-dates { white-space: nowrap; }
+.cvdoc .cv-bullets { margin: 2px 0 0; padding-left: 18px; }
+.cvdoc .cv-note, .cvdoc .cv-hidden, .cvdoc .cv-add, .cvdoc .cv-acts { font-family: 'Hanken Grotesk', system-ui, sans-serif; }
+.cv-row { display: flex; gap: 8px; align-items: flex-start; }
+.cv-row > .editable, .cv-row > textarea.editing { flex: 1; min-width: 0; }
+.cv-acts { display: inline-flex; align-items: center; flex: none; opacity: 0.3; }
+.cv-row:hover > .cv-acts, .cv-acts:focus-within { opacity: 1; }
+.cv-acts .grip { cursor: grab; color: var(--ink-3); display: inline-flex; padding: 4px 1px; }
+.cv-drop { border-radius: 4px; }
+.icon-btn.calm:hover { color: var(--green); background: var(--green-tint); }
+.icon-btn:disabled { opacity: 0.3; cursor: default; background: none; color: var(--ink-3); }
+.editable { cursor: text; border-radius: 3px; }
+.editable:hover, .editable:focus-visible { background: var(--green-tint); box-shadow: 0 0 0 3px var(--green-tint); }
+.editable.blank { color: var(--ink-3); font-style: italic; font-family: 'Hanken Grotesk', system-ui, sans-serif; }
+textarea.editing { font: inherit; color: inherit; padding: 2px 5px; margin: -3px -6px; width: calc(100% + 12px); resize: none; overflow: hidden; border-color: var(--green); display: block; border-radius: 4px; }
+.cv-hidden { margin: 6px 0 2px; padding: 6px 10px; background: var(--soft); border-radius: 6px; display: grid; gap: 2px; color: var(--ink); }
+.cv-add { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line); color: var(--ink); }
+.kw-group { display: grid; gap: 6px; margin-top: 12px; }
+.letter .editable { display: block; }
