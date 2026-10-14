@@ -492,10 +492,52 @@ def add_journal_entry(conn, user_id, *, type: str, title: str, with_whom: str, s
          Jsonb(scores) if scores is not None else None, transcript)).fetchone())
 
 
+def practice_days(conn, user_id) -> list[date]:
+    """The London date of each finished mock interview: what counts as practice for the weekly goal."""
+    rows = conn.execute("select (created_at at time zone 'Europe/London')::date as day from journal_entries "
+                        "where user_id = %s and type = 'interview' order by created_at", (user_id,)).fetchall()
+    return [r["day"] for r in rows]
+
+
 def get_journal_transcript(conn, user_id, entry_id) -> str | None:
     """What was said in that session, or None if the entry is not this user's or has no transcript."""
     row = conn.execute("select transcript from journal_entries where id = %s and user_id = %s", (entry_id, user_id)).fetchone()
     return row["transcript"] if row else None
+
+
+# ---------- weekly goals and milestones ----------
+
+def list_goals(conn, user_id) -> list[dict]:
+    """Every goal the user has set, each applying from its Monday, oldest first."""
+    return _rows(conn.execute("select effective_from, applications, practice from weekly_goals where user_id = %s "
+                              "order by effective_from", (user_id,)))
+
+
+def set_goal(conn, user_id, *, effective_from: date, applications: int, practice: int) -> dict:
+    """Set the goal from one Monday. A second change before that Monday replaces the first."""
+    return _row(conn.execute(
+        "insert into weekly_goals (user_id, effective_from, applications, practice) values (%s, %s, %s, %s) "
+        "on conflict (user_id, effective_from) do update set applications = excluded.applications, practice = excluded.practice, "
+        "created_at = now() returning effective_from, applications, practice",
+        (user_id, effective_from, applications, practice)).fetchone())
+
+
+def account_started(conn, user_id) -> date | None:
+    """The London date the user's profile was made: weeks before it count neither for nor against a streak."""
+    row = conn.execute("select (created_at at time zone 'Europe/London')::date as day from profiles where user_id = %s",
+                       (user_id,)).fetchone()
+    return row["day"] if row else None
+
+
+def mark_milestones_seen(conn, user_id, ids: list[str]) -> list[str]:
+    """Add milestones to those already shown, keeping their order. Returns the whole list."""
+    row = conn.execute("select milestones_seen from profiles where user_id = %s for update", (user_id,)).fetchone()
+    if row is None:
+        return []
+    seen = list(row["milestones_seen"])
+    seen += [i for i in dict.fromkeys(ids) if i not in seen]
+    conn.execute("update profiles set milestones_seen = %s where user_id = %s", (Jsonb(seen), user_id))
+    return seen
 
 
 # ---------- work history and education ----------
