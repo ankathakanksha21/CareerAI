@@ -1,6 +1,6 @@
 # UK Career Navigator: scope, architecture and handover
 
-Last updated: 13 October 2026. This is the living document for the project. It is updated at the end of every build step.
+Last updated: 14 October 2026. This is the living document for the project. It is updated at the end of every build step.
 
 ## 1. What this is
 
@@ -22,9 +22,9 @@ Every step has a document holding its goal, every decision made for it, the desi
 | Step | What | Depends on | Status | Document |
 |---|---|---|---|---|
 | 0 | Accounts, saved data, removal of the demo persona | – | Built. Three hand checks left (section 13) | `careerai-step-0-accounts-and-saved-data` |
-| 1 | Deeper onboarding: CV upload, GitHub import, editing achievements, education and work history, story bank | 0 | Built on branch `step-1-deeper-onboarding`. The owner's hand checks with a real CV and account are left (section 18) | `careerai-step-1-deeper-onboarding` |
+| 1 | Deeper onboarding: CV upload, GitHub import, editing achievements, education and work history, story bank | 0 | Built and merged into `main`. The owner's hand checks with a real CV and account are left (section 18) | `careerai-step-1-deeper-onboarding` |
 | 2 | Real jobs from Reed, fit scoring, sponsor register, visa salary facts | 0 | Built and merged into `main`. Some hand checks are left (section 16) | `careerai-step-2-real-jobs` |
-| 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Designed | `careerai-step-3-full-uk-cv` |
+| 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Built on branch `step-3-full-uk-cv`. The owner's hand checks are left (section 20) | `careerai-step-3-full-uk-cv` |
 | 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Designed | `careerai-step-4-tracker-and-habits` |
 | 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Designed | `careerai-step-5-interview-prep` |
 | 6 | Hidden market: contacts, outreach drafts, saved events, referrals | 4 | Designed | `careerai-step-6-hidden-market` |
@@ -46,6 +46,7 @@ Browser (React + Vite)
  ├─ /api/* + Bearer token ─────► FastAPI (one Vercel function, London)
  │                                 ├─ verifies the token against Supabase's public keys
  │                                 ├─ Postgres on Supabase (transaction pooler)   ← all user data
+ │                                 ├─ makes CV and cover letter files in memory   → Word and PDF, on download, never stored
  │                                 ├─ AWS Bedrock, Mantle endpoint                ← the language model
  │                                 ├─ ElevenLabs API                              ← mints voice session tokens
  │                                 ├─ Reed API                                    ← job adverts (titles and locations sent, nothing personal)
@@ -70,7 +71,8 @@ Browser (React + Vite)
 | Voice | ElevenLabs Agents over WebRTC, WebSocket as automatic fallback | Real-time speech with a transcript stream |
 | Job adverts | Reed's official API, through a shared six-hour cache | Free, legal, has full descriptions and a direct-employer filter. Adzuna is left out for now (section 15) |
 | Sponsor data | The gov.uk register of licensed sponsors, stored in Postgres and reloaded weekly | The authoritative list; Open Government Licence |
-| CV files | `pypdf` for PDF, the standard library for Word (.docx), both in memory | One small dependency. A Word file is a zip of XML, and reading it directly reaches the tables and text boxes CV templates are built from |
+| Reading CV files | `pypdf` for PDF, the standard library for Word (.docx), both in memory | One small dependency. A Word file is a zip of XML, and reading it directly reaches the tables and text boxes CV templates are built from |
+| Writing CV files | `python-docx` for Word and `fpdf2` for PDF, both in memory, drawn from one list of print blocks. The PDF embeds Liberation Sans (bundled in `backend/fonts`, SIL Open Font Licence 1.1) | Both are pure Python apart from two compiled packages that ship ready built. Liberation Sans has exactly Arial's letter widths, so Word (Arial) and the PDF break lines alike |
 | GitHub projects | GitHub's public REST API, no login | Nothing to connect; public data only |
 | Hosting | Vercel: one Python function serving the API and the built frontend | Already set up |
 | Tests | `pytest` | Backend logic, data isolation and routes |
@@ -116,6 +118,17 @@ Minimum versions: Node 20.19 or 22.12 (Vite 8 will not run on older), Python 3.1
 | Names the model returns are checked against the text; a rewrite may not carry a number that is in neither the achievement nor the user's note | Deterministic checks behind "never invent employers or numbers" | A name the model tidied heavily can be dropped; an unusual wording of a number can need a retry | Hand checks show either is too strict |
 | GitHub projects are imported by username, with no login | Nothing to connect | Nothing proves the account is the user's own | Abuse is seen |
 | A typed GitHub username travels in a request body, and `httpx` request logging is off | It never sits in an address or a server log | The listing is a POST | – |
+| A CV's facts are copies of the stored records; the model writes wording only | Every employer, title, date, course, grade and contact detail on a CV is the user's own, whatever the model returned | A fact cannot be typed over on a CV: it is corrected on the Profile and brought in with "Update from profile" | Users want one CV to differ from their profile |
+| A reworded bullet is kept only if it has every number of the stored bullet and no number the achievement does not hold | A figure on a CV is never altered or invented | A good rewording that drops a number is discarded and the stored bullet used | Real builds show too many bullets falling back |
+| A tailored CV is two model calls side by side (the body; keywords, gaps and letter), one AI action | About half the wait of one call | The letter is written without seeing which bullets were picked. If either call fails nothing is saved | The model gets fast enough for one call |
+| Keyword coverage is worked out in code, by exact wording, after every edit | "Covered" is always true of the CV as it will print, and matches how screening software reads | "Stakeholder management" is not covered by "managed stakeholders" | Users find it too literal |
+| One list of print blocks, drawn by a Word writer and a PDF writer | The two files always say the same thing in the same order; a test compares them | The layout is limited to what both can draw: one column, no graphics | A second layout is wanted |
+| The page count is the generated PDF's, stored with each version and recounted on every edit | A real count, not an estimate | Word lays the same text out itself and can differ by a line at a page boundary (section 19) | – |
+| The PDF's font is bundled, and a character it cannot draw prints as "?" and is named on the page first | Accented Latin, Vietnamese, Greek and Cyrillic work, with Arial's widths | No rupee sign, Arabic, Hindi, Chinese, Japanese, Korean or Thai in the PDF; the Word file shows them | Users need another script in a PDF |
+| A version an application points at never changes: an edit is saved as a new version | Reply rates by CV version stay true | Versions accumulate | – |
+| Every edit to a CV is saved as it is made | Nothing is lost by leaving the page, and a download always matches the screen | One small request per edit, each recounting the pages | – |
+| CV and letter files are made when downloaded and never stored | No personal files at rest; nothing to clean up | A file is made again each time (about 0.15 seconds) | – |
+| A CV made before step 3 can be read, rebuilt or deleted, not edited or downloaded | A half CV with no education, dates or contact details is never sent out as a file | Its job must still be saved to rebuild it | – |
 
 Smaller behaviours worth knowing:
 
@@ -133,6 +146,15 @@ Smaller behaviours worth knowing:
 - "Add a number" is shown when neither the bullet nor its result holds a digit.
 - A repository already imported is skipped, and one with no README and no description is never sent to the model.
 - The pitch is rewritten only by an import that saved new achievements.
+- On a new CV education comes before work experience when the user is still studying, or graduated at most 24 months ago, and has worked for under 24 months. The user can reorder the sections.
+- At most five bullets show under a job and four projects show on a new CV. Any more the model picked are kept, hidden, for the user to bring back.
+- A job with no bullet picked still prints, with its title and dates, so the history shows no gap.
+- An achievement linked to no job prints under Projects: GitHub projects with their repository address, course projects with their institution.
+- The right-to-work line is off by default. Its suggested wording gives the visa held and the day it ends, and says nothing about what comes after.
+- A cover letter is dated the day it is downloaded. To a named person it ends "Yours sincerely"; to "Hiring Manager", "Yours faithfully".
+- File names are plain ASCII ("José Nuñez" gives `Jose-Nunez-CV-Acme.pdf`), because employers' upload forms often mishandle anything else.
+- A CV version's number is never used twice, even after a version is deleted.
+- The model is never sent the user's name, phone number, email, town or LinkedIn address when a CV is written.
 
 ## 6. Code map
 
@@ -144,6 +166,12 @@ backend/
   repo.py          ALL SQL. Every function takes (conn, user_id, ...), except those for the shared job and sponsor tables
   jobs.py          which searches to run, de-duplication, shortlist, fit maths, parallel calls to Reed and the model
   cvfile.py        a PDF or Word CV to plain text, in memory, with every refusal and its message
+  cv.py            the CV document: section order, assembling from records, applying an edit, keyword coverage. Pure functions
+  cvprint.py       a CV or cover letter as a list of print blocks; the layout both writers share; file names
+  cvword.py        print blocks to a Word file, in memory
+  cvpdf.py         print blocks to a PDF and its page count, in memory; which characters the font cannot draw
+  cvbuild.py       one CV from start to finish: the model calls a build takes, an edit applied, the file a version downloads as
+  fonts/           Liberation Sans Regular and Bold with their licence, embedded in every PDF
   github.py        GitHub client: a user's public repositories, one README. Everything GitHub-specific
   intake.py        one import: both extraction calls side by side, where each achievement happened, what to propose
   stories.py       the story bank: which achievements get a story, written in batches
@@ -165,17 +193,22 @@ backend/
   scripts/refresh_sponsors.py   load today's sponsor register
   scripts/reed_check.py   one real Reed search and advert; prints the reply's shape, never the key
   scripts/cv_check.py     what one CV file reads as: size, whether it was cut, its first lines. Local only
+  scripts/page_check.py   sample CVs of growing length: the PDF's page count beside Word's own. Windows with Word only
   tests/           pytest suite
 frontend/src/
   App.jsx          session gate and app shell
   supabase.js      Supabase client built from /api/config
-  api.js           fetch wrapper: bearer token, one refresh-and-retry on 401
+  api.js           fetch wrapper: bearer token, one refresh-and-retry on 401; download() for files that need the token
+  cv.js            a CV document on screen: dates and contact line as the files word them, small edits to send back
   ui.jsx           shared pieces: menu, FamilyCard, ErrorRetry, Empty, date helpers
   VoiceAgent.jsx   one ElevenLabs call with the live transcript panel
   components/      DetailsForm, BackgroundInput (coach, CV file, pasted text or GitHub), GitHubImport,
                    FoundFacts ("We also found": tick and confirm), History (work history, education, skills),
                    AchievementCard (edit, link, improve), Jobs (picker and paste-a-job),
-                   Visa (sponsor line, salary facts, sources line)
+                   Visa (sponsor line, salary facts, sources line),
+                   CvEditor (one CV: change, save in order), CvSheet (the CV as it prints: edit, reorder, hide, restore),
+                   CvSide (pages, keywords, downloads, letter), OldCv (a version from before step 3), EditableText,
+                   ContactForm (contact details; certifications, awards and volunteering)
   pages/           Landing, Auth, Privacy, Onboarding, Home, Profile, Pathways, Jobs, Resume,
                    Interview, Applications, Journal, Account
 app.py             Vercel entry point: the API plus the built frontend
@@ -187,13 +220,13 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 
 | Table | Holds |
 |---|---|
-| `profiles` | One row per user: name, university, course, graduation month, visa type, visa end date, preferred locations, pitch, skills, spoken languages with a level, GitHub username |
+| `profiles` | One row per user: name, university, course, graduation month, visa type, visa end date, preferred locations, pitch, skills, spoken languages with a level, GitHub username, and for the CV a phone number, town or city, LinkedIn address and lines of certifications, awards and volunteering |
 | `achievements` | Their own words (`raw`), the UK CV bullet (`uk_version`), skills, outcome, scale, context note, source (voice, paste, cv or github), the job or course it happened in, and for a GitHub project its repository link |
 | `work_history` | Jobs, internships and placements: employer, job title, location, country, start and end month, whether it is current, one line on what the employer does, where the entry came from |
 | `education` | Courses: institution, qualification, subject, start and end month, grade, country. The current course is made from "Your details" and marked `from_details` |
 | `role_families` | AI-suggested families: fit, estimated overlap, UK titles, requirements shown or missing, targeted or not. Unique per user by name, ignoring case |
 | `saved_jobs` | Jobs the user pasted: title, company, description, AI summary, keywords, matched role family |
-| `cv_versions` | Each tailored CV and cover letter in full, named "<title>, <company> vN" |
+| `cv_versions` | Each CV in full as one document, named "<title>, <company> vN" or "Base CV vN": whether it is a base or a tailored CV, its page count, when it was last edited, who its letter is to. A version made before step 3 is marked format 1 and holds only a paragraph, bullets and a letter |
 | `stories` | STAR stories, linked to their achievement |
 | `applications` | Tracker rows: company, role, family, CV version, source, stage, applied and posted dates, plus link, contact, notes, sponsor licence and follow-up date for step 4 |
 | `journal_entries` | Coach calls, mock interviews and imports (a CV upload, a GitHub import): summary, points, actions, scores, and the transcript or the text that was read |
@@ -205,11 +238,13 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 | `job_matches` | One user's view of one advert: role family, fit percentage and label, what they show and lack, new, seen, saved or hidden |
 | `schema_migrations` | Which migration files have been applied |
 
-Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`).
+Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`), `006_full_cv`.
 
 Adverts older than 30 days are deleted on each refresh. A saved job is a copy, so it stays.
 
 A reference from one row to another (for example an application's CV version) is stored only if the target belongs to the same user; otherwise it is saved as null.
+
+**A CV document** (`cv_versions.content`, format 2) holds a copy of the contact line, the job's title and company, the profile paragraph, the order of the five sections, and then each section: courses and jobs as the id of the stored record plus a copy of its facts made when the CV was built, bullets as wording with the id of the achievement it came from and whether it is hidden, projects, skills in three groups, additional lines, the right-to-work line and whether it is shown, the three paragraphs of the cover letter, the job's keywords in their three groups, and the gaps. Because the facts are copies, a later change to the profile never alters a CV that was sent.
 
 ## 8. API
 
@@ -223,6 +258,11 @@ A reference from one row to another (for example an application's CV version) is
 | `PATCH`, `DELETE /api/achievements/{id}` | Edit any field but the quote, including the job or course it happened in; remove an achievement |
 | `POST`, `PATCH`, `DELETE /api/work-history[/{id}]`, `/api/education[/{id}]` | Jobs and courses |
 | `PUT /api/profile/skills` | Replace skills and spoken languages |
+| `PUT /api/profile/contact` | Phone, town or city and LinkedIn address for the CV. A LinkedIn address must be on linkedin.com |
+| `PUT /api/profile/additional` | Up to 12 lines of certifications, awards and volunteering |
+| `PATCH /api/cv-versions/{id}` | Save an edit: wording, order and what is hidden, never a fact. With `refresh_facts`, copy the facts from the profile again. A version sent with an application is left alone and the edit saved as a new one |
+| `DELETE /api/cv-versions/{id}` | Remove a version; 409 while an application points at it |
+| `GET /api/cv-versions/{id}/download?format=docx\|pdf&part=cv\|letter` | The CV or its letter as a file, made now and not kept |
 | `POST /api/profile/facts` | Save the jobs, courses, skills and languages the user ticked after an import, all or nothing, and link the new achievements |
 | `PATCH`, `DELETE /api/stories/{id}` | Edit or remove a STAR story |
 | `POST /api/github/repos` | A GitHub user's own public repositories, each marked if already imported. The username travels in the body |
@@ -243,7 +283,7 @@ A reference from one row to another (for example an application's CV version) is
 | `POST /api/ai/achievements/{id}/improve` | A one-line note → the bullet, result and scale rewritten and saved; the answer carries what they replaced |
 | `POST /api/ai/stories/bank` | STAR stories for the strongest achievements without one, up to 8 stories in all |
 | `POST /api/ai/families` | Achievements → role families |
-| `POST /api/ai/tailor` | Saved job → tailored CV and cover letter, saved as a version |
+| `POST /api/ai/cv` | A saved job → a full CV and cover letter; no job → a base CV. Saved as a new version. One AI action |
 | `POST /api/ai/star` | Achievement → STAR story |
 | `POST /api/ai/interview-feedback` | Mock interview transcript → scores and feedback |
 | `POST /api/ai/tone` | Decode a British phrase, or rewrite a sentence in UK tone |
@@ -251,7 +291,7 @@ A reference from one row to another (for example an application's CV version) is
 | `GET /api/voice/token` | Start a voice session (counts against the daily limit) |
 | `GET /api/voice/transcript/{conversation_id}` | Fallback transcript, only for the session's owner |
 
-Error responses always carry a plain `detail` message the UI shows as-is: 413 a file over 4 MB, 422 invalid input or a file that cannot be read, 429 daily limit ("You've reached today's limit. It resets at midnight."), 502 AI or voice failure, 503 service not configured or database unreachable.
+Error responses always carry a plain `detail` message the UI shows as-is: 409 a CV that is attached to an application, 413 a file over 4 MB, 422 invalid input or a file that cannot be read, 429 daily limit ("You've reached today's limit. It resets at midnight."), 502 AI or voice failure, 503 service not configured or database unreachable.
 
 ## 9. AI layer
 
@@ -265,6 +305,7 @@ Error responses always carry a plain `detail` message the UI shows as-is: 413 a 
 - **Quotes by source.** A quote is checked against the text it claims to come from: the user's own lines of a call, the whole of a CV (where a line beginning "Coach:" is still theirs, and a sentence wrapped across PDF lines is read as one), or that repository's own README and description. The label says which: "You said", "You wrote", "From your CV", "From your repository".
 - **Checks in code behind the prompt.** An employer, institution, skill or language is kept only if the text names it. A date is kept only if it is a real month. A rewritten bullet may not carry a number that is in neither the achievement nor the user's note. The same achievement is not saved twice.
 - **Several calls for one action.** An import asks for achievements and for CV facts at the same time; the story bank writes in batches of four. Each counts as one AI action.
+- **A CV: wording only.** `build_cv` returns a profile paragraph, bullets each naming one of the user's achievements, and the user's own skills in two groups. `job_letter` returns the advert's main terms, gaps and the three paragraphs of a letter. Neither is asked for, or trusted with, a fact: employers, dates, courses and grades are copied from the records in code. A bullet for an id that is not the user's is dropped; a reworded bullet that lost, changed or gained a number is replaced by the stored one; a skill that is not the user's is dropped; a keyword that is not in the advert is dropped; a paragraph or letter with a number found nowhere in the candidate's facts is refused and asked for once more.
 - **Privacy in logs.** Failures log the task name and the error type only, never prompts or replies. `httpx` request lines are off, because an address can hold what a user typed.
 - **No database connection is held during a model call.** Each AI route reads and counts usage in one short transaction, calls the model, then writes in a second.
 
@@ -293,6 +334,8 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 | Shared tables | Hold only public adverts and the public register. A user's fit, saved and dismissed jobs live in `job_matches`, filtered by user id like everything else |
 | What Reed is told | Job titles and locations from the user's target roles. Never a name, an email or anything from their profile |
 | Uploaded files | Read as the raw request body, in memory, at most 4 MB, and dropped. Never written to disk or the database: only the text read from them is kept. The type is decided from the file's first bytes, never its name. Password-protected, damaged and oversized-when-unpacked files are refused before anything reaches the model |
+| Contact details | Phone number, town and LinkedIn address are stored for the CV's contact line and printed there. They, the user's name and their email are never sent to the model |
+| Generated files | A CV or cover letter is made in memory for one download, sent with `Cache-Control: no-store`, and not kept anywhere. Its file name is plain ASCII built from the user's name and the company |
 | What GitHub is told | A username the user typed, to list its public repositories and read the READMEs they pick. Usernames and repository names are checked against GitHub's own naming rules before they are put in an address. A repository link is stored only if it is on github.com |
 | The scheduled reload | Refused unless the request carries the secret; refused always when no secret is set. Compared in constant time |
 | Links from outside | An advert's link is used only if it is on reed.co.uk over https; anything else is replaced by Reed's standard address |
@@ -365,10 +408,14 @@ cd backend && .venv\Scripts\python -m pytest tests
 | `test_intake`, `test_stories` | Both extraction calls run and one may fail; linking achievements to jobs and courses; what is proposed and what is left out; story batches |
 | `test_repo_history`, `test_routes_profile` | Work history, education, skills, found facts, editing achievements and stories; one user never reading or changing another's |
 | `test_routes_imports` | Upload, GitHub import, improve and the story bank end to end with the model and GitHub replaced: limits, refusals, nothing saved on failure, no username in the log |
+| `test_cv` | The CV document: which section comes first at its boundaries, facts copied whatever the model wrote, bullets under their own job, the caps, every rule of an edit, keyword coverage word for word |
+| `test_cvprint` | What prints and in what order: hidden parts and empty sections left out, dates, the letter's greeting and sign-off, file names |
+| `test_cvpdf`, `test_cvword` | Real files read back: the same text in the same order in both, real text in an embedded font, no tables or headers, heading and list styles, accents and other alphabets, what the PDF cannot draw, page counts, nothing written to disk |
+| `test_repo_cv`, `test_routes_cv` | Building, editing, downloading and deleting a CV with the model replaced: every fact equal to the record, limits, nothing saved on failure, a sent version never changed, one user never reaching another's CV, contact details |
 
 No test can reach the real model: an AI task that a test did not replace fails loudly. Database tests run against the real database inside transactions that are rolled back, so they leave nothing behind. Because the real register and real adverts are in that database, tests use names that cannot occur in real data and never count whole tables. Run the suite on its own: a second database-heavy job at the same time has caused dropped connections.
 
-**Deploy to Vercel.** Not yet done for this version. `vercel.json` schedules the register reload for 05:00 UTC every Monday; it works only if `CRON_SECRET` is set in the Vercel project. The function may run for 120 seconds, to leave room for an import and one retry. Set `GITHUB_TOKEN` there: Vercel shares server addresses, and without a token GitHub allows only 60 requests an hour for each address. Add every variable from `backend/.env` to the Vercel project (use `BEDROCK_REGION`, not `AWS_REGION`, which Vercel reserves), add the Vercel address to Supabase's Site URL and Redirect URLs, then deploy. `vercel.json` builds the frontend, runs `app.py` as one function in London (`lhr1`), and leaves tests and scripts out of the bundle.
+**Deploy to Vercel.** Not yet done for this version. `vercel.json` schedules the register reload for 05:00 UTC every Monday; it works only if `CRON_SECRET` is set in the Vercel project. The function may run for 120 seconds, to leave room for an import and one retry. A Python function may be 500 MB unpacked (Vercel's limit, read on 13 October 2026); with the Word and PDF packages the app is about 190 MB. `backend/fonts` must be in the bundle. Set `GITHUB_TOKEN` there: Vercel shares server addresses, and without a token GitHub allows only 60 requests an hour for each address. Add every variable from `backend/.env` to the Vercel project (use `BEDROCK_REGION`, not `AWS_REGION`, which Vercel reserves), add the Vercel address to Supabase's Site URL and Redirect URLs, then deploy. `vercel.json` builds the frontend, runs `app.py` as one function in London (`lhr1`), and leaves tests and scripts out of the bundle.
 
 ## 13. Verification record for step 0
 
@@ -391,7 +438,15 @@ No test can reach the real model: an AI task that a test did not replace fails l
 
 ## 14. Known limitations
 
-- The tailored CV is a profile paragraph, selected bullets and a cover letter, not a full downloadable CV (step 3). It does not yet use the work history, education and skills that step 1 collects.
+- One CV layout: a single column in Arial. No second design, no photo or graphics, by choice.
+- A PDF cannot show the rupee sign or Arabic, Hindi, Chinese, Japanese, Korean or Thai letters, or any right-to-left text: they print as "?" and the page says which. The Word file shows them.
+- The page count is the PDF's. Word lays the same text out itself; on 60 test CVs a line or two apart it agreed on 59 and said one page fewer on the other.
+- Facts cannot be typed over on a CV. A wrong employer name is fixed on the Profile, then "Update from profile".
+- A keyword counts as covered only when the CV has the same words. A rephrasing shows as "in your profile" or as a gap.
+- The cover letter has no postal address for the employer and no reference line; the user adds them in the Word file if a job asks for them.
+- A Word file edited outside the app cannot be brought back in.
+- A CV made before step 3 cannot be edited or downloaded, only read, rebuilt or deleted.
+- Certifications, awards and volunteering are free lines of text, not records with dates.
 - A scanned or image-only CV cannot be read; the user is asked to paste the text. Only the first 20 pages and 30,000 characters of a file are read.
 - Jobs, courses and skills an import found are lost if the user leaves the page before confirming them. Uploading the same CV again brings them back without repeating achievements.
 - Nothing checks that a GitHub account is the user's own. Looking up repositories is not limited per user, so heavy use by one person could use up the server's GitHub allowance.
@@ -525,3 +580,77 @@ The register is reloaded by `python scripts/refresh_sponsors.py`, or weekly on V
 - **A second account in the browser seeing none of it** (hand check 7). Proved by automated tests only.
 - **A voice call after this change.** The coach's own prompt is unchanged, but what follows the call now also proposes jobs and courses; tested with the model replaced, not with a real call.
 - **Anything on Vercel**: the 4.5 MB cap, the 120-second limit and GitHub's allowance from shared addresses.
+
+## 19. The full CV (step 3)
+
+**Two kinds of CV.** A base CV from the whole profile, for no particular job, and a tailored CV for one saved job, which also carries a cover letter, the advert's main terms and the gaps to be ready for. Both are built by `POST /api/ai/cv`, one AI action.
+
+**What one build does** (`cvbuild.build`):
+
+1. The route reads the user's profile, education, work history and achievements, and the date in London. With no achievements it stops there.
+2. One AI action is counted. With no database connection open, the model is asked for the wording: `build_cv` returns a profile paragraph, bullets each naming one of the user's achievements, and the user's own skills in two groups. For a job, `job_letter` runs beside it and returns the advert's main terms, the gaps and the three paragraphs of a letter.
+3. What comes back is checked in code before anything is used (the table below).
+4. `cv.assemble` puts the CV together. Every fact is copied from the records. A bullet goes under the job its achievement is linked to, in the model's order; an achievement linked to no job becomes a project.
+5. The CV is drawn as a PDF to count its pages, and saved as a new version with that count.
+
+**What the model may decide, and the check behind each rule.** The model is never sent the user's name, phone number, email, town or LinkedIn address.
+
+| Rule | Check in code | When it fails |
+|---|---|---|
+| Facts are never the model's | Employers, titles, dates, courses, grades and contact details are copied from the records; anything of the kind in the reply is ignored | Nothing: it cannot happen |
+| A bullet is one of the user's achievements | Its id must be one of theirs, and is used once | The bullet is dropped |
+| Numbers stay as stored | The rewording must hold every number of the stored bullet and none the achievement does not | The stored bullet is used |
+| A figure stays hedged | If the stored bullet says "about", "roughly" or "up to", the rewording must still hedge | The stored bullet is used |
+| No skill is added | A skill is kept only if it is the user's own, in their spelling | The skill is dropped |
+| Keywords are the advert's | A term must be in the advert, at most three words, and not a filler word such as "experience" | The term is dropped |
+| The paragraph and letter invent no number | A number must be in the candidate's facts (for the letter, or in the job's title) | Asked once more, then the build fails with Retry |
+| A tailored CV does not claim what the profile does not show | A term the advert asks for that is nowhere in the profile may not appear in the paragraph (the job's own title aside) | The paragraph is written once more, told what not to claim. Any sentence that still names such a term is then taken out, and the build fails only if no paragraph is left. A bullet that brings such a term in goes back to the stored wording |
+
+The hedge rule, the keyword rules and the last rule were added after the first real-model runs, which showed a paragraph claiming "dashboards" for a candidate with none, "about 8%" turned into "8%", and "experience" and "desirable" returned as keywords. The last rule only catches a claim made in the advert's own words: a paragraph that says the same thing differently is not caught, which is why the paragraph is the first thing the page invites the user to read and edit.
+
+**Section order.** Education first for someone still studying or graduated at most 24 months ago who has worked for under 24 months; otherwise work experience first. Months of work are counted once where jobs overlap.
+
+**Editing** (`PATCH /api/cv-versions/{id}`, `cv.merge`). The page sends the whole CV as edited. Wording, order and what is hidden are taken from it; every fact is taken from the stored copy, or from the user's own record when an entry is new to this CV. A bullet or entry naming a row that is not the user's is dropped. `refresh_facts` copies the facts and contact details from the profile again and adds any job or course added since. The pages are recounted and the keywords regrouped on every save. If an application points at the version, the edit is saved as a new version and the sent one is left exactly as it was; the check is made at the moment of saving.
+
+**Keyword coverage.** Each of the advert's terms is in one of three groups: covered (its words are in the CV as it will print), in the profile but not in this CV (with the unused achievements that show it), or not in the profile (a gap, never added). A term is found only as the same words in the same order, give or take a plural; "C" is not found in "C++".
+
+**The files** (`cvprint`, `cvword`, `cvpdf`). A CV or letter is first turned into a list of print blocks: name, contact line, headings, entries with their dates, bullets. Both writers draw that one list. A4, one column, Arial 10.5 pt in Word and Liberation Sans in the PDF, which has Arial's letter widths. Word's own heading and list styles; dates against a right-hand tab stop; no tables, text boxes, images, headers or footers. A section with nothing to show prints nothing. A heading is never left alone at the foot of a page, and a paragraph of up to three lines is never split across pages, which is how Word breaks pages too.
+
+| Download | File name |
+|---|---|
+| Tailored CV | `Firstname-Lastname-CV-Company.docx` or `.pdf` |
+| Base CV | `Firstname-Lastname-CV.docx` or `.pdf` |
+| Cover letter | `Firstname-Lastname-Cover-Letter-Company.docx` or `.pdf` |
+
+**Page count against Word** (`scripts/page_check.py`, 14 October 2026). Sixty sample CVs from under one page to four, a line or two apart, each saved as a Word file and opened by Word itself: the PDF's count was Word's on 59, and one page more on the other. It never said fewer.
+
+**The right-to-work line.** Off by default. Switched on, it offers "Right to work in the UK: Graduate visa, valid until 14 March 2028." or "Visa status: Student visa, valid until 30 January 2027." from the user's own visa type and end date, and the user can retype it. It prints last, under "Additional information".
+
+**Timings on the real model, 14 October 2026.** The CV body: 4 to 6 seconds. Keywords, gaps and letter: 5 to 6 seconds. A whole tailored build with both calls side by side: 5 to 6 seconds, or 10 to 12 when the paragraph had to be written a second time. Through the browser, with reading and saving: 7 to 17 seconds for a tailored CV, 10 for a base one. A file download: about 0.1 seconds.
+
+## 20. Verification record for step 3
+
+| Check | Result | Date |
+|---|---|---|
+| Automated backend suite | 1,180 passed, 0 skipped, against the real database | 14 Oct 2026 |
+| Frontend | Lints with no errors; builds | 14 Oct 2026 |
+| Real model, one call per AI task (`live_check.py`) | 24 of 24 passed: the 20 from before and 4 new (the CV body for a job and for none; keywords, gaps and letter; a whole build), 3 to 5 seconds each | 14 Oct 2026 |
+| The four new real-model checks, repeated | 12 of 12 over three runs after the fixes above. One earlier run of the base CV body had failed its check before them | 14 Oct 2026 |
+| Real output read by eye | Tailored and base CV bodies, four runs each: 15 of 16 bullets kept the model's rewording with every number and hedge intact; the one that turned "about 8%" into "8%" fell back to the stored bullet. Keywords after the fix: "SQL", "dashboards", "Python", "stakeholder communication" | 14 Oct 2026 |
+| PDF and Word files in tests | Read back with `pypdf` and `python-docx`: the same text in the same order in both, real text in an embedded font, no tables or headers, accents, Greek, Cyrillic and a pound sign intact | 14 Oct 2026 |
+| Page count against Word itself | 59 of 60 sample CVs the same, 1 one page over, 0 under | 14 Oct 2026 |
+| The pages against the real backend and model, as a temporary user whose data was never saved | Contact details asked for before the first CV, a wrong LinkedIn address refused. A tailored CV built with every fact from the records. Reword the paragraph, a bullet and the skills; hide, move and restore a bullet; add two achievements from the profile (the GitHub one arrived with its repository address); add a line; switch on the right-to-work line; address the letter to a name. A job renamed on the profile offered "Update from profile" and it took. Content pushed to three pages showed the warning and what to trim, and hiding six lines brought it back to two. Logged an application with the CV, edited again: a new version, the sent one unchanged, and deleting the sent one refused with its message. A base CV built with no letter. A CV from before this step opened read-only and was rebuilt as a full one. Bullets and jobs reordered by simulated drag, and a drop into another list refused. Contact details and certifications saved on the Profile. No JavaScript errors | 14 Oct 2026 |
+| The files that run produced | Three CVs and a letter, as Word and PDF: identical text in each pair; opened by Word itself they were 1, 1, 2 and 1 pages, the app's own counts, in Arial on A4 with real bullets and heading styles and no tables | 14 Oct 2026 |
+| The database afterwards | No trace of the temporary user | 14 Oct 2026 |
+
+**Not yet verified:**
+
+- **A real profile.** Every CV so far was built from a made-up candidate. The owner's own base and tailored CV, read for accuracy, are hand check 1.
+- **The files opened by a person.** Word reported the page counts, fonts and styles, and the text was compared by program. Nobody has yet looked at a downloaded file in Word, Google Docs or a PDF reader, or selected and copied its text (hand checks 2 and 3).
+- **A signed-in session.** The pages were driven without the login screen, through a temporary check page that was then removed. Saving a file through the browser's own download prompt was not seen: the check confirmed the page hands the browser a file with the right name.
+- **Dragging to reorder with a real mouse.** The up and down buttons were used, and the drag handlers were driven with simulated drag events. Nobody has yet dragged a bullet by hand.
+- **How the pages look**, beyond two screenshots of the Resume page at one width.
+- **An applicant-tracking system.** No file has been put through a real parser (hand check 7, the owner's choice).
+- **The owner's own earlier CVs.** A made-up one from before this step opened and rebuilt correctly; the owner's real ones have not been opened.
+- **A second account in the browser.** Proved by automated tests only.
+- **Anything on Vercel**: the size of the bundle with the two new packages, and whether the font files are in it.

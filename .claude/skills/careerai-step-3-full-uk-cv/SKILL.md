@@ -5,8 +5,39 @@ description: Use when building, continuing or reviewing step 3 of the CareerAI r
 
 # Step 3: the full UK CV
 
-**Status:** In progress on branch `step-3-full-uk-cv`. Open questions settled with the owner on 13 October 2026; the plan is `docs/superpowers/plans/2026-10-13-step-3-full-uk-cv.md`. Design approved by the owner, 12 October 2026. **Depends on:** step 1 (needs work history, education and skills). **Size:** medium.
+**Status:** Built on branch `step-3-full-uk-cv`, 14 October 2026; not yet merged. **Not finished:** the owner's hand checks. Design approved by the owner, 12 October 2026. **Depends on:** step 1 (needs work history, education and skills). **Size:** medium.
 **REQUIRED:** follow `careerai-building-a-step`.
+
+## Where it stands (14 October 2026)
+
+- Built and committed, tasks 1 to 11 of `docs/superpowers/plans/2026-10-13-step-3-full-uk-cv.md`. What it does and how is in `docs/ARCHITECTURE.md` section 19; what was verified and what was not is in section 20.
+- Verified by the automated suite, by 24 of 24 real-model checks, by Word itself counting the pages of 60 sample CVs, and by running the pages against the real backend and model as a temporary user whose data was never saved.
+- **Left for the owner:** the seven hand checks below with their own profile and login, in particular reading a real base and tailored CV for accuracy, opening the Word and PDF files, and dragging a bullet with a mouse.
+
+## Changed at build time (13 and 14 October 2026)
+
+Where what was built differs from the sections below, this table is what is true.
+
+| Change | Why | Decided by |
+|---|---|---|
+| `python-docx` is a new package | This document said step 1 had added it; step 1 reads Word files with the standard library | Found at build; owner told |
+| The PDF library is `fpdf2`, with Liberation Sans bundled in `backend/fonts` | Its drawing calls mirror `python-docx`'s, so one list of print blocks drives both files. Liberation Sans has Arial's letter widths and an open licence | Owner, 13 Oct 2026 |
+| A PDF cannot show the rupee sign or Arabic, Hindi, Chinese, Japanese, Korean or Thai letters: they print as "?" and the page names them. The Word file shows them | The font has no such letters | Owner, 13 Oct 2026 |
+| **Facts cannot be typed over on a CV.** They are corrected on the Profile, and "Update from profile" brings them in. This document says "clicking any text edits it" | A CV could otherwise disagree with the profile, and "every fact equals the stored record" would stop being true | Owner, with the plan, 13 Oct 2026 |
+| Every edit is saved as it is made; there is no Save button | Nothing is lost by leaving the page, and a download always matches the screen | Owner, with the plan |
+| The AI task is two calls side by side, `ai.build_cv` (paragraph, bullets, skills) and `ai.job_letter` (keywords, gaps, letter), one AI action | About 6 seconds instead of about 10 | Owner, with the plan |
+| The model returns one list of bullets with achievement ids; code puts each under the job it is linked to. At most 5 show under a job and 4 projects show; more are kept hidden | Where an achievement happened is a stored fact | Owner, with the plan |
+| A reworded bullet must keep the stored bullet's numbers **and its hedge** ("about 8%" may not become "8%"), or the stored bullet is used | The real model dropped "about" | Found by the real-model check |
+| **A tailored CV may not claim what the advert asks for and the profile does not show.** The paragraph is written once more if it does, then any sentence still doing so is cut; a bullet goes back to its stored wording | The real model wrote "built dashboards" for a candidate with none | Found by the real-model check |
+| A keyword is at most three words, must be in the advert, and filler words ("experience", "desirable") are dropped; at most 12 | The real model returned filler and five-word phrases, which can never match | Found by the real-model check |
+| Keyword coverage is worked out in code by exact wording, after every edit | "Covered" must be true of the CV as it prints | Owner, with the plan |
+| The page count is stored in a new column, `cv_versions.pages`; one more profile column, `additional` | The count comes from the generated PDF; certifications needed somewhere to live | Owner, 13 Oct 2026 |
+| One route more than listed below: `PUT /api/profile/additional`. `PATCH /api/cv-versions/{id}` also takes `refresh_facts` | The Profile box and "Update from profile" | Owner, with the plan |
+| The migration is `006_full_cv` | 005 was used by step 1 | – |
+| A CV made before this step is read-only: it cannot be edited or downloaded, only rebuilt or deleted | It has no education, dates or contact details | Owner, with the plan |
+| The cover letter is dated the day it is downloaded and has no postal address or reference line | A letter carries the date it is sent | Owner, with the plan |
+| File names are plain ASCII | Employers' upload forms mishandle other characters | Owner, with the plan |
+| Reordering also has up and down buttons | Dragging alone cannot be done from a keyboard | Owner, with the plan |
 
 ## Goal
 
