@@ -205,3 +205,19 @@ def test_state_carries_contacts_events_and_outreach(conn, user_a):
     saved_event(conn, user_a)
     state = repo.load_state(conn, user_a)
     assert (len(state["contacts"]), len(state["networking_events"]), len(state["outreach"])) == (1, 1, 1)
+
+
+
+def test_a_referral_offered_after_linking_makes_the_source_referral(conn, user_a):
+    contact = person(conn, user_a, status="replied")
+    application = repo.add_application(conn, user_a, APP | {"contact_id": contact["id"]})
+    assert application["source"] == "LinkedIn"
+    repo.record_outreach(conn, user_a, contact["id"], "referral_offered")
+    assert repo.get_application(conn, user_a, application["id"])["source"] == "Referral"
+
+
+def test_a_referral_changes_only_that_users_applications(conn, user_a, user_b):
+    contact = person(conn, user_a, status="replied")
+    theirs = repo.add_application(conn, user_b, APP | {"contact_id": contact["id"]})  # a foreign contact is never linked
+    repo.record_outreach(conn, user_a, contact["id"], "referral_offered")
+    assert repo.get_application(conn, user_b, theirs["id"])["source"] == "LinkedIn"

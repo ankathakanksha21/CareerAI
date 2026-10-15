@@ -206,3 +206,21 @@ def test_every_label_and_text_is_plain_british_copy():
              *networking.chat_questions(contact(role="Analyst", company="Zzqx")),
              networking.findings([sent(TODAY, contact_id=str(i)) for i in range(5)], [])[0]["action"]]
     assert not any("—" in t for t in texts)
+
+
+
+# ---------- the final review: one follow-up, then move on ----------
+
+def test_after_a_follow_up_with_no_reply_the_user_moves_on():
+    history = [sent(TODAY - timedelta(days=40)), sent(TODAY - timedelta(days=20), "follow_up")]
+    nxt = networking.next_step(contact("messaged"), history, TODAY, met_on=None)
+    assert nxt == {"text": "No reply after your follow-up: move on to someone else", "due_on": None, "late": False}
+    waiting = [sent(TODAY - timedelta(days=40)), sent(TODAY - timedelta(days=3), "follow_up")]
+    assert networking.next_step(contact("messaged"), waiting, TODAY, met_on=None)["text"] == "Waiting for a reply (sent 3 days ago)"
+
+
+def test_a_contact_already_followed_up_is_not_due_again():
+    contacts = [contact("messaged", id="a", name="Zzqx Ann"), contact("messaged", id="b", name="Zzqx Bo")]
+    outreach = [sent(TODAY - timedelta(days=40), contact_id="a"), sent(TODAY - timedelta(days=20), "follow_up", contact_id="a"),
+                sent(TODAY - timedelta(days=20), contact_id="b")]
+    assert [c["id"] for c in networking.follow_ups_due(contacts, outreach, TODAY)] == ["b"]

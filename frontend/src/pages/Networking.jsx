@@ -17,16 +17,17 @@ function People({ s, refresh, notify, go, links, linksError, retryLinks }) {
   const [adding, setAdding] = useState(false)
   const [show, setShow] = useState('all')
   const count = (status) => s.contacts.filter((c) => c.status === status).length
-  const shown = s.contacts.filter((c) => show === 'all' || c.status === show)
+  const current = show === 'all' || count(show) ? show : 'all' // a status nobody is at any more shows everyone
+  const shown = s.contacts.filter((c) => current === 'all' || c.status === current)
   return (
     <div className="grid split">
       <div className="stack">
         <div className="row">
           {s.contacts.length > 0 && (
             <div className="filters" style={{ margin: 0, flex: 1 }}>
-              <button className={`filter ${show === 'all' ? 'active' : ''}`} onClick={() => setShow('all')}>All ({s.contacts.length})</button>
+              <button className={`filter ${current === 'all' ? 'active' : ''}`} onClick={() => setShow('all')}>All ({s.contacts.length})</button>
               {s.options.contact_statuses.filter(([k]) => count(k)).map(([k, l]) => (
-                <button key={k} className={`filter ${show === k ? 'active' : ''}`} onClick={() => setShow(k)}>{l} ({count(k)})</button>
+                <button key={k} className={`filter ${current === k ? 'active' : ''}`} onClick={() => setShow(k)}>{l} ({count(k)})</button>
               ))}
             </div>
           )}

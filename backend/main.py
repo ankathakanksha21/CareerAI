@@ -836,6 +836,7 @@ BAD_EVENTS_PAGE = "Enter your university's careers events page, for example care
 NO_JOB_FOR_REFERRAL = "Save the job you want a referral for first."
 NOTHING_LEARNED = "Write one thing you learned in the chat, so the thank-you can mention it."
 NOT_A_REFEREE = "Ask a tutor, lecturer or supervisor for a reference."
+NO_VISA_OR_ADDRESS = "Leave out visas, sponsorship and web addresses: a draft never mentions them."
 REFEREES = ("tutor", "supervisor")
 ACHIEVEMENTS_FOR_REFERRAL = 5
 Relationship = Literal[tuple(networking.RELATIONSHIPS)]
@@ -968,6 +969,8 @@ def ai_outreach(body: OutreachIn, user: CurrentUser):
         today = repo.today(conn)
     if body.type == "thank_you" and not body.learned:
         raise HTTPException(422, NOTHING_LEARNED)
+    if any(ai.VISA_WORDS.search(t) or ai.WEB_ADDRESS.search(t) for t in (body.start, body.learned)):
+        raise HTTPException(422, NO_VISA_OR_ADDRESS)  # a draft would have to repeat it, and never may
     if body.type == "reference_ask" and contact["relationship"] not in REFEREES:
         raise HTTPException(422, NOT_A_REFEREE)
     if body.type == "referral_ask":

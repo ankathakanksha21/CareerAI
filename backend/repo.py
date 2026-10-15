@@ -620,6 +620,9 @@ def record_outreach(conn, user_id, contact_id, kind: str, message_type: str | No
     conn.execute("insert into outreach_events (user_id, contact_id, kind, message_type) values (%s, %s, %s, %s) "
                  "on conflict (user_id, contact_id, kind, coalesce(message_type, ''), on_day) do nothing",
                  (user_id, contact_id, kind, message_type))
+    if kind == "referral_offered":  # the applications they are already linked to were referred
+        conn.execute("update applications set source = %s, updated_at = now() where user_id = %s and contact_id = %s",
+                     (REFERRAL, user_id, contact_id))
     status = networking.advanced(contact["status"], kind)
     if status == contact["status"]:
         return contact

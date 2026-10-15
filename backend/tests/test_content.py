@@ -84,3 +84,11 @@ def test_the_guide_says_what_its_sources_say():
 def test_the_guide_leaves_out_sites_that_failed_the_check():
     text = json.dumps(content.load()["networking_guide"]).lower()
     assert "do-it" not in text and "do it.org" not in text
+
+
+
+def test_every_guide_section_that_mentions_visas_says_it_is_not_immigration_advice():
+    for section in guide().values():
+        text = guide_text(section)
+        if "visa" in text.lower() or "sponsor" in text.lower():
+            assert "This is not immigration advice." in text, section["id"]

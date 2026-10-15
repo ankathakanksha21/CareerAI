@@ -190,7 +190,7 @@ def weekly_plan(*, follow_ups: list, findings: list, fresh_jobs: int, week: dict
                            "networking", "Open People", tab="people"))
     for f in findings:
         if f.get("link"):
-            tasks.append(_task(f"finding-{f['id']}", f["action"], f["evidence"], f["link"]["page"], f["link"]["label"]))
+            tasks.append(_task(f"finding-{f['id']}", f["action"], f["evidence"], f["link"]["page"], f["link"]["label"], tab=f["link"].get("tab")))
     if fresh_jobs:
         tasks.append(_task("new-jobs", f"Look at {plural(fresh_jobs, 'new matching job')} posted in the last 48 hours",
                            "Roles get most of their applications in the first few days.", "jobs", "See jobs"))

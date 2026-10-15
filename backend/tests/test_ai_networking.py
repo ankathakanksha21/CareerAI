@@ -294,3 +294,71 @@ def test_a_reference_request_does_not_ask_to_join_the_referees_team(model):
     calls = model({"body": wrong}, {"body": right})
     assert right in draft("reference_ask", relationship="supervisor")["message"]
     assert len(calls) == 2
+
+
+
+# ---------- the final review: honest drafts are accepted, invented connections are not ----------
+
+@pytest.mark.parametrize("kind, relationship, body, extra", [
+    ("recruiter_intro", "recruiter", "I am writing to introduce myself as a data science graduate looking for Data Analyst roles in Leeds.", {}),
+    ("connection_note", "none", "I wanted to introduce myself: I am a data science student looking for my first job in analytics.", {}),
+    ("thank_you", "none", "Thank you for offering to introduce me to the hiring manager in your data team. It was really kind of you.",
+     {"learned": "they could introduce me to the hiring manager in the data team"}),
+    ("chat_request", "none", "I am not asking for a job or a referral, only advice. Would you have 15 minutes in the coming weeks?", {}),
+    ("chat_request", "none", "It would be lovely to meet for 15 minutes, online or in person, whenever suits you.", {}),
+    ("reference_ask", "supervisor", "I really valued my placement in your team. Would you be willing to act as my referee for analyst roles?", {}),
+    ("reference_ask", "supervisor", "I am applying for graduate analyst roles, building on what I learned at Zzqx Holdings. Would you act as my referee?", {}),
+    ("referral_ask", "alumni", "I am applying for the Junior Data Analyst role at Zzqx Holdings and would love the chance of working with you and your team. "
+                               "Would you be comfortable referring me?", {"job": {"title": "Junior Data Analyst", "company": "Zzqx Holdings",
+                                                                                  "summary": "", "url": None}}),
+])
+def test_honest_drafts_are_accepted(model, kind, relationship, body, extra):
+    calls = model({"body": body})
+    assert body in draft(kind, relationship=relationship, **extra)["message"]
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("claim", [
+    "We both went to Leeds, so I thought I would say hello.",
+    "We were classmates on the same course a few years ago.",
+    "Sam from your team pointed me to you.",
+    "As a fellow Leeds graduate, I would love your view.",
+])
+def test_more_invented_connections_are_refused(model, claim):
+    calls = model({"body": f"{claim} {CHAT_BODY}"}, {"body": CHAT_BODY})
+    assert claim not in draft("chat_request", relationship="none")["message"]
+    assert len(calls) == 2
+
+
+def test_a_thank_you_may_say_it_was_good_to_meet_but_not_name_an_event_that_was_not_entered(model):
+    learned = "how the analytics team tests its dbt models"
+    named = "It was great to meet you at the careers fair. Hearing how your analytics team tests its dbt models was useful."
+    plain = "It was great to meet you today. Hearing how your analytics team tests its dbt models was useful."
+    calls = model({"body": named}, {"body": plain})
+    assert plain in draft("thank_you", relationship="none", learned=learned)["message"]
+    assert len(calls) == 2
+
+
+def test_a_company_named_like_a_web_address_can_be_named(model):
+    body = "I would value 15 minutes of advice on how you got into analytics at Booking.com."
+    model({"body": body})
+    assert body in draft("chat_request", contact=contact(company="Booking.com"))["message"]
+    calls = model({"body": body + " My portfolio is at www.zzqx-folio.com."}, {"body": body})
+    draft("chat_request", contact=contact(company="Booking.com"))
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("name, hi, dear", [("Dr Shah", "Hi Dr Shah,", "Dear Dr Shah,"), ("Dr Priya Shah", "Hi Priya,", "Dear Dr Shah,"),
+                                            ("Priya", "Hi Priya,", "Dear Priya,")])
+def test_greetings_for_a_title_and_one_name(model, name, hi, dear):
+    model({"body": CHAT_BODY})
+    assert draft("chat_request", contact=contact(name=name))["message"].startswith(f"{hi}\n")
+    body = "I hope you are well. Would you be willing to act as my referee for graduate analyst roles?"
+    model({"body": body})
+    assert draft("reference_ask", contact=contact("tutor", name=name))["message"].startswith(f"{dear}\n")
+
+
+def test_a_start_date_with_a_dash_is_matched_as_written(model):
+    body = "I am a data science graduate looking for analyst roles and can start immediately, or from 1 December."
+    model({"body": body})
+    assert body in draft("recruiter_intro", relationship="recruiter", start="Immediately \u2014 or from 1 December")["message"]

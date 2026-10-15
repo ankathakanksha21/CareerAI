@@ -428,3 +428,10 @@ def test_no_networking_task_without_the_networking_page():
 def test_six_stories_and_no_missing_numbers_give_no_task():
     tasks = ids(plan(story_count=6, missing_numbers=0))
     assert "stories" not in tasks and "numbers" not in tasks
+
+
+
+def test_a_finding_task_keeps_the_tab_it_links_to():
+    guide = FINDING | {"id": "outreach-no-replies", "link": {"page": "networking", "label": "Read the guide", "tab": "guide"}}
+    task = next(t for t in plan(findings=[guide]) if t["id"] == "finding-outreach-no-replies")
+    assert (task["page"], task["tab"]) == ("networking", "guide")

@@ -76,10 +76,13 @@ def next_step(contact: dict, history: list[dict], today: date, met_on: date | No
             return _next("Message within 48 hours of meeting", met_on + timedelta(days=AFTER_EVENT_DAYS), today)
         return _next("Send a first message", None, today)
     if status == "messaged":
-        last = _last(history, "sent")
-        if last is None:  # set by hand, with no message recorded
+        latest = _latest_message(history)
+        if latest is None:  # set by hand, with no message recorded
             return _next("Waiting for a reply", None, today)
+        last = latest["on_day"]
         days, due = (today - last).days, last + timedelta(days=FOLLOW_UP_DAYS)
+        if days >= FOLLOW_UP_DAYS and latest["message_type"] == "follow_up":  # one follow-up, then move on
+            return _next("No reply after your follow-up: move on to someone else", None, today)
         if days >= FOLLOW_UP_DAYS:
             return _next(f"Follow up: {days} days since your message", due, today)
         return _next(f"Waiting for a reply ({_ago(days)})", due, today)
@@ -96,20 +99,23 @@ def next_step(contact: dict, history: list[dict], today: date, met_on: date | No
     return _next("Link them to your application", None, today)
 
 
-def _last_sent(outreach: list[dict]) -> dict:
-    last = {}
-    for row in outreach:
-        if row["kind"] == "sent" and row["contact_id"]:
-            last[row["contact_id"]] = max(row["on_day"], last.get(row["contact_id"], row["on_day"]))
-    return last
+def _latest_message(history: list[dict]) -> dict | None:
+    """The message sent most recently (rows come oldest first, so on one day the later row wins)."""
+    sent = [h for h in history if h["kind"] == "sent"]
+    return sorted(sent, key=lambda h: h["on_day"])[-1] if sent else None
 
 
 def follow_ups_due(contacts: list[dict], outreach: list[dict], today: date) -> list[dict]:
-    """Contacts still at Messaged whose last message was 14 or more days ago, the longest waiting first."""
-    last = _last_sent(outreach)
-    due = [c for c in contacts if c["status"] == "messaged" and c["id"] in last
-           and (today - last[c["id"]]).days >= FOLLOW_UP_DAYS]
-    return sorted(due, key=lambda c: last[c["id"]])
+    """Contacts still at Messaged whose last message was 14 or more days ago, the longest waiting first.
+    Someone already followed up once is not due again: the guide says to move on."""
+    by_contact = {}
+    for row in outreach:
+        if row["contact_id"]:
+            by_contact.setdefault(row["contact_id"], []).append(row)
+    latest = {cid: _latest_message(rows) for cid, rows in by_contact.items()}
+    due = [c for c in contacts if c["status"] == "messaged" and latest.get(c["id"])
+           and latest[c["id"]]["message_type"] != "follow_up" and (today - latest[c["id"]]["on_day"]).days >= FOLLOW_UP_DAYS]
+    return sorted(due, key=lambda c: latest[c["id"]]["on_day"])
 
 
 def waiting_to_be_messaged(contacts: list[dict]) -> list[dict]:

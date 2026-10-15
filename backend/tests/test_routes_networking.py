@@ -343,3 +343,20 @@ def test_a_reference_request_gets_the_target_roles(client, conn, user_a, monkeyp
     tutor = add_person(client, relationship="tutor")
     client.post("/api/ai/outreach", json={"contact_id": tutor["id"], "type": "reference_ask"})
     assert calls[0]["looking_for"] == ["Zzqx Analyst"]
+
+
+
+# ---------- the final review ----------
+
+NO_VISA_OR_ADDRESS = "Leave out visas, sponsorship and web addresses: a draft never mentions them."
+
+
+@pytest.mark.parametrize("field, value", [("start", "Now, Graduate visa, no sponsorship needed"), ("start", "see www.zzqx.example.com"),
+                                          ("learned", "how their visa sponsorship works")])
+def test_typed_text_a_draft_can_never_use_is_refused_before_an_ai_action(client, conn, user_a, monkeypatch, field, value):
+    calls = capture(monkeypatch, "outreach_draft", DRAFT)
+    person = add_person(client, relationship="recruiter")
+    kind = "recruiter_intro" if field == "start" else "thank_you"
+    r = client.post("/api/ai/outreach", json={"contact_id": person["id"], "type": kind, field: value})
+    assert r.status_code == 422 and r.json()["detail"] == NO_VISA_OR_ADDRESS
+    assert calls == [] and usage(conn, user_a) == 0

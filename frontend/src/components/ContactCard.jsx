@@ -9,8 +9,11 @@ import PersonForm from './PersonForm'
 // One person: where they are, what to do next and by when, the steps so far, and the draft, chat and referral helpers
 export default function ContactCard({ s, c, refresh, notify, go }) {
   const [open, setOpen] = useState(null) // 'draft' | 'edit' | null
+  const [draftKey, setDraftKey] = useState(0) // a fresh draft each time the box is opened, kept while it stays open
+  const openDraft = () => { setDraftKey((k) => k + 1); setOpen('draft') }
   const safely = attempt(notify)
-  const step = (kind, words) => safely(async () => { await post(`/api/contacts/${c.id}/events`, { kind }); await refresh(); notify(words) })
+  // recording a step closes an open draft, so the next one fits where they now are
+  const step = (kind, words) => safely(async () => { setOpen(null); await post(`/api/contacts/${c.id}/events`, { kind }); await refresh(); notify(words) })
   const ownMessage = () => step('sent', `Message to ${c.name} counted`)
   const remove = () => {
     if (!window.confirm(`Delete ${c.name}? Their details go. Messages you sent them still count in their weeks.`)) return
@@ -44,7 +47,7 @@ export default function ContactCard({ s, c, refresh, notify, go }) {
       </p>
 
       <div className="row" style={{ flexWrap: 'wrap' }}>
-        <button className="btn small" onClick={() => setOpen(open === 'draft' ? null : 'draft')}>{open === 'draft' ? 'Close the draft' : 'Write a message'}</button>
+        <button className="btn small" onClick={() => (open === 'draft' ? setOpen(null) : openDraft())}>{open === 'draft' ? 'Close the draft' : 'Write a message'}</button>
         <button className="btn ghost small" onClick={ownMessage}>I sent my own message</button>
         {NEXT_STEPS[c.status].map(([kind, words]) => <button key={kind} className="btn ghost small" onClick={() => step(kind, words)}>{words}</button>)}
       </div>
@@ -63,7 +66,7 @@ export default function ContactCard({ s, c, refresh, notify, go }) {
           <label className="field">What you talked about<textarea rows={3} maxLength={4000} defaultValue={c.notes} key={c.notes} onBlur={saveNotes} /></label>
           <p className="small">Did you ask who else you should talk to? A name from them is the warmest introduction you can get.</p>
           {c.next.text.startsWith('Send a thank-you') && open !== 'draft' && (
-            <div><button className="btn small" onClick={() => setOpen('draft')}>Write the thank-you</button></div>
+            <div><button className="btn small" onClick={openDraft}>Write the thank-you</button></div>
           )}
         </div>
       )}
@@ -75,8 +78,8 @@ export default function ContactCard({ s, c, refresh, notify, go }) {
         </div>
       )}
 
-      {/* keyed by the status, so a contact who moves on gets the draft that fits where they now are */}
-      {open === 'draft' && <DraftMessage key={c.status} s={s} c={c} onSent={async () => { await refresh(); notify('Marked as sent') }} notify={notify} />}
+      {/* marking it as sent moves the contact on but keeps this draft on screen, to copy or read again */}
+      {open === 'draft' && <DraftMessage key={draftKey} s={s} c={c} onSent={async () => { await refresh(); notify('Marked as sent') }} notify={notify} />}
       {open === 'edit' && (
         <PersonForm s={s} person={c} onSaved={async () => { setOpen(null); await refresh(); notify('Saved') }} onCancel={() => setOpen(null)} />
       )}

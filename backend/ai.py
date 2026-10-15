@@ -1190,23 +1190,30 @@ CONNECTION = {  # how the user knows them: the only connection a draft may claim
 }
 # What a draft may say only when the user entered that connection
 CLAIMS = {
-    "alumni": re.compile(r"\b(alumn\w*|both studied|also studied|studied there too|fellow\b[^.?!]{0,60}\b(graduate|student)s?|"
-                         r"same university|you studied|we studied)\b", re.I),
+    "alumni": re.compile(r"\b(alumn\w*|both (studied|went|go|attended)|also studied|studied (there too|together)|"
+                         r"fellow\b[^.?!]{0,60}\b(graduate|student)s?|same (university|course|cohort|class|programme|program|module)|"
+                         r"class ?mates?|course ?mates?|you studied|we studied)\b", re.I),
     "tutor": re.compile(r"\b(you taught|taught me|your (module|modules|lecture|lectures|class|classes|seminar|seminars|course)|"
                         r"my (tutor|lecturer)|your student)\b", re.I),
     "supervisor": re.compile(r"\b(you supervised|supervised me|my supervisor|under your supervision|worked (together|with you|under you|for you)|"
-                             r"working (together|with you|under you|for you)|my (manager|line manager)|we worked|former colleague|"
-                             r"both worked|when we were at)\b", re.I),
-    "event": re.compile(r"\b(we met|met you|meeting you|(great|nice|lovely|good|a pleasure) to meet|our (conversation|chat) at|"
-                        r"spoke at|chatted at|(talking|speaking) (with|to) you at)\b", re.I),
-    "introduced": re.compile(r"\b(introduc\w*|mutual (friend|contact|connection|acquaintance)s?|recommended (that )?(i|me)|"
-                             r"suggested (that )?(i|me)|referred me to you|passed on your|gave me your)\b", re.I),
+                             r"(enjoyed|loved|liked|valued|miss) working (together|with you|under you|for you)|working (together|with you) on|"
+                             r"my (manager|line manager)|we worked|former colleague|both worked|when we were at)\b", re.I),
+    # having met, without saying where; and having met somewhere, which only someone met at an event may claim
+    "event": re.compile(r"\b(we met|met you|(was|it's been|has been) (great|nice|lovely|good|a pleasure) to meet|meeting you (was|at))\b", re.I),
+    "event_place": re.compile(r"\b((met|spoke|chatted|meeting|talking|speaking)\b[^.?!]{0,30}\bat (the|a|an|your|last)\b|"
+                              r"to meet you at (the|a|an|your|last)\b|our (conversation|chat) at)", re.I),
+    "introduced": re.compile(r"\b(introduced (me|us)|introduction (from|by|through)|mutual (friend|contact|connection|acquaintance)s?|"
+                             r"recommended (that )?(i|me)|suggested (that )?(i|me)|referred me to you|passed on your|gave me your|"
+                             r"pointed me)\b", re.I),
 }
-ALLOWED_CLAIMS = {"alumni": {"alumni"}, "tutor": {"tutor"}, "supervisor": {"supervisor"}, "event": {"event"},
+ALLOWED_CLAIMS = {"alumni": {"alumni"}, "tutor": {"tutor"}, "supervisor": {"supervisor"}, "event": {"event", "event_place"},
                   "introduced": {"introduced"}, "recruiter": set(), "none": set()}
-ANY_ASK = re.compile(r"\?|\b(chat|call|coffee|minutes|catch up|advice|referr\w*|refer me|jobs?|vacanc\w*|openings?|hiring|hire)\b", re.I)
+# A request of any kind, which a connection note never makes
+ANY_ASK = re.compile(r"\?|\b(would|could|can) you\b|\blet me know\b|\brefer me\b|\breferral\b|"
+                     r"\b(i'?d|i would|i'm hoping|i am hoping)\b[^.?!]{0,40}\b(chat|call|coffee|advice|minutes|meet|catch up)\b", re.I)
 JOB_ASK = re.compile(r"\b(referr\w*|refer me|vacanc\w*|job openings?|any (jobs|roles|openings|positions|vacancies)|hire me|"
                      r"a job|job offer)\b", re.I)
+NOT_ASKING = re.compile(r"\b(not|never|n't)\s+(asking|looking|hoping)\s+for\b[^.?!;:]{0,60}", re.I)  # "I am not asking for a job"
 FIFTEEN_MINUTES = re.compile(r"\b(15|fifteen)[- ]?min(ute)?s?\b", re.I)
 FOLLOWS_UP = re.compile(r"\b(follow(ing)?[- ]up|my (earlier |last |previous |recent )?(message|note|email)|wrote to you|reached out|got in touch)\b", re.I)
 DASHES = re.compile(r"\s*—\s*|\s+–\s+")  # an em dash, or an en dash used as one
@@ -1223,9 +1230,12 @@ SHORT_WORDS = 30              # an opener or the goal
 
 
 def _greeting_names(name: str) -> tuple[str, str]:
-    """('Priya', 'Dr Shah') for 'Dr Priya Shah'; ('Priya', 'Priya Shah') for 'Priya Shah'."""
+    """('Priya', 'Dr Shah') for 'Dr Priya Shah'; ('Priya', 'Priya Shah') for 'Priya Shah'; ('Dr Shah', 'Dr Shah') for
+    'Dr Shah', since a title with only a surname is how the user addresses them."""
     parts = name.split()
     titled = len(parts) > 1 and parts[0].lower() in TITLES
+    if titled and len(parts) == 2:
+        return name.strip(), name.strip()
     first = parts[1] if titled else (parts[0] if parts else name)
     return first, f"{parts[0]} {parts[-1]}" if titled else name.strip()
 
@@ -1250,7 +1260,9 @@ def _plain(text: str) -> str:
 
 
 CURRENTLY = re.compile(r"\b(currently|now) (work|working|employed|based)\b|\bI(?:'m|’m| am) (currently |now )?(working|employed)\b|\bI work\b", re.I)
-YOUR_TEAM = re.compile(r"\byour (team|company|organisation|organization|department)\b", re.I)
+JOINING_YOUR_TEAM = re.compile(r"\b(join|joining|contribute|contributing|apply|applying|position|vacanc\w*|role)\b[^.?!]{0,60}"
+                               r"\byour (team|company|organisation|organization|department)\b|"
+                               r"\byour (team|company|organisation|organization|department)\b[^.?!]{0,30}\b(position|vacanc\w*|role)\b", re.I)
 
 
 def _claims_the_job(body: str, job: dict) -> bool:
@@ -1261,9 +1273,8 @@ def _claims_the_job(body: str, job: dict) -> bool:
 
 def _asks_the_referee_for_a_job(body: str, company: str) -> bool:
     """A reference request that says the candidate is applying to the referee's own organisation, or wants to join it."""
-    applying_there = company and any(re.search(r"\bappl(y|ying|ied|ication)\b", s, re.I) and company.lower() in s.lower()
-                                     for s in _sentences(body))
-    return bool(applying_there or YOUR_TEAM.search(body))
+    applying_there = company and re.search(r"\bappl(y|ying|ied|ication)\b[^.?!,;]{0,60}\b(at|to|with)\s+" + re.escape(company), body, re.I)
+    return bool(applying_there or JOINING_YOUR_TEAM.search(body))
 
 
 def outreach_draft(*, kind: str, contact: dict, sender: str, about_me: str, university: str = "", event_name: str = "",
@@ -1310,14 +1321,19 @@ def outreach_draft(*, kind: str, contact: dict, sender: str, about_me: str, univ
                         *([job["title"], job["company"], job.get("summary") or ""] if job else [])])
     allowed_numbers = _numbers(sources) | ({"15"} if kind in ("chat_request", "follow_up") else set())
     months = {m.lower() for m in MONTH_GIVEN.findall(sources)}
-    claims = ALLOWED_CLAIMS[relationship] | ({"event"} if kind == "thank_you" else set())
+    claims = ALLOWED_CLAIMS[relationship] | ({"event"} if kind == "thank_you" else set())  # after a chat they have met, not at an event
+    names = [n for n in (contact.get("company"), (job or {}).get("company"), event_name, university) if n]
+    start_as_typed = _plain(DASHES.sub(", ", start))
 
     def body_of(data: dict) -> str:
         return DASHES.sub(", ", _message_body(data["body"]))
 
     def usable(data: dict) -> bool:
         body = body_of(data)
-        if not body or body[0].islower() or PLACEHOLDER.search(body) or WEB_ADDRESS.search(body) or VISA_WORDS.search(body):
+        unnamed = body
+        for name in names:  # a company called "Booking.com" is a name, not a web address
+            unnamed = re.sub(re.escape(name), " ", unnamed, flags=re.I)
+        if not body or body[0].islower() or PLACEHOLDER.search(body) or WEB_ADDRESS.search(unnamed) or VISA_WORDS.search(body):
             return False
         if not _numbers(body) <= allowed_numbers or any(m.lower() not in months for m in MONTH_NAMED.findall(body)):
             return False
@@ -1328,7 +1344,7 @@ def outreach_draft(*, kind: str, contact: dict, sender: str, about_me: str, univ
         if len(body.split()) > DRAFT_WORDS[kind]:
             return False
         if kind == "chat_request":
-            return bool(FIFTEEN_MINUTES.search(body)) and not JOB_ASK.search(body)
+            return bool(FIFTEEN_MINUTES.search(body)) and not JOB_ASK.search(NOT_ASKING.sub(" ", body))
         if kind == "follow_up":
             return len(_sentences(body)) <= 2 and bool(FOLLOWS_UP.search(body))
         if kind == "thank_you":
@@ -1338,7 +1354,7 @@ def outreach_draft(*, kind: str, contact: dict, sender: str, about_me: str, univ
         if kind == "reference_ask" and _asks_the_referee_for_a_job(body, contact.get("company") or ""):
             return False
         if kind == "recruiter_intro" and start:
-            return _plain(start) in _plain(body)
+            return start_as_typed in _plain(body)
         return True
 
     data = _run("outreach", system, user, {"body": ""}, 600, required=("body",), check=usable)
