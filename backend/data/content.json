@@ -56,5 +56,80 @@
       "A handshake and first names are normal. Follow the interviewer's lead.",
       "If they ask to check your right to work, they will ask for a share code. You can get one at gov.uk/prove-right-to-work."
     ]
-  }
+  },
+  "networking_guide": [
+    {
+      "id": "stranger-to-referral",
+      "title": "From stranger to referral in six steps",
+      "intro": "Most people are glad to give 15 minutes of advice to someone who asks well. A referral comes later, from someone who already knows you a little.",
+      "steps": [
+        "Pick ten people: alumni of your university at companies you like, people already in the role you want, and anyone you have met at an event.",
+        "Connect with a short note that says who you are and what you have in common. A free LinkedIn account can add a note to only a few invitations a month, so keep notes for the people who matter most.",
+        "Once they accept or reply, ask for 15 minutes of advice. Not a job, and not a referral.",
+        "Prepare three questions, keep to the time you asked for, and end by asking who else you should talk to.",
+        "Thank them within 24 hours, mentioning one thing you learned, and stay in touch every month or two with something useful to them.",
+        "When a role opens at their company, apply through the advert and ask whether they would be comfortable referring you. Make it easy for them to say no."
+      ],
+      "note": "Two weeks with no reply is normal. Send one short follow-up, then move on to the next person."
+    },
+    {
+      "id": "recruiters",
+      "title": "Working with recruiters",
+      "points": [
+        "Agency recruiters are paid by the employer. Under UK rules, recruitment agencies cannot charge you a fee for finding or trying to find you work.",
+        "An agency may offer paid extras, such as CV writing or training, but it cannot make you pay for them as a condition of finding you work.",
+        "Tell a recruiter what you are looking for, where, and when you can start. If you will need a visa sponsor, ask early which of their clients can sponsor.",
+        "Ask a recruiter to check with you before sending your CV anywhere, and keep a note of where it has gone, so an employer never receives it twice.",
+        "Stay in touch. A recruiter who knows what you want will think of you when a role comes in."
+      ],
+      "sources": [
+        {
+          "label": "GOV.UK: agency fees",
+          "url": "https://www.gov.uk/agency-workers-your-rights/fees"
+        }
+      ]
+    },
+    {
+      "id": "uk-experience",
+      "title": "One UK project, internship or volunteering role",
+      "intro": "One piece of UK experience, paid or not, gives you something local to talk about and a UK referee.",
+      "points": [
+        "A short project, a part-time job, an internship or a volunteering role all count. Ask your university careers service first: many run projects with local employers.",
+        "Skills-based volunteering puts what you studied to work for a charity. Reach Volunteering lists such roles, though it asks for three years' professional experience.",
+        "GOV.UK lists where to find volunteering, from national sites to NHS volunteering.",
+        "On a Student visa, volunteering is not the same as voluntary work. Voluntary work is a kind of unpaid employment and counts toward your weekly hours, so check with the organisation and your university's international student advisers before you start. This is not immigration advice.",
+        "Whatever you do, note what you did and what changed because of it. It becomes an achievement on your profile."
+      ],
+      "sources": [
+        {
+          "label": "UKCISA: working as an international student",
+          "url": "https://www.ukcisa.org.uk/student-advice/working/student-work/"
+        },
+        {
+          "label": "GOV.UK: volunteering",
+          "url": "https://www.gov.uk/government/get-involved/take-part/volunteer"
+        },
+        {
+          "label": "Reach Volunteering",
+          "url": "https://reachvolunteering.org.uk/"
+        },
+        {
+          "label": "Prospects: work experience and internships",
+          "url": "https://www.prospects.ac.uk/jobs-and-work-experience/work-experience-and-internships"
+        }
+      ]
+    },
+    {
+      "id": "references",
+      "title": "Who can give a reference",
+      "intro": "UK employers often ask for two referees, usually once they have made an offer.",
+      "points": [
+        "A student or recent graduate usually gives one academic referee, such as a tutor, lecturer or dissertation supervisor, and one from work: a manager or supervisor from a job, placement or volunteering role.",
+        "A UK referee helps, because an employer can reach them easily and knows how to read what they say.",
+        "Friends and family are not referees.",
+        "Always ask first, say which roles you are applying for, and send them the CV you are using.",
+        "Keep in touch with the people who could act as referees, so the request never comes as a surprise."
+      ]
+    }
+  ]
 }
