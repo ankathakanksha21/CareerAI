@@ -2,6 +2,8 @@
 
 > **For agentic workers:** follow `careerai-building-a-step` stage 4. Every task is test-first: write the tests, watch them fail for the right reason, write the code, watch them pass, run the whole suite on its own, commit. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status, 15 October 2026:** tasks 1 to 10 are built and committed. A fresh review of the whole branch found nothing critical; its findings are fixed or listed for the owner in ARCHITECTURE section 26. Changes from this plan made while building are in the step document's "Changed at build time" table.
+
 **Goal:** A user with no UK network builds one on purpose. They keep the people they contact in a pipeline (To contact → Messaged → Replied → Chat booked → Chat done → Referral offered), draft seven kinds of short message that claim no connection they did not enter, prepare for chats and events, find people and events through search links, record a referral against an application, and count messages sent toward a third weekly target.
 
 **Architecture:** Two new pure modules, unit-tested: `networking.py` (the pipeline, each contact's next step, what is coming up, the outreach finding, chat questions) and `links.py` (search links and professional bodies, built only from fixed hosts). `habits.py` takes a third target. `ai.py` gains two tasks, `outreach_draft` and `event_prep`, each the model's own words checked in code, or an error with Retry. All SQL stays in `repo.py`; routes stay thin in `main.py`. A new Networking page with three tabs (People, Events, Guide), and small changes to Home, This week, the application panel and the findings.
