@@ -1170,12 +1170,14 @@ DRAFT_SHAPES = {
     "connection_note": "a LinkedIn connection note: who the candidate is and the link between you, and no request of any kind",
     "chat_request": ("a request for an informational chat: who the candidate is, why this person, and one clear ask, "
                      "15 minutes for advice, never a job or a referral"),
-    "follow_up": "a friendly follow-up to a message that has had no reply for two weeks, in at most two sentences",
+    "follow_up": ("a friendly follow-up to the candidate's earlier message, which has had no reply for two weeks: say briefly that "
+                  "you are following up, then repeat the one ask, in at most two sentences"),
     "thank_you": "a thank-you after an informational chat, mentioning the one thing the candidate learned",
     "referral_ask": ("a request for a referral for one role at their company: say which role, then two sentences on why the "
                      "candidate fits it, then ask whether they would be comfortable referring them, making it easy to say no"),
     "recruiter_intro": "an introduction to a recruiter: what the candidate does, what roles they are looking for, and when they can start",
-    "reference_ask": "a request to act as a referee for job applications, saying what roles the candidate is applying for",
+    "reference_ask": ("a request to act as a referee for job applications. It asks only for a reference, never for a job: say which roles "
+                      "the candidate is applying for, and never suggest the candidate is applying to the referee's own organisation"),
 }
 CONNECTION = {  # how the user knows them: the only connection a draft may claim
     "alumni": "They studied at the same university as the candidate{university}.",
@@ -1206,6 +1208,8 @@ ANY_ASK = re.compile(r"\?|\b(chat|call|coffee|minutes|catch up|advice|referr\w*|
 JOB_ASK = re.compile(r"\b(referr\w*|refer me|vacanc\w*|job openings?|any (jobs|roles|openings|positions|vacancies)|hire me|"
                      r"a job|job offer)\b", re.I)
 FIFTEEN_MINUTES = re.compile(r"\b(15|fifteen)[- ]?min(ute)?s?\b", re.I)
+FOLLOWS_UP = re.compile(r"\b(follow(ing)?[- ]up|my (earlier |last |previous |recent )?(message|note|email)|wrote to you|reached out|got in touch)\b", re.I)
+DASHES = re.compile(r"\s*—\s*|\s+–\s+")  # an em dash, or an en dash used as one
 VISA_WORDS = re.compile(r"\b(visas?|sponsor\w*|right to work|immigration|work permit)\b", re.I)
 WEB_ADDRESS = re.compile(r"https?://|\bwww\.|\b[\w-]+\.(com|co\.uk|org|ac\.uk)\b", re.I)
 # A month named in a draft must be in what was sent. Capitalised only, and never "May", which is mostly the verb
@@ -1245,6 +1249,23 @@ def _plain(text: str) -> str:
     return " ".join(text.lower().split())
 
 
+CURRENTLY = re.compile(r"\b(currently|now) (work|working|employed|based)\b|\bI(?:'m|’m| am) (currently |now )?(working|employed)\b|\bI work\b", re.I)
+YOUR_TEAM = re.compile(r"\byour (team|company|organisation|organization|department)\b", re.I)
+
+
+def _claims_the_job(body: str, job: dict) -> bool:
+    """A referral ask that says the candidate already works in the role or at the company they are applying to."""
+    names = [n.lower() for n in (job.get("title") or "", job.get("company") or "") if n]
+    return any(CURRENTLY.search(s) and any(n in s.lower() for n in names) for s in _sentences(body))
+
+
+def _asks_the_referee_for_a_job(body: str, company: str) -> bool:
+    """A reference request that says the candidate is applying to the referee's own organisation, or wants to join it."""
+    applying_there = company and any(re.search(r"\bappl(y|ying|ied|ication)\b", s, re.I) and company.lower() in s.lower()
+                                     for s in _sentences(body))
+    return bool(applying_there or YOUR_TEAM.search(body))
+
+
 def outreach_draft(*, kind: str, contact: dict, sender: str, about_me: str, university: str = "", event_name: str = "",
                    job: dict | None = None, achievements=(), learned: str = "", start: str = "", course_ends: str = "",
                    looking_for=()) -> dict:
@@ -1259,7 +1280,8 @@ def outreach_draft(*, kind: str, contact: dict, sender: str, about_me: str, univ
     note_room = NOTE_CHARS - len(greeting) - len(sender_first) - 2
     connection = CONNECTION[relationship].format(university=f" ({university})" if university else "",
                                                  event=f" ({event_name})" if event_name else "")
-    limit = f"at most {note_room} characters" if kind == "connection_note" else f"under {DRAFT_WORDS[kind] + 1} words"
+    limit = (f"at most {note_room} characters (about {note_room // 7} words, two short sentences)" if kind == "connection_note"
+             else f"under {DRAFT_WORDS[kind] + 1} words")
     system = (
         f"Write {DRAFT_SHAPES[kind]}, from an international student or graduate in the UK to someone they want to learn from. "
         "UK tone: warm, brief and specific, with no flattery and no pressure. Write the body only, with no greeting, no sign-off "
@@ -1272,12 +1294,15 @@ def outreach_draft(*, kind: str, contact: dict, sender: str, about_me: str, univ
                f"Their company: {contact.get('company') or 'not given'}", f"Connection: {connection}"]
     if kind == "thank_you":
         details.append(f"What the candidate learned in the chat: {learned}")
+    if kind == "reference_ask":
+        details.append(f"Roles the candidate is applying for: {', '.join(looking_for) or 'not given, so say graduate roles'}")
     if kind == "recruiter_intro":
         details.append(f"Roles the candidate is looking for: {', '.join(looking_for) or 'not given'}")
         details.append(f"When they can start: {start}" if start else
                        f"Their course ends: {course_ends}. Say only that, not a start date." if course_ends else "No start date given: leave it out.")
     if kind == "referral_ask" and job:
-        details.append(f"The role: {job['title']} at {job['company']}. {job.get('summary') or ''}".strip())
+        details.append(f"The job the candidate wants a referral for (the candidate has not got it yet and does not work there): "
+                       f"{job['title']} at {job['company']}. {job.get('summary') or ''}".strip())
         details += [f"Achievement: {a}" for a in achievements]
     user = "\n".join(details) + '\n\nReturn {"body":str}'
     sources = " ".join([about_me, university, event_name, learned, start, course_ends, *looking_for, *achievements,
@@ -1288,7 +1313,7 @@ def outreach_draft(*, kind: str, contact: dict, sender: str, about_me: str, univ
     claims = ALLOWED_CLAIMS[relationship] | ({"event"} if kind == "thank_you" else set())
 
     def body_of(data: dict) -> str:
-        return _message_body(data["body"]).replace(" \u2014 ", ", ").replace("\u2014", ", ")
+        return DASHES.sub(", ", _message_body(data["body"]))
 
     def usable(data: dict) -> bool:
         body = body_of(data)
@@ -1305,9 +1330,13 @@ def outreach_draft(*, kind: str, contact: dict, sender: str, about_me: str, univ
         if kind == "chat_request":
             return bool(FIFTEEN_MINUTES.search(body)) and not JOB_ASK.search(body)
         if kind == "follow_up":
-            return len(_sentences(body)) <= 2
+            return len(_sentences(body)) <= 2 and bool(FOLLOWS_UP.search(body))
         if kind == "thank_you":
             return _uses(learned, body)
+        if kind == "referral_ask" and job and _claims_the_job(body, job):
+            return False
+        if kind == "reference_ask" and _asks_the_referee_for_a_job(body, contact.get("company") or ""):
+            return False
         if kind == "recruiter_intro" and start:
             return _plain(start) in _plain(body)
         return True
@@ -1346,5 +1375,5 @@ def event_prep(*, event: dict, about_me: str) -> dict:
 
     data = _run("event prep", system, user, {"introduction": "", "openers": [""], "goal": ""}, 700,
                 required=("introduction", "goal"), check=usable)
-    dashless = lambda t: t.strip().replace(" \u2014 ", ", ").replace("\u2014", ", ")  # noqa: E731
+    dashless = lambda t: DASHES.sub(", ", t.strip())  # noqa: E731
     return {"introduction": dashless(data["introduction"]), "openers": [dashless(o) for o in data["openers"]], "goal": dashless(data["goal"])}

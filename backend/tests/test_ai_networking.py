@@ -238,3 +238,59 @@ def test_event_preparation_is_checked(model, bad):
     with pytest.raises(ai.AIError):
         ai.event_prep(event=EVENT, about_me=ABOUT)
     assert len(calls) == 2
+
+
+# ---------- what the real model did on 15 October 2026 ----------
+
+def test_a_connection_note_is_given_its_room_in_words_too(model):
+    calls = model({"body": NOTE_BODY})
+    draft("connection_note")
+    room = 200 - len("Hi Priya,") - len("Test") - 2
+    assert f"at most {room} characters (about {room // 7} words" in calls[0]["system"]
+
+
+def test_a_follow_up_says_it_follows_up(model):
+    fresh = "I am a data science student and would value 15 minutes of your advice on analytics at Zzqx Holdings."
+    follows = "I wanted to follow up on my message from a fortnight ago. Would 15 minutes of advice in the coming weeks be possible?"
+    calls = model({"body": fresh}, {"body": follows})
+    assert follows in draft("follow_up")["message"]
+    assert len(calls) == 2
+
+
+def test_a_referral_ask_is_told_the_role_is_not_theirs_yet(model):
+    job = {"title": "Junior Data Analyst", "company": "Zzqx Holdings", "summary": "Reporting role.", "url": None}
+    body = "I am applying for the Junior Data Analyst role at Zzqx Holdings. Would you be comfortable referring me?"
+    calls = model({"body": body})
+    assert draft("referral_ask", relationship="alumni", job=job)["message"].endswith("The role: Junior Data Analyst\n\nBest wishes,\nTest Person")
+    assert "has not got it yet and does not work there" in calls[0]["user"]
+
+
+def test_spaced_en_dashes_become_commas(model):
+    model({"body": CHAT_BODY.replace("analyst. Would", "analyst – would")})
+    message = draft("chat_request")["message"]
+    assert "–" not in message and "analyst, would" in message
+
+
+def test_a_referral_ask_never_says_the_role_is_already_theirs(model):
+    job = {"title": "Junior Data Analyst", "company": "Zzqx Holdings", "summary": "Reporting role.", "url": None}
+    current = "I am currently working on a Junior Data Analyst role at Zzqx Holdings. Would you be comfortable referring me?"
+    applying = "I am applying for the Junior Data Analyst role at Zzqx Holdings. Would you be comfortable referring me?"
+    calls = model({"body": current}, {"body": applying})
+    assert applying in draft("referral_ask", relationship="alumni", job=job)["message"]
+    assert len(calls) == 2
+
+
+def test_a_reference_request_names_the_roles_given_and_not_the_referees_employer(model):
+    wrong = "I am applying for Data Analyst roles at Zzqx Holdings. Would you be willing to act as my referee?"
+    right = "I am applying for graduate Data Analyst roles. Would you be willing to act as my referee?"
+    calls = model({"body": wrong}, {"body": right})
+    assert right in draft("reference_ask", relationship="tutor", looking_for=["Data Analyst"])["message"]
+    assert len(calls) == 2 and "Roles the candidate is applying for: Data Analyst" in calls[0]["user"]
+
+
+def test_a_reference_request_does_not_ask_to_join_the_referees_team(model):
+    wrong = "I am applying for graduate analyst roles and would love to contribute to your team. Would you act as my referee?"
+    right = "I am applying for graduate analyst roles. Would you be willing to act as my referee?"
+    calls = model({"body": wrong}, {"body": right})
+    assert right in draft("reference_ask", relationship="supervisor")["message"]
+    assert len(calls) == 2

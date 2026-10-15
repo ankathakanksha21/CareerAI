@@ -334,3 +334,12 @@ def test_the_state_carries_the_networking_rows_and_options(client):
     assert len(s["networking_events"]) == 1 and "outreach" not in s
     assert {"relationships", "contact_statuses", "message_types", "event_types", "event_statuses"} <= set(s["options"])
     assert any(t["id"] == "outreach" for t in s["plan"])  # two messages to send, and Priya to message
+
+
+def test_a_reference_request_gets_the_target_roles(client, conn, user_a, monkeypatch):
+    calls = capture(monkeypatch, "outreach_draft", DRAFT)
+    [family] = repo.sync_families(conn, user_a, [{"name": "Zzqx Analyst", "fit": "direct", "overlap": 80, "uk_titles": [], "why": "", "needs": []}])
+    repo.set_family_targeted(conn, user_a, family["id"], True)
+    tutor = add_person(client, relationship="tutor")
+    client.post("/api/ai/outreach", json={"contact_id": tutor["id"], "type": "reference_ask"})
+    assert calls[0]["looking_for"] == ["Zzqx Analyst"]

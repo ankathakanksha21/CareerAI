@@ -964,7 +964,7 @@ def ai_outreach(body: OutreachIn, user: CurrentUser):
         job = repo.get_job(conn, user.id, str(body.job_id)) if body.job_id else None
         event = repo.get_networking_event(conn, user.id, contact["event_id"]) if contact["event_id"] else None
         achievements = repo.list_achievements(conn, user.id) if body.type == "referral_ask" else []
-        targets = [f["name"] for f in repo.list_families(conn, user.id) if f["targeted"]] if body.type == "recruiter_intro" else []
+        targets = [f["name"] for f in repo.list_families(conn, user.id) if f["targeted"]] if body.type in ("recruiter_intro", "reference_ask") else []
         today = repo.today(conn)
     if body.type == "thank_you" and not body.learned:
         raise HTTPException(422, NOTHING_LEARNED)
