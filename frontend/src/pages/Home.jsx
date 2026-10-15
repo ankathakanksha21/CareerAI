@@ -4,6 +4,7 @@ import FollowUps from '../components/FollowUps'
 import Milestones from '../components/Milestones'
 import Plan from '../components/Plan'
 import ThisWeek from '../components/ThisWeek'
+import ComingUp from '../components/ComingUp'
 
 function VisaCard({ profile }) {
   const days = daysUntil(profile.visa_end_date)
@@ -47,7 +48,7 @@ export default function Home({ s, go, refresh, notify }) {
   const next = fresh > 0
     ? { text: `${plural(fresh, 'new matching job')} posted in the last 48 hours`, why: 'Roles get most of their applications in the first few days.', label: 'See jobs', page: 'jobs' }
     : finding
-      ? { text: finding.action, why: finding.evidence, label: finding.link?.label, page: finding.link?.page }
+      ? { text: finding.action, why: finding.evidence, label: finding.link?.label, page: finding.link?.page, tab: finding.link?.tab }
       : step && { text: step.text, why: step.why, label: 'Open', page: step.page }
   // findings that are neither the next best step nor a task on the plan, such as one with no page to fix it on
   const planned = new Set(s.plan.map((t) => t.id))
@@ -65,7 +66,7 @@ export default function Home({ s, go, refresh, notify }) {
             <h2>{next.text}</h2>
             <p>Why: {next.why}</p>
           </div>
-          {next.page && <button className="btn" onClick={() => go(next.page)}>{next.label}</button>}
+          {next.page && <button className="btn" onClick={() => go(next.page, next.tab)}>{next.label}</button>}
         </section>
       )}
 
@@ -86,6 +87,7 @@ export default function Home({ s, go, refresh, notify }) {
         </div>
 
         <div className="stack">
+          <ComingUp s={s} go={go} />
           <VisaCard profile={s.profile} />
           <section className="card">
             <div className="row"><h2>Your search so far</h2><span className="spacer" /><button className="linkish small" onClick={() => go('applications')}>Applications</button></div>

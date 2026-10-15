@@ -155,6 +155,18 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
             <label className="field">How to reach them<input type="text" maxLength={200} placeholder="Email, phone or LinkedIn" key={stamp('contact')} {...text('contact')} /></label>
           </div>
           <p className="small muted" style={{ marginTop: -6 }}>Only the name is used in a follow-up draft.</p>
+          {(s.contacts.length > 0 || a.contact_id) && (
+            <label className="field">Saved contact
+              <span className="row">
+                <select value={a.contact_id || ''} onChange={(e) => save({ contact_id: e.target.value || null })} style={{ flex: 1 }}>
+                  <option value="">None</option>
+                  {s.contacts.map((c) => <option key={c.id} value={c.id}>{c.name}{c.company ? `, ${c.company}` : ''}{c.status === 'referral_offered' ? ' (referral offered)' : ''}</option>)}
+                </select>
+                {a.contact_id && <button type="button" className="btn ghost small" onClick={() => go('networking')}>Open Networking</button>}
+              </span>
+              <span className="small muted" style={{ fontWeight: 400 }}>Their name becomes the contact name. Someone who offered a referral makes Referral where you applied.</span>
+            </label>
+          )}
           <label className="field">Notes<textarea rows={4} maxLength={4000} key={stamp('notes')} {...text('notes')} /></label>
 
           {REJECTED.has(a.stage) && (
