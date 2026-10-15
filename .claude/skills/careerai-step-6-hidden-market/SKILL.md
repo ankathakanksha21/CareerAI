@@ -5,8 +5,34 @@ description: Use when building, continuing or reviewing step 6 of the CareerAI r
 
 # Step 6: the hidden market
 
-**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 4 (weekly goals and streak). **Size:** medium.
+**Status:** Built on branch `step-6-hidden-market`, 15 October 2026 (plan `docs/superpowers/plans/2026-10-14-step-6-hidden-market.md`). **Not finished:** the owner's hand checks. **Depends on:** step 4 (weekly goals and streak). **Size:** medium.
 **REQUIRED:** follow `careerai-building-a-step`.
+
+## Where it stands
+
+- Built test-first, as the plan's ten tasks: migration `009_networking` (applied), the pipeline rules (`networking.py`), search links and professional bodies (`links.py`), the third weekly target, database functions, the two AI tasks, the routes, the guide and privacy notice, and the Networking page. What it does is ARCHITECTURE section 25; what was verified and what was not, section 26.
+- The real model was tried on every kind of draft; five problems it showed were fixed, each with a test that failed first (the table below).
+- The pages were checked against the real backend and model through a temporary check page as a throwaway user, not through the owner's sign-in.
+
+## Changed at build time (15 October 2026)
+
+Where what was built differs from the sections below, this table is what is true.
+
+| Change | Why | Decided by |
+|---|---|---|
+| The model is never sent a contact's name or notes, nor the user's name; code adds the greeting and sign-off. The privacy notice says role, company and how you know them are sent | Less personal data to the model (the design assumed names were sent) | Plan, approved 14 Oct 2026 |
+| Chat preparation is three fixed questions written by code; event preparation is saved on the event (`networking_events.prep`) | Free to read again | Plan, approved 14 Oct 2026 |
+| The same step with the same person on one London day is recorded once (`outreach_events.on_day`); a deleted contact's steps stay with the contact cleared | "Marking the same message sent twice does not count twice"; the owner's answer on deleting | Plan; owner, 14 Oct 2026 |
+| A reference is asked only of a tutor, lecturer or supervisor; a referral only for a saved job whose employer matches the contact's company by the register's name rules | Neither request should embarrass the user | Plan, approved 14 Oct 2026 |
+| `profiles.outreach_default`: 0 for accounts that existed at the migration, 2 after; goals saved before step 6 count no messages; the target is 0 to 20 | The rule for existing users without changing any past week | Plan, approved 14 Oct 2026 |
+| Limits the design left open: follow-up two sentences and 60 words, thank-you 100, referral ask 130, recruiter introduction 120, reference 120, event introduction 30 to 90 words | A number the model can be held to | Plan, approved 14 Oct 2026 |
+| No draft may mention visas or sponsorship, a month or figure not given, a web address or a placeholder; em dashes and spaced en dashes become commas | Visa facts are never sent, so anything said would be invented | Plan; build-time ruling for en dashes |
+| A connection note is told its room in words as well as characters | The real model wrote about 290 characters when asked for 179 | Build-time ruling |
+| A follow-up must say it is following up | The real model's follow-up read as a first message | Build-time ruling |
+| A referral ask may not say the user already works in the role or at the company; the prompt says the job is not theirs yet | The real model wrote "currently working on a Junior Data Analyst role" | Build-time ruling |
+| A reference request is given the user's target roles and may not name the referee's organisation as where the user applies, or ask to join their team | The real model did both | Build-time ruling |
+| Meetup gets no link for a remote location; only Eventbrite's online search was checked | Only checked patterns are used | Build-time ruling |
+| The weekly plan's outreach task is "Message <name>" or, with nobody at To contact, "Find someone to message"; a contact follow-up comes straight after application follow-ups | The plan should say how to meet each target | Plan, approved 14 Oct 2026 |
 
 ## Goal
 
@@ -25,6 +51,18 @@ The owner's notes: many UK roles are filled through referrals or never advertise
 | No invented connection | A draft may mention only the link the user entered ("how you know them"). It must not claim a shared history, mutual contact or meeting that was not entered | Recommended; approved 12 Oct 2026 |
 | Existing users | The outreach target starts at 0 for accounts created before this step, with an invitation to set one, so nobody's streak breaks without warning. New accounts start at 2 | Recommended; approved 12 Oct 2026 |
 | What counts | Each message the user marks as sent, of any type, counts once toward the week | Recommended; approved 12 Oct 2026 |
+| Start date in a recruiter introduction | An optional "When can you start?" box, used as typed. Left empty, the draft says only when the course ends, from the profile. Nothing about visas | Owner, 14 Oct 2026 |
+| Deleting a contact | Their name, role, company, link and notes are deleted; each message marked as sent still counts in its week, so a past week or a streak never changes | Owner, 14 Oct 2026 |
+| Connection note limit | 200 characters, the limit LinkedIn's help page gives, which fits every account | Owner, 14 Oct 2026 |
+
+## Verified at build time (14 October 2026)
+
+- **LinkedIn.** The help page "Personalize invitations to connect" gives 200 characters for a note, and a free account can add one to about three invitations a month. People search: `https://www.linkedin.com/search/results/people/?keywords=<terms>`. Signed out, LinkedIn shows its sign-in page and returns to the search afterwards; the terms are shown beside the link too.
+- **Meetup.** `https://www.meetup.com/find/?keywords=<field>&location=gb--<City>&source=EVENTS` lands on "<Field> events near <City>, GB" (checked for London and Milton Keynes).
+- **Eventbrite.** `https://www.eventbrite.co.uk/d/united-kingdom--<city-slug>/<keyword-slug>/` and `https://www.eventbrite.co.uk/d/online/<keyword-slug>/` land on the matching search (checked for Manchester, Milton Keynes and online).
+- **Professional bodies**, each events page opened: BCS, Royal Statistical Society, CIPD (its branch network; branches are open to non-members and students), CIM, ICAEW, APM, CIPS, IET, IMechE, ICE.
+- **Guide sources.** gov.uk's volunteering page (it lists NCVO, Reach Volunteering, NHS Volunteering and others); Reach Volunteering (skills-based, asks for three years' professional experience); Prospects' work experience and internships hub; UKCISA's student work page (volunteering is different from "voluntary work", which is unpaid employment and counts toward the weekly hours); gov.uk "Your rights as an agency worker: fees" (agencies cannot charge for finding you work). **Do-it.org now redirects to an unrelated domain and is left out.**
+- **Step 4's streak** takes a third target without changing past weeks: goals set before this step count as an outreach target of 0.
 
 ## In scope
 

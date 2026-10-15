@@ -4,6 +4,7 @@ work end to end. Uses real credits. Prints a line per task; never prints prompts
 Run from backend/ with the venv active:  python scripts/live_check.py
 To run only some checks, name them:      python scripts/live_check.py cv github "story bank"
 (every check whose name contains one of the words is run)."""
+import os
 import sys
 import time
 from datetime import date, timedelta
@@ -249,6 +250,33 @@ def _pack_ok(r: dict) -> bool:
             and all(q["story_id"] in (None, "story-1", "story-2") for q in r["likely_questions"]) and len(r["questions_to_ask"]) >= 3)
 
 
+ABOUT_ME = ("I am an MSc Data Science student with two years in logistics analytics. "
+            "I build SQL and Power BI reports that managers use to make decisions.")
+OUTREACH = [  # (kind, how the user knows them, what else the user gives)
+    ("connection_note", "none", {}),
+    ("chat_request", "alumni", {"university": "University of Leeds"}),
+    ("follow_up", "none", {}),
+    ("thank_you", "event", {"event_name": "Leeds Data Meetup", "learned": "how her team checks every report against last week before it goes out"}),
+    ("referral_ask", "alumni", {"university": "University of Leeds", "job": {"title": "Junior Data Analyst", "company": "Northwind Goods",
+                                                                              "summary": "Reporting role.", "url": "https://www.reed.co.uk/jobs/1"},
+                                "achievements": [a["uk_version"] for a in ACHIEVEMENTS]}),
+    ("recruiter_intro", "recruiter", {"start": "from 2 November", "looking_for": ["Data Analyst"]}),
+    ("reference_ask", "tutor", {"looking_for": ["Data Analyst"]}),
+]
+
+
+def _outreach(kind: str, relationship: str, **extra) -> dict:
+    contact = {"name": "Dr Priya Shah", "role": "Senior Data Analyst", "company": "Northwind Goods", "relationship": relationship}
+    return ai.outreach_draft(kind=kind, contact=contact, sender="Sample Candidate", about_me=ABOUT_ME, **extra)
+
+
+def _outreach_ok(r: dict) -> bool:
+    if os.environ.get("SHOW_DRAFTS"):
+        print(r["message"], end="\n\n")
+    note = r["message"].endswith("\nSample")  # a connection note signs with the first name only
+    return bool(r["message"]) and r["characters"] == len(r["message"]) <= (ai.NOTE_CHARS if note else 2000)
+
+
 CHECKS = [
     ("achievements", lambda: ai.extract_achievements(BACKGROUND, PROFILE), lambda r: len(r["items"]) >= 1),
     # "You said" quotes must survive the check against the text, or the proof-of-hearing feature shows nothing
@@ -297,6 +325,10 @@ CHECKS = [
     ("prep pack", lambda: ai.prep_pack(job=JOB, brief=FACTS, achievements=ACHIEVEMENTS, stories=STORIES, profile=PROFILE), _pack_ok),
     ("tag stories", lambda: ai.tag_stories(STORIES), lambda r: set(r) <= {"story-1", "story-2"} and len(r) >= 1),
     ("star competencies", lambda: ai.star(ACHIEVEMENTS[0]), lambda r: len(r["competencies"]) >= 1),
+    # step 6: seven kinds of message, each within its limit and claiming no connection that was not entered; event preparation
+    *[(f"draft, {kind}", lambda kind=kind, who=who, extra=extra: _outreach(kind, who, **extra), _outreach_ok) for kind, who, extra in OUTREACH],
+    ("event preparation", lambda: ai.event_prep(event={"name": "Leeds Data Meetup", "type": "meetup", "online": False}, about_me=ABOUT_ME),
+     lambda r: len(r["openers"]) == 3 and 30 <= len(r["introduction"].split()) <= 90 and bool(r["goal"])),
 ]
 
 

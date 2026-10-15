@@ -1,14 +1,16 @@
 """The weekly habits the tracker builds: goals, the weekly streak, follow-ups due, milestones and
 the weekly plan. Pure functions over the user's own rows, worked out afresh on every read, so
-nothing about them can drift from what the user actually did.
+nothing about them can drift from what the user actually did. Since step 6 a week has three
+targets: applications with a CV, mock interviews, and messages sent to contacts.
 
 A week runs Monday to Sunday, UK time. Dates come in already as London dates."""
 from collections import Counter
 from datetime import date, timedelta
 
 from analytics import INTERVIEWED, RESPONDED, plural, responded
+from networking import REPLIED
 
-DEFAULT_GOAL = {"applications": 5, "practice": 2}
+DEFAULT_GOAL = {"applications": 5, "practice": 2}  # until the user sets goals; the outreach target then is the profile's own default
 WEEK = timedelta(days=7)
 CLOSED = {"offer", "rejected", "rejected_after_interview"}  # an application that has ended: nothing to follow up
 STALE_DAYS = 21     # at Applied with no change for this long: suggest moving it to No reply
@@ -28,6 +30,10 @@ MILESTONES = {  # id: the banner, shown once
     "story-bank-6": "Six STAR stories in your bank, enough for most competency questions.",
     "streak-4": "Four weeks in a row at your goal.",
     "streak-8": "Eight weeks in a row at your goal.",
+    "first-message-sent": "Your first message to a contact is sent. Most people who reply do so within two weeks.",
+    "first-contact-reply": "Your first reply from a contact.",
+    "first-chat": "Your first chat with someone in your field is done.",
+    "first-referral": "Your first referral offered. Link it to your application.",
 }
 
 
@@ -35,12 +41,15 @@ def monday(day: date) -> date:
     return day - timedelta(days=day.weekday())
 
 
-def goal_for(week: date, goals: list[dict]) -> dict:
+def goal_for(week: date, goals: list[dict], default_outreach: int = 0) -> dict:
     """The goal that applied in the week starting `week`: the latest set from that Monday or
-    before, else the defaults."""
+    before, else the defaults with the account's own outreach target. A goal saved before the
+    outreach target existed asks for no messages, so no week before it changes."""
     started = [g for g in goals if g["effective_from"] <= week]
-    chosen = max(started, key=lambda g: g["effective_from"]) if started else DEFAULT_GOAL
-    return {"applications": chosen["applications"], "practice": chosen["practice"]}
+    if not started:
+        return DEFAULT_GOAL | {"outreach": default_outreach}
+    chosen = max(started, key=lambda g: g["effective_from"])
+    return {"applications": chosen["applications"], "practice": chosen["practice"], "outreach": chosen.get("outreach") or 0}
 
 
 def goal_starts(today: date, goals: list[dict]) -> date:
@@ -58,27 +67,29 @@ def _counted(applications: list) -> tuple[Counter, Counter]:
     return with_cv, without
 
 
-def week_counts(week: date, applications: list, practice_days: list[date]) -> dict:
+def week_counts(week: date, applications: list, practice_days: list[date], outreach_days: list[date] = ()) -> dict:
     with_cv, without = _counted(applications)
-    practice = Counter(monday(d) for d in practice_days)
-    return {"applications": with_cv[week], "practice": practice[week], "without_cv": without[week]}
+    practice, outreach = Counter(monday(d) for d in practice_days), Counter(monday(d) for d in outreach_days)
+    return {"applications": with_cv[week], "practice": practice[week], "without_cv": without[week], "outreach": outreach[week]}
 
 
 def _met(counts: dict, goal: dict) -> bool:
-    return counts["applications"] >= goal["applications"] and counts["practice"] >= goal["practice"]
+    return all(counts[k] >= goal[k] for k in ("applications", "practice", "outreach"))
 
 
-def streaks(*, applications: list, practice_days: list[date], goals: list[dict], started: date | None, today: date) -> dict:
+def streaks(*, applications: list, practice_days: list[date], goals: list[dict], started: date | None, today: date,
+            outreach_days: list[date] = (), default_outreach: int = 0) -> dict:
     """The current streak, in weeks, and the best ever. The current streak is the run of met weeks
     ending last week, plus this week once it is met: a week still in progress never breaks it.
     Weeks before the account existed are not counted."""
     if started is None:
         return {"current": 0, "best": 0}
     with_cv, _ = _counted(applications)
-    practice = Counter(monday(d) for d in practice_days)
+    practice, outreach = Counter(monday(d) for d in practice_days), Counter(monday(d) for d in outreach_days)
     met, week = [], monday(started)
     while week <= monday(today):
-        met.append(_met({"applications": with_cv[week], "practice": practice[week]}, goal_for(week, goals)))
+        counts = {"applications": with_cv[week], "practice": practice[week], "outreach": outreach[week]}
+        met.append(_met(counts, goal_for(week, goals, default_outreach)))
         week += WEEK
     if not met:
         return {"current": 0, "best": 0}
@@ -93,13 +104,16 @@ def streaks(*, applications: list, practice_days: list[date], goals: list[dict],
     return {"current": current + met[-1], "best": best}
 
 
-def this_week(*, applications: list, practice_days: list[date], goals: list[dict], today: date) -> dict:
-    """This week against its goal, and the goal from next Monday when the user has changed it."""
+def this_week(*, applications: list, practice_days: list[date], goals: list[dict], today: date,
+              outreach_days: list[date] = (), default_outreach: int = 0) -> dict:
+    """This week against its goal, the goal from next Monday when the user has changed it, and
+    whether they have ever chosen an outreach target (until then This week invites them to)."""
     week = monday(today)
-    goal, following = goal_for(week, goals), goal_for(week + WEEK, goals)
-    counts = week_counts(week, applications, practice_days)
+    goal, following = goal_for(week, goals, default_outreach), goal_for(week + WEEK, goals, default_outreach)
+    counts = week_counts(week, applications, practice_days, outreach_days)
     return {"week_of": week, **counts, "goal": goal, "met": _met(counts, goal),
-            "next_goal": following if following != goal else None}
+            "next_goal": following if following != goal else None,
+            "outreach_chosen": any(g.get("outreach") is not None for g in goals)}
 
 
 def follow_ups_due(applications: list, events: list, today: date) -> list[dict]:
@@ -124,9 +138,11 @@ def follow_ups_due(applications: list, events: list, today: date) -> list[dict]:
     return [item for _, item in sorted(listed, key=lambda pair: pair[0])]
 
 
-def milestones(*, applications: list, events: list, practice_count: int, story_count: int, best_streak: int) -> list[str]:
+def milestones(*, applications: list, events: list, practice_count: int, story_count: int, best_streak: int,
+               outreach: list = (), contacts: list = ()) -> list[str]:
     """Every milestone the user's data shows they have reached, in MILESTONES order. A reply,
-    interview or offer counts if an application is at that stage now or ever passed through it."""
+    interview or offer counts if an application is at that stage now or ever passed through it;
+    a networking step, if it was recorded or a contact's status shows it."""
     stages = {a["stage"] for a in applications} | {e["to_stage"] for e in events}
     reached = {f"applications-{n}" for n in APPLICATION_COUNTS if len(applications) >= n}
     reached |= {f"streak-{n}" for n in STREAK_WEEKS if best_streak >= n}
@@ -140,6 +156,16 @@ def milestones(*, applications: list, events: list, practice_count: int, story_c
         reached.add("first-mock-interview")
     if story_count >= STORY_TARGET:
         reached.add("story-bank-6")
+    kinds, statuses = {row["kind"] for row in outreach}, {c["status"] for c in contacts}
+    steps = kinds | statuses
+    if "sent" in kinds or statuses - {"to_contact"}:  # a message recorded, or a contact the user has moved on
+        reached.add("first-message-sent")
+    if steps & REPLIED:
+        reached.add("first-contact-reply")
+    if "chat_done" in steps:
+        reached.add("first-chat")
+    if "referral_offered" in steps:
+        reached.add("first-referral")
     return [m for m in MILESTONES if m in reached]
 
 
@@ -148,7 +174,7 @@ def _task(id: str, text: str, why: str, page: str, label: str, tab: str | None =
 
 
 def weekly_plan(*, follow_ups: list, findings: list, fresh_jobs: int, week: dict, story_count: int, missing_numbers: int,
-                pages: set[str]) -> list[dict]:
+                pages: set[str], contact_follow_ups: list = (), to_message: dict | None = None) -> list[dict]:
     """Up to five tasks for this week, built by rules from the user's real state, most pressing
     first. A task that is done is simply not built, so it disappears on the next load. A task is
     never offered for a page this build does not have."""
@@ -157,9 +183,14 @@ def weekly_plan(*, follow_ups: list, findings: list, fresh_jobs: int, week: dict
     if due:
         text = f"Follow up with {due[0]['company']}" if len(due) == 1 else f"Follow up on {len(due)} applications"
         tasks.append(_task("follow-ups", text, "A short, polite message a week after applying keeps you in mind.", "applications", "See follow-ups"))
+    if contact_follow_ups:
+        people = contact_follow_ups
+        text = f"Follow up with {people[0]['name']}" if len(people) == 1 else f"Follow up with {len(people)} people"
+        tasks.append(_task("contact-follow-ups", text, "Two weeks without a reply: one short, friendly follow-up often gets one.",
+                           "networking", "Open People", tab="people"))
     for f in findings:
         if f.get("link"):
-            tasks.append(_task(f"finding-{f['id']}", f["action"], f["evidence"], f["link"]["page"], f["link"]["label"]))
+            tasks.append(_task(f"finding-{f['id']}", f["action"], f["evidence"], f["link"]["page"], f["link"]["label"], tab=f["link"].get("tab")))
     if fresh_jobs:
         tasks.append(_task("new-jobs", f"Look at {plural(fresh_jobs, 'new matching job')} posted in the last 48 hours",
                            "Roles get most of their applications in the first few days.", "jobs", "See jobs"))
@@ -173,6 +204,13 @@ def weekly_plan(*, follow_ups: list, findings: list, fresh_jobs: int, week: dict
     if done < goal:
         tasks.append(_task("practice", f"Do {plural(goal - done, 'more mock interview')}",
                            f"Your goal is {plural(goal, 'practice session')} this week and you have done {done}.", "interview", "Practise"))
+    goal, sent = week["goal"]["outreach"], week["outreach"]
+    if sent < goal:
+        why = f"Your target is {plural(goal, 'message')} this week and you have sent {sent}."
+        if to_message:
+            tasks.append(_task("outreach", f"Message {to_message['name']}", why, "networking", "Open People", tab="people"))
+        else:
+            tasks.append(_task("outreach", "Find someone to message", why, "networking", "Find people", tab="people"))
     if story_count < STORY_TARGET:
         missing = STORY_TARGET - story_count
         tasks.append(_task("stories", f"Write {missing} more STAR {'story' if missing == 1 else 'stories'}",

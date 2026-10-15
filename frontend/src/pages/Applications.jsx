@@ -295,7 +295,7 @@ export default function Applications({ s, refresh, go, focus, notify }) {
                     <p className="ev">{f.evidence}</p>
                     <p className="act">{f.action}</p>
                   </div>
-                  {f.link && <button className="btn ghost small" onClick={() => go(f.link.page)}>{f.link.label}</button>}
+                  {f.link && <button className="btn ghost small" onClick={() => go(f.link.page, f.link.tab)}>{f.link.label}</button>}
                 </div>
               ))}
             </div>

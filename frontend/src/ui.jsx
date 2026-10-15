@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { BookOpen, BriefcaseBusiness, Check, Compass, FileText, House, Mic, Search, UserRound } from 'lucide-react'
+import { BookOpen, BriefcaseBusiness, Check, Compass, FileText, House, Mic, Search, UserRound, Users } from 'lucide-react'
 
 // Sidebar. key = route, label = what the user sees. Pages return here as their step goes live
 export const NAV = [
@@ -10,6 +10,7 @@ export const NAV = [
   { key: 'resume', label: 'Resume', icon: FileText },
   { key: 'interview', label: 'Interview coach', icon: Mic },
   { key: 'applications', label: 'Applications', icon: BriefcaseBusiness },
+  { key: 'networking', label: 'Networking', icon: Users },
   { key: 'journal', label: 'Journal', icon: BookOpen },
 ]
 export const PAGE_LABEL = Object.fromEntries(NAV.map((i) => [i.key, i.label]))

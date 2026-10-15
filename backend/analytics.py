@@ -140,7 +140,7 @@ def diagnose(apps, cv_versions, stories, by_family, by_source, timing, fam_names
             "title": "Referrals work for you, but you rarely use them",
             "evidence": f"Referrals got replies {ref['responses']} of {ref['applied']} times. Job boards: {board_row['responses']} of {board_row['applied']}.",
             "action": "Ask people you know inside companies that are hiring for a referral before you apply.",
-            "link": None,  # the outreach page returns with the networking step
+            "link": {"page": "networking", "label": "Find people"},
         })
 
     # 4. Slow applications: timing problem

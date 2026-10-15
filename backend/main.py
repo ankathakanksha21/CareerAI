@@ -4,7 +4,7 @@ only that user's rows."""
 import hmac
 import logging
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -28,6 +28,8 @@ import habits
 import intake
 import jobs
 import limits
+import links
+import networking
 import prep
 import reed
 import repo
@@ -115,27 +117,47 @@ def get_config():
 
 def _pages() -> set[str]:
     """The pages this build has, so the weekly plan never offers a task on one that is not there."""
-    return {"home", "profile", "pathways", "resume", "interview", "applications", "journal"} | ({"jobs"} if jobs_configured() else set())
+    return ({"home", "profile", "pathways", "resume", "interview", "applications", "networking", "journal"}
+            | ({"jobs"} if jobs_configured() else set()))
 
 
 def _habits(state: dict, profile: dict, tracked: dict, stats: dict, fresh_jobs: int) -> dict:
     """This week, the streak, milestones, follow-ups due and the weekly plan, all worked out now
     from the user's own rows. `tracked` holds the rows read for them (see get_state)."""
     apps, practice, goals, today = state["applications"], tracked["practice"], tracked["goals"], tracked["today"]
-    week = habits.this_week(applications=apps, practice_days=practice, goals=goals, today=today)
-    streak = habits.streaks(applications=apps, practice_days=practice, goals=goals, started=tracked["started"], today=today)
+    outreach, contacts = tracked["outreach"], state["contacts"]
+    targets = {"outreach_days": networking.outreach_days(outreach), "default_outreach": profile["outreach_default"]}
+    week = habits.this_week(applications=apps, practice_days=practice, goals=goals, today=today, **targets)
+    streak = habits.streaks(applications=apps, practice_days=practice, goals=goals, started=tracked["started"], today=today, **targets)
     reached = habits.milestones(applications=apps, events=tracked["events"], practice_count=len(practice),
-                                story_count=len(state["stories"]), best_streak=streak["best"])
+                                story_count=len(state["stories"]), best_streak=streak["best"], outreach=outreach, contacts=contacts)
     follow_ups = habits.follow_ups_due(apps, tracked["events"], today)
+    waiting = networking.waiting_to_be_messaged(contacts)
     plan = habits.weekly_plan(follow_ups=follow_ups, findings=stats["findings"], fresh_jobs=fresh_jobs, week=week,
                               story_count=len(state["stories"]), missing_numbers=sum(a["needs_number"] for a in state["achievements"]),
-                              pages=_pages())
+                              pages=_pages(), contact_follow_ups=networking.follow_ups_due(contacts, outreach, today),
+                              to_message=waiting[0] if waiting else None)
     return {
         "habits": {"this_week": week, "streak": streak["current"], "best_streak": streak["best"], "milestones": reached,
                    "new_milestones": [{"id": m, "text": habits.MILESTONES[m]} for m in reached if m not in profile["milestones_seen"]]},
         "follow_ups_due": follow_ups,
         "plan": plan,
     }
+
+
+def _people(contacts: list, outreach: list, events: list, today: date) -> list:
+    """Each contact as the pages get it: their steps so far, what to do next and by when, the event
+    where the user met them, and three questions for a chat."""
+    history, met = {}, {e["id"]: e for e in events}
+    for row in outreach:
+        if row["contact_id"]:
+            history.setdefault(row["contact_id"], []).append({"kind": row["kind"], "message_type": row["message_type"], "on_day": row["on_day"]})
+    people = []
+    for c in contacts:
+        event, steps = met.get(c["event_id"]), history.get(c["id"], [])
+        people.append(c | {"next": networking.next_step(c, steps, today, met_on=event["on_day"] if event else None), "history": steps,
+                           "event_name": event["name"] if event else None, "chat_questions": networking.chat_questions(c)})
+    return people
 
 
 def _with_history(applications: list, events: list) -> list:
@@ -158,10 +180,13 @@ def get_state(user: CurrentUser):
         market = jobs.market(repo.family_market(conn, user.id, since))
         tracked = {"events": repo.list_application_events(conn, user.id), "goals": repo.list_goals(conn, user.id),
                    "practice": repo.practice_days(conn, user.id), "started": repo.account_started(conn, user.id),
-                   "today": repo.today(conn)}
+                   "today": repo.today(conn), "outreach": state.pop("outreach")}
     stats = analytics.compute(state["applications"], state["role_families"], state["cv_versions"], state["stories"], market)
+    stats["findings"] = sorted(stats["findings"] + networking.findings(tracked["outreach"], state["contacts"]), key=lambda f: -f["severity"])
     progress = _habits(state, profile, tracked, stats, job_counts["fresh"] if jobs_configured() else 0)
     state["applications"] = _with_history(state["applications"], tracked["events"])
+    state["contacts"] = _people(state["contacts"], tracked["outreach"], state["networking_events"], tracked["today"])
+    state["coming_up"] = networking.coming_up(state["networking_events"], tracked["today"])
     return state | progress | {
         "profile": profile | {"email": user.email},
         "details_complete": repo.details_complete(profile),
@@ -172,7 +197,10 @@ def get_state(user: CurrentUser):
         "jobs": job_counts,   # matching adverts not yet seen, and how many of those were just posted
         "market": market,     # live figures for each targeted role family
         "options": {"sources": analytics.SOURCES, "stages": analytics.STAGES, "language_levels": ai.LANGUAGE_LEVELS,
-                    "competencies": [[k, label] for k, label in ai.COMPETENCIES.items()], "interview_types": prep.INTERVIEW_TYPES},
+                    "competencies": [[k, label] for k, label in ai.COMPETENCIES.items()], "interview_types": prep.INTERVIEW_TYPES,
+                    "relationships": list(networking.RELATIONSHIPS.items()), "contact_statuses": list(networking.STATUSES.items()),
+                    "message_types": list(networking.MESSAGE_TYPES.items()), "event_types": list(networking.EVENT_TYPES.items()),
+                    "event_statuses": list(networking.EVENT_STATUSES.items())},
         "config": {"llm": llm_configured(), "jobs": jobs_configured(), "prep": research_configured() and llm_configured(),
                    "voice": {"onboarding": voice_configured("onboarding"), "interviewer": voice_configured("interviewer")}},
     }
@@ -647,6 +675,7 @@ class ApplicationIn(BaseModel):
     notes: Text(4000, 0) | None = None
     sponsor_licence: bool | None = None  # what the sponsor register said about the employer, if known
     follow_up_on: date | None = None
+    contact_id: UUID | None = None  # a saved contact: their name is copied, and a referral they offered makes the source Referral
 
     @model_validator(mode="after")
     def posted_before_applied(self):
@@ -671,6 +700,7 @@ class ApplicationPatch(BaseModel):
     notes: Text(4000, 0) | None = None
     sponsor_licence: bool | None = None  # what the sponsor register said about the employer, if known
     follow_up_on: date | None = None
+    contact_id: UUID | None = None
 
 
 def _ids_as_text(fields: dict) -> dict:
@@ -770,6 +800,7 @@ def followed_up(app_id: UUID, user: CurrentUser):
 class GoalsIn(BaseModel):
     applications: int = Field(ge=1, le=30)  # never 0: a goal of nothing would build a streak from nothing
     practice: int = Field(ge=0, le=14)
+    outreach: int | None = Field(None, ge=0, le=20)  # messages to contacts; left out, the target in force is kept
 
 
 @app.put("/api/profile/goals")
@@ -777,9 +808,13 @@ def put_goals(body: GoalsIn, user: CurrentUser):
     """Set the weekly goals. The first goal a user sets applies to this week; any later change
     from next Monday, so a week in progress can never be made easier."""
     with db.transaction() as conn:
-        starts = habits.goal_starts(repo.today(conn), repo.list_goals(conn, user.id))
-        saved = repo.set_goal(conn, user.id, effective_from=starts, applications=body.applications, practice=body.practice)
-    return {"goal": {"applications": saved["applications"], "practice": saved["practice"]}, "starts_on": saved["effective_from"]}
+        profile = repo.get_or_create_profile(conn, user.id, user.name)
+        goals = repo.list_goals(conn, user.id)
+        starts = habits.goal_starts(repo.today(conn), goals)
+        outreach = body.outreach if body.outreach is not None else habits.goal_for(starts, goals, profile["outreach_default"])["outreach"]
+        saved = repo.set_goal(conn, user.id, effective_from=starts, applications=body.applications, practice=body.practice, outreach=outreach)
+    return {"goal": {"applications": saved["applications"], "practice": saved["practice"], "outreach": saved["outreach"]},
+            "starts_on": saved["effective_from"]}
 
 
 class MilestonesSeen(BaseModel):
@@ -792,6 +827,266 @@ def milestones_seen(body: MilestonesSeen, user: CurrentUser):
         repo.get_or_create_profile(conn, user.id, user.name)
         repo.mark_milestones_seen(conn, user.id, body.ids)
     return Response(status_code=204)
+
+
+# ---------- networking: the people a user contacts, drafts, saved events, search links ----------
+
+BAD_LINK = "Enter a web address, for example linkedin.com/in/their-name."
+BAD_EVENTS_PAGE = "Enter your university's careers events page, for example careers.youruni.ac.uk/events."
+NO_JOB_FOR_REFERRAL = "Save the job you want a referral for first."
+NOTHING_LEARNED = "Write one thing you learned in the chat, so the thank-you can mention it."
+NOT_A_REFEREE = "Ask a tutor, lecturer or supervisor for a reference."
+NO_VISA_OR_ADDRESS = "Leave out visas, sponsorship and web addresses: a draft never mentions them."
+REFEREES = ("tutor", "supervisor")
+ACHIEVEMENTS_FOR_REFERRAL = 5
+Relationship = Literal[tuple(networking.RELATIONSHIPS)]
+ContactStatus = Literal[tuple(networking.STATUSES)]
+EventType = Literal[tuple(networking.EVENT_TYPES)]
+EventStatus = Literal[tuple(networking.EVENT_STATUSES)]
+
+
+def _web_address(value: str | None, message: str) -> str | None:
+    """A typed address as it is stored: https added where it was left off, or None when blank.
+    Anything that is not a public http or https address is refused."""
+    if not value:
+        return None
+    url = links.safe_url(value)
+    if url is None:
+        raise ValueError(message)
+    return url
+
+
+class PersonIn(BaseModel):
+    """Someone the user wants to contact. No email address or phone number is taken."""
+    name: Text(120)
+    role: Text(120, 0) = ""
+    company: Text(160, 0) = ""
+    relationship: Relationship
+    link: Text(500, 0) | None = None
+    notes: Text(4000, 0) = ""
+    event_id: UUID | None = None
+
+    @field_validator("link")
+    @classmethod
+    def safe_link(cls, value):
+        return _web_address(value, BAD_LINK)
+
+
+class PersonPatch(BaseModel):
+    name: Text(120) = None
+    role: Text(120, 0) = None
+    company: Text(160, 0) = None
+    relationship: Relationship = None
+    link: Text(500, 0) | None = None
+    notes: Text(4000, 0) = None
+    event_id: UUID | None = None
+    status: ContactStatus = None  # corrected by hand; recorded steps only ever move it forward
+
+    @field_validator("link")
+    @classmethod
+    def safe_link(cls, value):
+        return _web_address(value, BAD_LINK)
+
+
+class StepIn(BaseModel):
+    kind: Literal[tuple(networking.KINDS)]
+    message_type: Literal[tuple(networking.MESSAGE_TYPES)] | None = None
+
+    @model_validator(mode="after")
+    def type_only_for_a_message(self):
+        # a message marked sent without a draft is the user's own; any other step has no message type
+        self.message_type = (self.message_type or "own") if self.kind == "sent" else None
+        return self
+
+
+def _person(conn, user_id, contact: dict) -> dict:
+    return _people([contact], repo.list_outreach(conn, user_id), repo.list_networking_events(conn, user_id), repo.today(conn))[0]
+
+
+@app.get("/api/contacts")
+def list_people(user: CurrentUser):
+    with db.transaction() as conn:
+        return _people(repo.list_contacts(conn, user.id), repo.list_outreach(conn, user.id), repo.list_networking_events(conn, user.id),
+                       repo.today(conn))
+
+
+@app.post("/api/contacts", status_code=201)
+def add_person(body: PersonIn, user: CurrentUser):
+    with db.transaction() as conn:
+        return _person(conn, user.id, repo.add_contact(conn, user.id, _ids_as_text(body.model_dump())))
+
+
+@app.patch("/api/contacts/{contact_id}")
+def update_person(contact_id: UUID, body: PersonPatch, user: CurrentUser):
+    with db.transaction() as conn:
+        changed = _found(repo.update_contact(conn, user.id, str(contact_id), _ids_as_text(body.model_dump(exclude_unset=True))))
+        return _person(conn, user.id, changed)
+
+
+@app.delete("/api/contacts/{contact_id}", status_code=204)
+def delete_person(contact_id: UUID, user: CurrentUser):
+    with db.transaction() as conn:
+        _found(repo.delete_contact(conn, user.id, str(contact_id)))
+    return Response(status_code=204)
+
+
+@app.post("/api/contacts/{contact_id}/events")
+def record_step(contact_id: UUID, body: StepIn, user: CurrentUser):
+    """A message marked as sent, a reply, a chat booked or held, a referral offered. Recording the
+    same step for the same person twice on one day counts once."""
+    with db.transaction() as conn:
+        contact = _found(repo.record_outreach(conn, user.id, str(contact_id), body.kind, body.message_type))
+        return _person(conn, user.id, contact)
+
+
+def _about_me(profile: dict, today: date) -> str:
+    """What a draft says about the user: their own pitch, or else their course and when it ends."""
+    if profile.get("pitch"):
+        return profile["pitch"]
+    ends = profile.get("graduation_date")
+    when = f" ({'finishing' if not ends or ends >= today else 'finished'} {ends:%B %Y})" if ends else ""
+    return f"I study {profile.get('course') or 'my course'} at {profile.get('university') or 'university'}{when}."
+
+
+class OutreachIn(BaseModel):
+    contact_id: UUID
+    type: Literal[tuple(k for k in networking.MESSAGE_TYPES if k != "own")]
+    learned: Text(500, 0) = ""  # a thank-you: one thing learned in the chat
+    job_id: UUID | None = None  # a referral ask: the saved job
+    start: Text(80, 0) = ""     # a recruiter introduction: when the user can start, as they put it
+
+
+@app.post("/api/ai/outreach")
+def ai_outreach(body: OutreachIn, user: CurrentUser):
+    """A short message to one contact, for the user to copy and send themselves. One AI action.
+    Nothing is sent from the app."""
+    with db.transaction() as conn:
+        contact = _found(repo.get_contact(conn, user.id, str(body.contact_id)))
+        job = repo.get_job(conn, user.id, str(body.job_id)) if body.job_id else None
+        event = repo.get_networking_event(conn, user.id, contact["event_id"]) if contact["event_id"] else None
+        achievements = repo.list_achievements(conn, user.id) if body.type == "referral_ask" else []
+        targets = [f["name"] for f in repo.list_families(conn, user.id) if f["targeted"]] if body.type in ("recruiter_intro", "reference_ask") else []
+        today = repo.today(conn)
+    if body.type == "thank_you" and not body.learned:
+        raise HTTPException(422, NOTHING_LEARNED)
+    if any(ai.VISA_WORDS.search(t) or ai.WEB_ADDRESS.search(t) for t in (body.start, body.learned)):
+        raise HTTPException(422, NO_VISA_OR_ADDRESS)  # a draft would have to repeat it, and never may
+    if body.type == "reference_ask" and contact["relationship"] not in REFEREES:
+        raise HTTPException(422, NOT_A_REFEREE)
+    if body.type == "referral_ask":
+        employer = sponsors.employer_key(contact["company"])
+        if not job or not employer or sponsors.employer_key(job["company"]) != employer:
+            raise HTTPException(422, NO_JOB_FOR_REFERRAL)
+    profile = _start_ai(user, "outreach")
+    ends = profile.get("graduation_date")
+    return ai.outreach_draft(
+        kind=body.type, contact=contact, sender=profile["full_name"], about_me=_about_me(profile, today),
+        university=profile.get("university") or "" if contact["relationship"] == "alumni" else "",
+        event_name=event["name"] if event and contact["relationship"] == "event" else "",
+        job={k: job[k] for k in ("title", "company", "summary", "url")} if job and body.type == "referral_ask" else None,
+        achievements=[a["uk_version"] for a in achievements[:ACHIEVEMENTS_FOR_REFERRAL] if a.get("uk_version")],
+        learned=body.learned, start=body.start, course_ends=f"{ends:%B %Y}" if ends and body.type == "recruiter_intro" else "",
+        looking_for=targets)
+
+
+class EventIn(BaseModel):
+    """An event the user found and saved. A time typed without a zone is London time."""
+    name: Text(200)
+    starts_at: datetime
+    place: Text(200, 0) = ""
+    online: bool = False
+    link: Text(500, 0) | None = None
+    type: EventType
+    status: EventStatus = "interested"
+    notes: Text(4000, 0) = ""
+
+    @field_validator("link")
+    @classmethod
+    def safe_link(cls, value):
+        return _web_address(value, BAD_LINK)
+
+
+class EventPatch(BaseModel):
+    name: Text(200) = None
+    starts_at: datetime = None
+    place: Text(200, 0) = None
+    online: bool = None
+    link: Text(500, 0) | None = None
+    type: EventType = None
+    status: EventStatus = None
+    notes: Text(4000, 0) = None
+
+    @field_validator("link")
+    @classmethod
+    def safe_link(cls, value):
+        return _web_address(value, BAD_LINK)
+
+
+@app.get("/api/networking-events")
+def list_saved_events(user: CurrentUser):
+    with db.transaction() as conn:
+        return repo.list_networking_events(conn, user.id)
+
+
+@app.post("/api/networking-events", status_code=201)
+def add_saved_event(body: EventIn, user: CurrentUser):
+    with db.transaction() as conn:
+        return repo.add_networking_event(conn, user.id, body.model_dump())
+
+
+@app.patch("/api/networking-events/{event_id}")
+def update_saved_event(event_id: UUID, body: EventPatch, user: CurrentUser):
+    with db.transaction() as conn:
+        return _found(repo.update_networking_event(conn, user.id, str(event_id), body.model_dump(exclude_unset=True)))
+
+
+@app.delete("/api/networking-events/{event_id}", status_code=204)
+def delete_saved_event(event_id: UUID, user: CurrentUser):
+    with db.transaction() as conn:
+        _found(repo.delete_networking_event(conn, user.id, str(event_id)))
+    return Response(status_code=204)
+
+
+@app.post("/api/ai/networking-events/{event_id}/prepare")
+def ai_event_prep(event_id: UUID, user: CurrentUser):
+    """A 30-second introduction, three ways to start a conversation and a small goal, saved on the
+    event so it can be read again for free. One AI action."""
+    with db.transaction() as conn:
+        event = _found(repo.get_networking_event(conn, user.id, str(event_id)))
+        today = repo.today(conn)
+    profile = _start_ai(user, "event prep")
+    made = ai.event_prep(event=event, about_me=_about_me(profile, today))
+    with db.transaction() as conn:
+        return _found(repo.set_event_prep(conn, user.id, event["id"], made))
+
+
+@app.get("/api/networking/links")
+def networking_links(user: CurrentUser):
+    """Where to look for people and events, built here from the profile, target roles and saved
+    jobs. The page opens them on the other sites; the app fetches nothing from them."""
+    with db.transaction() as conn:
+        profile = repo.get_or_create_profile(conn, user.id, user.name)
+        targets = [f for f in repo.list_families(conn, user.id) if f["targeted"]]
+        companies = [j["company"] for j in repo.list_jobs(conn, user.id)]
+    return links.search_links(university=profile.get("university") or "", locations=profile.get("locations") or [],
+                              fields=[f["name"] for f in targets], titles=[t for f in targets for t in f["uk_titles"][:1]],
+                              companies=companies, events_url=profile.get("university_events_url"))
+
+
+class EventsPageIn(BaseModel):
+    url: Text(500, 0) = ""
+
+    @field_validator("url")
+    @classmethod
+    def safe_page(cls, value):
+        return _web_address(value, BAD_EVENTS_PAGE)
+
+
+@app.put("/api/profile/events-url")
+def put_events_page(body: EventsPageIn, user: CurrentUser):
+    with db.transaction() as conn:
+        repo.get_or_create_profile(conn, user.id, user.name)
+        return {"university_events_url": repo.set_university_events_url(conn, user.id, body.url)["university_events_url"]}
 
 
 # ---------- jobs: real adverts matched to the user ----------

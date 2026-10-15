@@ -1,6 +1,6 @@
 # UK Career Navigator: scope, architecture and handover
 
-Last updated: 14 October 2026. This is the living document for the project. It is updated at the end of every build step.
+Last updated: 15 October 2026. This is the living document for the project. It is updated at the end of every build step.
 
 ## 1. What this is
 
@@ -26,8 +26,8 @@ Every step has a document holding its goal, every decision made for it, the desi
 | 2 | Real jobs from Reed, fit scoring, sponsor register, visa salary facts | 0 | Built and merged into `main`. Some hand checks are left (section 16) | `careerai-step-2-real-jobs` |
 | 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Built and merged into `main`. The owner's hand checks are left (section 20) | `careerai-step-3-full-uk-cv` |
 | 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Built and merged into `main`. The owner's hand checks are left (section 22) | `careerai-step-4-tracker-and-habits` |
-| 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Built on branch `step-5-interview-prep`. The owner's hand checks are left (section 24) | `careerai-step-5-interview-prep` |
-| 6 | Hidden market: contacts, outreach drafts, saved events, referrals | 4 | Designed | `careerai-step-6-hidden-market` |
+| 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Built and merged into `main`. The owner's hand checks are left (section 24) | `careerai-step-5-interview-prep` |
+| 6 | Hidden market: contacts, outreach drafts, saved events, referrals | 4 | Built on branch `step-6-hidden-market`. The owner's hand checks are left (section 26) | `careerai-step-6-hidden-market` |
 | 7 | Peers: opt-in buddy groups of two or three | 4 | Designed | `careerai-step-7-peers` |
 
 The documents live in `.claude/skills/<name>/SKILL.md`. The method every step follows is `careerai-building-a-step`, in the same folder. Project-wide rules are in `CLAUDE.md`.
@@ -152,6 +152,14 @@ Minimum versions: Node 20.19 or 22.12 (Vite 8 will not run on older), Python 3.1
 | The pitch is accepted at 110 to 260 words | The real model writes about 120 to 140 words even when asked for more | Pitches run about a minute rather than a full 90 seconds | The model changes |
 | Research is limited to 5 a day, separately from the AI limit. Every research counts, Refresh and a retry after a failure included; a shared, fresh company is free | Searches cost money, and nothing can run past the limit | A failed research uses one of the day's five | Users hit the limit because of failures |
 | Edits to a pack are saved part by part, and a rebuild re-reads the pack under a lock | Two saves a moment apart, or an edit made while the pack is rewritten, are never lost | – | – |
+| An outreach draft is the model's own words checked in code: within its limit or asked for once more and then refused, never cut; no connection claimed but the one the user entered; no visa talk, month, figure or web address that was not given | A draft can be sent as it is without claiming a shared past that never happened | An honest draft can cost a retry; a small embellishment code cannot see ("yesterday", a project described more grandly) still gets through, so the page asks the user to read it first | Users report claims they did not make |
+| The model is never sent a contact's name or notes, nor the user's name; code adds "Hi Priya," ("Dear Dr Shah," for a reference) and the sign-off | Less personal data leaves the app; a name is never misspelt | The model cannot vary the greeting | – |
+| A message marked as sent stays counted when its contact is deleted (the row loses the contact) | A past week or a streak never changes because someone was tidied away | Rows with no contact stay in the table | – |
+| The same step with the same person on one London day is recorded once | Marking a message sent twice counts once | Two different messages of one kind to one person on one day count once | – |
+| Accounts that existed when step 6 arrived start with an outreach target of 0 and an invitation to set one; later accounts start at 2; goals saved before step 6 ask for no messages | Nobody's streak breaks without warning, and no past week changes | One more profile column (`outreach_default`) | – |
+| Search links for people and events are built on the server from the profile and open on the other site; the app fetches nothing from LinkedIn, Meetup, Eventbrite or the professional bodies | No scraping and no terms to break | LinkedIn's search opens only for someone signed in there; what the links find is whatever those sites show | A site changes its addresses |
+| A reference is asked only of a tutor, lecturer or supervisor; a referral only for a saved job whose employer matches the contact's company by the register's name rules | The app never drafts a request that would embarrass the user | A contact at a parent company with another name cannot be asked for a referral | Users ask for it |
+| Chat questions are written by code from the contact's role and company; event preparation is saved on the event | Both are free to read again | Less variety in the chat questions | – |
 
 Smaller behaviours worth knowing:
 
@@ -192,6 +200,12 @@ Smaller behaviours worth knowing:
 - The user ticks at most three questions to ask. Printing a pack prints only the ticked ones, when any are ticked, and every source as its address.
 - A story written by the app is tagged with up to three of eight competencies in the same call; "Tag my stories" tags older ones in one AI action; the user can tick them by hand. A story the model gave none takes its one-word label when it is exactly one of the eight.
 - The mock interviewer is told a company summary (what they do, products, news) whenever the chosen job has a pack, and the pack's likely questions in the job-specific and behavioural sessions.
+- Networking is always in the menu; drafts and event preparation need the model, and the rest works without it.
+- Recording a step moves a contact forward and never back, so a thank-you sent after a chat leaves them at Chat done. The user can set the status by hand to correct a mistake.
+- Linking a saved contact to an application copies their name into the contact name the follow-up draft uses; one who offered a referral makes the source Referral. Unlinking changes neither.
+- "Coming up" on Home lists the next three saved events the user is interested in or going to, from today on, by the London date: an event tonight stays until midnight.
+- The weekly plan adds "Follow up with <name>" once a message has had no reply for 14 days, and "Message <name>" (the person waiting longest at To contact) or "Find someone to message" while the outreach target is not met.
+- Five messages marked as sent with no reply, chat or referral from anyone become a finding that points to the guide.
 
 ## 6. Code map
 
@@ -225,12 +239,15 @@ backend/
   websearch.py     Tavily client: a company's news from the last year and its competitors
   research.py      one company's research: the four sources side by side, numbered passages, the cited brief, the cache key
   prep.py          a prep pack's own rules: right-to-work line, edits, rebuilds, what the interviewer is told. Pure functions
+  networking.py    the networking pipeline: how a contact moves on, the next step and when, follow-ups due, coming up, the no-replies finding, chat questions. Pure functions
+  links.py         search links for people and events from fixed sites, professional bodies by field, safe addresses typed by the user. Pure functions
   ai.py            one function per AI task: prompt, output shaping, quote checking
   llm.py           one call path to Bedrock, fallback model, JSON parsing
   voice.py         ElevenLabs token minting and transcript fetch (owner only)
   content.py       loads data/content.json, the static guidance copy
   data/visa_rules.json   the visa figures, their gov.uk sources and the date checked. The only place they are written
   data/sic_codes.json    SIC 2007 code descriptions from gov.uk's condensed list (Open Government Licence)
+  data/professional_bodies.json   ten professional bodies, each with its events page, the words that pick it and the date it was checked
   config.py        settings from the environment, then backend/.env
   migrate.py       applies migrations/*.sql not yet recorded in schema_migrations
   setup_agents.py  creates or updates the two ElevenLabs agents and writes their ids to .env
@@ -256,11 +273,14 @@ frontend/src/
                    ContactForm (contact details; certifications, awards and volunteering),
                    ApplicationPanel (every field of an application, its history, follow-up and lesson),
                    RejectQuestions (where a rejection ended, feedback, the lesson), FollowUps, ThisWeek (goals, streak), Plan, Milestones,
-                   PrepPacks (the tab), CompanyConfirm (pick the company, research, build), PrepPack (the pack, printable), StoryCoverage
+                   PrepPacks (the tab), CompanyConfirm (pick the company, research, build), PrepPack (the pack, printable), StoryCoverage,
+                   ContactCard (one person: next step, steps so far, chat help), DraftMessage, PersonForm, FindPeople,
+                   NetworkingEvents (where to look, saved events, preparation, who did you meet), NetworkingGuide, ComingUp
   tracker.js       the tracker's stage words and small rules, shared by Applications and Home
   prep.js          prep pack words and which pack belongs to a job or application
+  networking.js    networking's labels and small rules: which drafts a contact can be sent, event times in London
   pages/           Landing, Auth, Privacy, Onboarding, Home, Profile, Pathways, Jobs, Resume,
-                   Interview, Applications, Journal, Account
+                   Interview, Applications, Networking, Journal, Account
 app.py             Vercel entry point: the API plus the built frontend
 ```
 
@@ -270,7 +290,7 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 
 | Table | Holds |
 |---|---|
-| `profiles` | One row per user: name, university, course, graduation month, visa type, visa end date, preferred locations, pitch, skills, spoken languages with a level, GitHub username, and for the CV a phone number, town or city, LinkedIn address and lines of certifications, awards and volunteering, and which milestones have been shown |
+| `profiles` | One row per user: name, university, course, graduation month, visa type, visa end date, preferred locations, pitch, skills, spoken languages with a level, GitHub username, and for the CV a phone number, town or city, LinkedIn address and lines of certifications, awards and volunteering, which milestones have been shown, their university's careers events page, and the outreach target used until they set goals (0 for accounts from before step 6, 2 after) |
 | `achievements` | Their own words (`raw`), the UK CV bullet (`uk_version`), skills, outcome, scale, context note, source (voice, paste, cv or github), the job or course it happened in, and for a GitHub project its repository link |
 | `work_history` | Jobs, internships and placements: employer, job title, location, country, start and end month, whether it is current, one line on what the employer does, where the entry came from |
 | `education` | Courses: institution, qualification, subject, start and end month, grade, country. The current course is made from "Your details" and marked `from_details` |
@@ -278,9 +298,12 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 | `saved_jobs` | Jobs the user pasted: title, company, description, AI summary, keywords, matched role family |
 | `cv_versions` | Each CV in full as one document, named "<title>, <company> vN" or "Base CV vN": whether it is a base or a tailored CV, its page count, when it was last edited, who its letter is to. A version made before step 3 is marked format 1 and holds only a paragraph, bullets and a letter |
 | `stories` | STAR stories, linked to their achievement, with up to three of eight competencies |
-| `applications` | Tracker rows: company, role, family, CV version, source, stage, applied and posted dates, link, the contact's name and how to reach them, notes, sponsor licence, the next follow-up date and when the user last followed up, and for a rejection where it ended, any feedback and the lesson |
+| `applications` | Tracker rows: company, role, family, CV version, source, stage, applied and posted dates, link, the contact's name and how to reach them, the saved contact behind it, notes, sponsor licence, the next follow-up date and when the user last followed up, and for a rejection where it ended, any feedback and the lesson |
 | `application_events` | One row per stage change of an application, with when; the first records its creation. Deleted with the application |
-| `weekly_goals` | The user's weekly goals (applications with a CV, mock interviews), each applying from a Monday. No row means the defaults, 5 and 2 |
+| `weekly_goals` | The user's weekly goals (applications with a CV, mock interviews, messages to contacts), each applying from a Monday. No row means the defaults: 5, 2 and the profile's own outreach default. A goal saved before step 6 has no messages target and asks for none |
+| `contacts` | People the user added: name, role, company, how they know them (alumnus, tutor or lecturer, supervisor, met at an event, recruiter, introduced, no connection yet), profile link, notes, where they are in the pipeline, the saved event where they met. No email address or phone number |
+| `outreach_events` | One row per step with a contact: a message marked as sent with its kind, a reply, a chat booked or held, a referral offered, with its London day. Recorded once per person, step and day. A deleted contact's rows stay with the contact cleared |
+| `networking_events` | Events the user saved: name, start (London time), place or online, link, kind, Interested, Going or Attended, notes, and the last preparation written for it |
 | `journal_entries` | Coach calls, mock interviews and imports (a CV upload, a GitHub import): summary, points, actions, scores, and the transcript or the text that was read |
 | `usage_events` | One row per AI action, voice session or newly researched company: the daily limits |
 | `prep_packs` | One per saved job (or per application without one): the role and company, a copy of the brief it was built from, talking points, the pitch, likely questions with the story for each, questions to ask and which are ticked, the right-to-work line, the interview type, and whether the user edited the pitch or the line |
@@ -292,7 +315,7 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 | `job_matches` | One user's view of one advert: role family, fit percentage and label, what they show and lack, new, seen, saved or hidden |
 | `schema_migrations` | Which migration files have been applied |
 
-Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`), `006_full_cv`, `007_tracker_habits` (which also gives each open application without one a follow-up date a week after it was sent), `008_interview_prep` (which also tags existing stories whose one-word competency is exactly one of the eight).
+Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`), `006_full_cv`, `007_tracker_habits` (which also gives each open application without one a follow-up date a week after it was sent), `008_interview_prep` (which also tags existing stories whose one-word competency is exactly one of the eight), `009_networking` (which gives every account that existed then an outreach target of 0).
 
 Adverts older than 30 days are deleted on each refresh. A saved job is a copy, so it stays.
 
@@ -333,7 +356,7 @@ A reference from one row to another (for example an application's CV version) is
 | `POST /api/applications/{id}/reject` | Where it ended and any feedback; sets the stage and returns one lesson, or a notice when neither a CV nor a job description was recorded. The rejection is saved before the model is called. One AI action when there is something to compare |
 | `POST /api/ai/applications/{id}/follow-up` | A follow-up message to copy. One AI action. 400 once the application has ended |
 | `POST /api/applications/{id}/followed-up` | Followed up today: the next follow-up is due in a week |
-| `PUT /api/profile/goals` | Weekly goals: 1 to 30 applications, 0 to 14 mock interviews. The first applies this week, later ones from next Monday |
+| `PUT /api/profile/goals` | Weekly goals: 1 to 30 applications, 0 to 14 mock interviews, 0 to 20 messages (left out: the target in force is kept). The first applies this week, later ones from next Monday |
 | `POST /api/milestones/seen` | Milestones the banner has shown |
 | `POST /api/companies/search` | Up to five Companies House matches for a name. The name travels in the body |
 | `POST /api/companies/research` | A confirmed company's brief: shared research from the last 14 days, or researched now (one research use) |
@@ -341,6 +364,13 @@ A reference from one row to another (for example an application's CV version) is
 | `GET`, `PATCH`, `DELETE /api/prep/{id}` | A pack with what the interviewer is told from it; the user's pitch, right-to-work line, ticks (at most three) and interview type |
 | `POST /api/prep/{id}/refresh` | Research the pack's company again now; the page then rebuilds the pack |
 | `POST /api/ai/stories/tag` | Competencies for the user's stories that have none. One AI action |
+| `GET`, `POST`, `PATCH`, `DELETE /api/contacts[/{id}]` | People the user contacts, each with the next step and the steps so far. A profile link must be a public http or https address |
+| `POST /api/contacts/{id}/events` | Record a message sent (with its kind; "own" when there was no draft), a reply, a chat booked or held, a referral offered. Once per person, step and day |
+| `POST /api/ai/outreach` | A draft of one of seven kinds for one contact. One AI action. 422 for a thank-you with nothing learned, a reference from someone who is not a tutor or supervisor, or a referral ask without a saved job at their company |
+| `GET`, `POST`, `PATCH`, `DELETE /api/networking-events[/{id}]` | Saved events. A time without a zone is London time |
+| `POST /api/ai/networking-events/{id}/prepare` | An introduction, three openers and a goal, saved on the event. One AI action |
+| `GET /api/networking/links` | Search links for people and events and professional bodies, built from the profile, target roles and saved jobs |
+| `PUT /api/profile/events-url` | The university's careers events page; empty clears it |
 | `GET /api/journal/{id}/transcript` | What was said in that session |
 | `POST /api/ai/achievements` | Transcript or pasted text → achievements and pitch, plus proposed jobs, courses, skills and languages |
 | `POST /api/ai/achievements/upload` | A PDF or Word CV as the raw body → the same. The file is read and dropped |
@@ -375,6 +405,8 @@ Error responses always carry a plain `detail` message the UI shows as-is: 409 a 
 - **A company brief.** `company_brief` is given only numbered passages the app fetched and must cite one for each statement. A statement is kept only if its number was sent, its section is one of six, every figure and every quoted phrase in it is in that passage, a value carries words found exactly in its page, and a news line cites a news result from the last 12 months (its date is the result's, not the model's). Register lines are written by code. With nothing fetched at all, the model is not asked.
 - **A prep pack.** `prep_pack` gets the brief, the advert (or a note that none was recorded), the user's course, achievements and stories, with short ids mapped back in code. A talking point must name a real fact and achievement and use only their figures; the pitch, in three paragraphs, 110 to 260 words with no figure from outside the input; a likely question keeps a story only if it is the user's. No name, contact details or visa are sent.
 - **Story competencies.** Each story is tagged with up to three of eight competencies; anything else the model names is dropped.
+- **Outreach drafts.** `outreach_draft` is given the user's pitch (or their course), the contact's role and company, how the user knows them and, by kind, what they learned, when they can start, their target roles, or the saved job and their achievements. The model writes the body only; code removes any greeting or sign-off it wrote, adds its own, adds the job's line to a referral ask, and checks the result (section 25).
+- **Event preparation.** `event_prep` is given the pitch and the event's name and kind: an introduction of 30 to 90 words with no figure that is not in the pitch, three openers, one goal.
 - **Privacy in logs.** Failures log the task name and the error type only, never prompts or replies. `httpx` request lines are off, because an address can hold what a user typed.
 - **No database connection is held during a model call.** Each AI route reads and counts usage in one short transaction, calls the model, then writes in a second.
 
@@ -412,6 +444,8 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 | Reading employers' websites | Only http and https on the standard ports, only a typed host name (never an IP address, user name or port). The server resolves every address itself and refuses unless all of them are public, then connects to the address it checked, so a redirect or a second lookup cannot reach a private network. Redirects are followed by hand and checked the same way. robots.txt is respected for "UKCareerNavigator". Pages are asked for uncompressed. At most 1 MB of text and 8 seconds a page, the clock read after every piece that arrives, six pages, HTML only; all four sources together get 30 seconds. IPv6 forms that carry an IPv4 address (mapped, NAT64, 6to4, IPv4-compatible) are judged by that address or refused. Tested against private, loopback, link-local and each of those forms |
 | What Companies House, Tavily and employers' sites are told | A company name and its website. Nothing about the user. A Companies House number is checked as eight letters or digits before it is put in an address |
 | Shared research | `companies` holds public facts about companies only. A user's pack, ticks and edits are in `prep_packs`, filtered by user id |
+| People the user adds | Name, role, company, how they know them, a profile link and notes; no email address or phone number is asked for. Only the role, company and how they know them go to the model for a draft. Nothing is sent to them: the user copies a draft |
+| Search links and typed addresses | Built on the server from fixed addresses on linkedin.com, meetup.com, eventbrite.co.uk and the listed professional bodies, with what the user typed escaped inside one query value or path segment; tested against `&`, `#`, `?`, `/`, `..` and accents. A profile link or events page must be http or https on a named public host with no user name, password or port; `javascript:` and the like are refused |
 | Right to erasure | "Delete my account" removes the login; cascading deletes remove every row |
 | Transparency | A privacy notice page lists what is collected, why, and who processes it. Sign-up requires agreeing to it |
 | Data location | Database and login in London. The language model runs in the United States; ElevenLabs processes audio outside the UK. The privacy notice says so |
@@ -539,7 +573,7 @@ No test can reach the real model, Companies House, a website or Tavily: an AI ta
 - Follow-up reminders are in the app only: no email or push notification.
 - A lesson is a guess from the CV and the advert. It cannot know why someone was turned down, and says so in its wording.
 - A milestone banner shows once, on Home, and goes when the page's data is next refreshed. If marking it as seen fails, it shows again next time.
-- Networking and Peers are removed until their steps make them real.
+- Peers is removed until its step makes it real.
 - The user's speech appears in the live transcript per finished sentence, not word by word.
 - Reply rates count recent applications that may not have had time to get a reply.
 - The frontend has no automated tests; it is verified by hand.
@@ -558,6 +592,11 @@ No test can reach the real model, Companies House, a website or Tavily: an AI ta
 - A figure in a brief statement, in digits or in words for ten or more, must be in its page; "5,000" and "five thousand" are not taken as the same, so an honest line worded differently from its page is dropped.
 - Looking up Companies House is not limited per user; heavy use by one person could use up the app's allowance of 600 requests in 5 minutes.
 - A pack does not change when the user's stories or achievements change; Refresh rebuilds it.
+- A draft can still embellish what code cannot check, such as "yesterday" or a course project described more grandly. The page asks the user to read and change it before sending.
+- LinkedIn's people search opens only for someone signed in to LinkedIn, and a free account can add a note to only about three invitations a month.
+- Meetup gets no link for a remote location; only Eventbrite's online search was checked.
+- Events are typed in by the user. Nothing is listed for them, and there are no email reminders.
+- A professional body is suggested only when a target role's name contains one of its words; a field with no match gets none.
 
 ## 15. Jobs, sponsorship and visa facts (step 2)
 
@@ -865,4 +904,58 @@ The pack prints from the browser: the menu, buttons and boxes are left out, the 
 - **The owner's hand checks** in the step document: a well-known employer with five sources followed, a small company, an employer not on Companies House, news dates, story matching, a mock interview with a pack, printing.
 - **A second account in the browser.** Proved by automated tests only.
 - **Anything on Vercel**, including the new settings.
+
+## 25. Networking (step 6)
+
+**Where it is.** Networking sits in the menu between Applications and Journal, with three tabs: People, Events and Guide. Nothing on it is ever sent for the user: drafts are copied, and every link opens on the other site.
+
+**People.** The user adds someone with their name, role, company, how they know them (alumnus of my university, tutor or lecturer, supervisor, met at an event, recruiter, introduced by someone, no connection yet), a profile link and notes. Each person shows where they are in the pipeline (To contact, Messaged, Replied, Chat booked, Chat done, Referral offered), what to do next and by when, and the steps so far. "Write a message" offers the drafts that fit them; "I sent my own message" counts a message the user wrote themselves; buttons record a reply, a chat booked or held, and a referral offered. At Chat booked three questions for the chat are shown, written by code with their role and company; at Chat done a notes box, the reminder to ask who else to talk to, and the thank-you draft. "Find people" gives LinkedIn searches for alumni of the user's university at the companies they saved jobs from and in their target roles, with the search words shown in case LinkedIn asks them to sign in first.
+
+**Drafts** (`POST /api/ai/outreach`, `ai.outreach_draft`), one AI action each. The model writes the body only; code adds the greeting and sign-off with the user's name, and for a referral ask the job's title and address. Then:
+
+| Kind | Shape, checked in code |
+|---|---|
+| LinkedIn connection note | At most 200 characters for the whole note, LinkedIn's limit; no request of any kind, not even a question |
+| Request for a chat | Under 80 words; asks for 15 minutes; never for a job or a referral |
+| Follow-up | At most two sentences and 60 words; says it is following up |
+| Thank-you | At most 100 words; uses what the user typed under "one thing you learned", which must be given |
+| Referral ask | At most 130 words; only for a saved job whose employer is the contact's company by the register's name rules; never says the user already works there |
+| Recruiter introduction | At most 120 words; a start date the user typed appears as typed, otherwise only the course end month is given |
+| Asking for a reference | At most 120 words; only to a tutor, lecturer or supervisor; names the user's target roles, never the referee's own organisation or team |
+
+Every draft is also refused if it claims a connection the user did not enter (a shared university, a teacher, working together, meeting at an event, an introduction; a thank-you may say it was good to meet), names an event other than where they met, mentions visas or sponsorship, gives a figure or month that was not in what was sent, holds a web address or a placeholder in brackets. A refused draft is asked for once more, then the page shows Retry; nothing is ever cut to fit. Em dashes, and en dashes used as one, become commas.
+
+**Events.** "Where to look" lists Meetup and Eventbrite searches for each target role and preferred location (Eventbrite's online search for "Remote"), the user's university careers events page once they paste it, and the professional bodies whose words appear in their target roles (BCS, Royal Statistical Society, CIPD, CIM, ICAEW, APM, CIPS, IET, IMechE, ICE, each checked on 14 October 2026). The user saves an event with its name, date and time (London), place or online, link and kind, as Interested, Going or Attended. "Prepare" writes a 30-second introduction from their pitch, three ways to start a conversation at that kind of event and one small goal, saved on the event. Once Attended, "Who did you meet?" adds people linked to the event, and each is told to message within 48 hours.
+
+**The week.** Each message marked as sent counts once toward a third weekly target, beside applications and mock interviews, in the week of its London day. The target can be 0 to 20, and 0 is always met. Accounts that existed when step 6 arrived start at 0 with an invitation on This week to set one; new accounts start at 2. Goals saved before step 6 ask for no messages, so no past week or streak changes. Home lists the next three events under "Coming up". New milestones: first message sent, first reply from a contact, first chat, first referral offered.
+
+**Referrals.** On an application, "Saved contact" links one of the user's contacts: their name becomes the application's contact name, and someone who offered a referral makes the source Referral, which the tracker's referral finding uses. That finding now links to Networking.
+
+**Guide.** Fixed text with its sources: from stranger to referral in six steps; working with recruiters (agencies cannot charge for finding you work, GOV.UK); one UK project, internship or volunteering role (volunteering against voluntary work on a Student visa, UKCISA; GOV.UK's volunteering page, Reach Volunteering, Prospects); who can give a reference. Do-it.org was left out: on 14 October 2026 it redirected to an unrelated site.
+
+## 26. Verification record for step 6
+
+| Check | Result | Date |
+|---|---|---|
+| Automated backend suite | 1,951 passed, 0 skipped, against the real database | 15 Oct 2026 |
+| Frontend | Lints with no errors and no warnings in the new or changed files; builds | 15 Oct 2026 |
+| Migration `009_networking` | Applied to the real database | 15 Oct 2026 |
+| Address patterns and sources (before building) | LinkedIn's help page gives 200 characters for a note; LinkedIn's people search sends a signed-out visitor to sign in and back; Meetup's and Eventbrite's searches open on the right city and topic (London, Manchester, Milton Keynes, online); ten professional bodies' events pages opened; GOV.UK, UKCISA, Reach Volunteering and Prospects say what the guide says; Do-it.org redirects to an unrelated site and is left out | 14 Oct 2026 |
+| Real model (`live_check.py`, the step 6 checks) | 9 of 9 passed: a draft of each of the seven kinds and event preparation, read by eye | 15 Oct 2026 |
+| What the real model showed, each fixed test first | Connection notes ran to about 290 characters (the room is now given in words too); a follow-up read as a first message; a referral ask said the user was "currently working on" the role; a reference request named the referee's organisation as where the user applies and offered to join their team; a spaced en dash | 15 Oct 2026 |
+| Networking, Home and Applications against the real backend and model, as a temporary user whose data was never saved | Add a contact; a real chat request drafted, Mark as sent counted 1 of 2 messages; They replied, Chat booked (three questions), Chat done (notes, thank-you); Referral offered, then Saved contact on an application set the source to Referral and the contact name; an event saved and prepared by the real model; marked Attended, "Who did you meet?" added someone with "Message within 48 hours of meeting"; Coming up and three targets on Home; the Guide; the events page refused `javascript:` and saved a real address; an older account saw the invitation and set a target; a message 15 days old put "Follow up with ..." first on the plan; no sideways scroll at phone width | 15 Oct 2026 |
+| Defect that check found, fixed | An open draft kept its old kind after the contact moved on | 15 Oct 2026 |
+| A fresh review of the whole branch (a separate reviewer, Opus) | Ready with fixes; nothing critical. Fixed, each with a test that failed first: honest drafts were refused ("introduce myself", "not asking for a job", "lovely to meet", "valued my placement in your team", "working with you and your team"); a start date or lesson typed with a visa word, a web address or a dash could never pass and cost an AI action (now 422 before any action, and dashes match); after one follow-up the nudge never stopped (now "move on to someone else"); "Mark as sent" lost a first message's draft; "no connection" claims that slipped through ("both went to", "classmates", "pointed me", a thank-you naming an event); "Dr Shah" greeted "Hi Shah"; a company named like a web address failed every draft; a referral offered after linking left the source unchanged; the People filter could stick on an empty status; the plan's "Read the guide" opened People; the recruiters guide lacked "This is not immigration advice."; the privacy notice understated what drafts send | 15 Oct 2026 |
+| The database afterwards | No temporary user and no test contact left | 15 Oct 2026 |
+
+**Left from the review, for the owner to decide:** a double click on Save event saves it twice; the careers events page box hides while the search links fail to load; a contact with no company gets "Save the job you want a referral for first."; the edit form sends back the status it opened with; an older account that accepts the invitation mid-week gets the target this week (the form says the first goals apply this week).
+
+**Not yet verified:**
+
+- **The review's two page fixes in a browser** ("Mark as sent" keeping the draft, the People filter): changed after the browser check, proved by build and reading only.
+- **A signed-in session.** The pages were driven without the login screen, through a temporary check page (removed afterwards).
+- **LinkedIn's results** behind its sign-in page, and Meetup and Eventbrite results on another day.
+- **The owner's hand checks** in the step document, including drafting all seven kinds for a real contact and a second account in the browser.
+- **Real weeks passing** for the outreach target and streak, beyond tests with set dates.
+- **Anything on Vercel.**
 

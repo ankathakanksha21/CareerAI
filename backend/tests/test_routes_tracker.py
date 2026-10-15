@@ -23,7 +23,7 @@ APP = {"company": "Zzqx Holdings Ltd", "role": "Zzqx Analyst", "source": "Compan
 CV_CONTENT = {"profile": "Graduate analyst.", "work": [{"employer": "Zzqx Works", "job_title": "Analyst", "hidden": False,
                                                        "bullets": [{"text": "Built a Python dashboard for 40 staff", "hidden": False}]}],
               "skills": {"technical": ["Python"], "tools": [], "languages": []}}
-DEFAULT_GOAL = {"applications": 5, "practice": 2}
+DEFAULT_GOAL = {"applications": 5, "practice": 2, "outreach": 2}  # a new account: two messages a week
 
 
 def capture(monkeypatch, name: str, result) -> list:
@@ -205,12 +205,12 @@ def test_first_goal_applies_this_week_and_the_next_from_monday(client, conn):
     today = repo.today(conn)
     monday = today - timedelta(days=today.weekday())
     r = client.put("/api/profile/goals", json={"applications": 1, "practice": 0})
-    assert r.status_code == 200 and r.json() == {"goal": {"applications": 1, "practice": 0}, "starts_on": str(monday)}
-    assert state(client)["habits"]["this_week"]["goal"] == {"applications": 1, "practice": 0}
+    assert r.status_code == 200 and r.json() == {"goal": {"applications": 1, "practice": 0, "outreach": 2}, "starts_on": str(monday)}
+    assert state(client)["habits"]["this_week"]["goal"] == {"applications": 1, "practice": 0, "outreach": 2}  # left out: kept
     r = client.put("/api/profile/goals", json={"applications": 4, "practice": 1})
     assert r.json()["starts_on"] == str(monday + timedelta(days=7))
     week = state(client)["habits"]["this_week"]
-    assert (week["goal"], week["next_goal"]) == ({"applications": 1, "practice": 0}, {"applications": 4, "practice": 1})
+    assert (week["goal"], week["next_goal"]) == ({"applications": 1, "practice": 0, "outreach": 2}, {"applications": 4, "practice": 1, "outreach": 2})
 
 
 @pytest.mark.parametrize("goal", [{"applications": 0, "practice": 1}, {"applications": 31, "practice": 1}, {"applications": 5, "practice": 15},
@@ -220,7 +220,7 @@ def test_goal_bounds(client, goal):
 
 
 def test_one_application_with_a_cv_meets_a_goal_of_one(client, conn, user_a):
-    client.put("/api/profile/goals", json={"applications": 1, "practice": 0})
+    client.put("/api/profile/goals", json={"applications": 1, "practice": 0, "outreach": 0})
     add(client)  # no CV recorded: logged, but it does not count
     assert state(client)["habits"]["this_week"]["met"] is False
     add(client, cv_version_id=sent_cv(conn, user_a)["id"])
@@ -266,7 +266,7 @@ def test_state_for_a_new_user_starts_at_zero(client):
     habits = s["habits"]
     assert (habits["streak"], habits["best_streak"], habits["milestones"], habits["new_milestones"]) == (0, 0, [], [])
     assert habits["this_week"]["goal"] == DEFAULT_GOAL and s["follow_ups_due"] == []
-    assert [t["id"] for t in s["plan"]] == ["applications", "practice", "stories"]
+    assert [t["id"] for t in s["plan"]] == ["applications", "practice", "outreach", "stories"]
 
 
 def test_application_history_in_the_state(client):
