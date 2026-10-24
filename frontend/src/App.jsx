@@ -15,10 +15,11 @@ import Resume from './pages/Resume'
 import Interview from './pages/Interview'
 import Applications from './pages/Applications'
 import Networking from './pages/Networking'
+import Peers from './pages/Peers'
 import Journal from './pages/Journal'
 import Account from './pages/Account'
 
-const PAGES = { home: Home, profile: Profile, pathways: Pathways, jobs: Jobs, resume: Resume, interview: Interview, applications: Applications, networking: Networking, journal: Journal, account: Account }
+const PAGES = { home: Home, profile: Profile, pathways: Pathways, jobs: Jobs, resume: Resume, interview: Interview, applications: Applications, networking: Networking, peers: Peers, journal: Journal, account: Account }
 
 function readHash() {
   const [page, tab] = window.location.hash.slice(1).split('/')

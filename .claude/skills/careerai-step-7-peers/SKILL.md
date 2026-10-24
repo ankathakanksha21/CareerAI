@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 7 of the CareerAI r
 
 # Step 7: peers
 
-**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 4 (weekly goals and streak). **Size:** medium, with the highest privacy risk of any step.
+**Status:** Built on branch `step-7-peers`, 15 October 2026 (see "Where it stands" at the end). Design approved by the owner, 12 October 2026. **Depends on:** step 4 (weekly goals and streak). **Size:** medium, with the highest privacy risk of any step.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -27,6 +27,15 @@ The owner's notes: isolation is a real barrier for international students; a sma
 | Matching | Done by the app, not chosen from a list: same broad field first, then same city or university. Both people accept before a group forms | Recommended; approved 12 Oct 2026 |
 | Visa status is not used for matching | Matching on it would reveal it | Recommended; approved 12 Oct 2026 |
 | No fake peers | With too few users there may be no match. The app says "You are on the list" and waits. It never shows invented people | Recommended; approved 12 Oct 2026 |
+| Build now | Only 3 accounts existed on 15 October 2026, so most people will wait. Built anyway: it is honest while nobody matches, and the three accounts are what the hand checks need | Owner, 15 Oct 2026 |
+| A different field as a fallback | Same field first. When nobody in the same field is waiting, the best other match by city, university and time waited is proposed; the proposal shows their target roles, so either can decline. The waiting message says "when someone joins", not "with similar targets" | Owner, 15 Oct 2026 |
+| Reviewing reports | `scripts/peer_reports.py` lists open reports with the reason and the reported line as it was when reported. Flags mark a report handled, or switch the reported user's Peers off and bar them from rejoining. The owner runs it about weekly | Owner, 15 Oct 2026 |
+| Code of conduct | 1. Be kind. Encourage; never mock, insult or pressure anyone. 2. Keep it to the job search. No selling, no recruiting for money, no asking for money or favours. 3. Keep what you see in the group to yourself. Never share another member's details or check-ins elsewhere. 4. Never ask anyone for passwords, documents, bank details or anything about their visa. 5. If you ever meet in person, meet somewhere public. 6. Report anything that makes you uncomfortable. Every report is reviewed, and anyone who breaks these rules loses access to buddy groups | Owner, 15 Oct 2026 (drafted by Claude, approved) |
+| Fields | Accounting and finance; Banking and investment; Consulting; Data and analytics; Software and IT; Engineering; Science and research; Healthcare and life sciences; Law; Marketing, advertising and PR; Sales and business development; Human resources; Operations, logistics and supply chain; Project and product management; Design, media and creative; Education; Public sector and policy; Charity and social care; Property, architecture and construction; Energy and sustainability; Hospitality, retail and tourism | Owner, 15 Oct 2026 (drafted by Claude, approved) |
+| Terms of use | Not ready. The owner writes them before Peers is launched to real users; recorded as a launch blocker | Owner, 15 Oct 2026 |
+| The final review's findings | All 16 fixed (5 important, 11 minor), test first. Plan task 10 | Owner, 24 Oct 2026 |
+| Names written surname-first | Buddies see the first word of the full name. The consent screen and the group page show the user exactly how they appear, and say to put their given name first in Profile if it is wrong. No separate display name | Owner, 24 Oct 2026 (one of two options offered by the review) |
+| New proposals a day | At most 3 a London day for each person; a newcomer proposed into their group counts too. After that they wait with "We will look again tomorrow", and nobody is proposed to them or their group until then. Stops "Not this time" being used to browse everyone | Owner, 24 Oct 2026 |
 | Nudges have fixed wording | No free text, so nothing to moderate. At most one nudge to each member per day | Recommended; approved 12 Oct 2026 |
 | Check-in line | Free text, 140 characters, one per week, with Report on every line | Recommended; approved 12 Oct 2026 |
 | Contact link | One link per user, LinkedIn or WhatsApp only, visible only to current members of their group | Recommended; approved 12 Oct 2026 |
@@ -183,3 +192,27 @@ Three real accounts can form a group, see only the agreed details about each oth
 - The owner's plan for reviewing reports, and whether a code of conduct and terms of use are ready. Do not launch user-to-user features without them.
 - That step 4's weekly targets and streak exist, including the third target from step 6 if it has shipped.
 - WhatsApp and LinkedIn link formats to accept.
+
+## Verified at build time (15 October 2026)
+
+- **Users:** 3 accounts, probably all the owner's. Built anyway (owner's choice).
+- **Step 4's targets:** `habits.this_week` and `habits.streaks` take three targets, step 6's outreach included.
+- **LinkedIn link:** LinkedIn's help page: the custom part of a profile address is 3 to 100 letters or numbers; default ones add hyphens and digits. Accepted: `https://(www.|xx.)linkedin.com/in/<handle>`, stored as `https://www.linkedin.com/in/<handle>`.
+- **WhatsApp link:** `https://wa.me/<number>`, the full international number in digits. WhatsApp's own help page did not load; two guides citing it agree. Other WhatsApp forms (QR links, `api.whatsapp.com`) are left out rather than guessed.
+- **Reports and code of conduct:** agreed with the owner (table above). Terms of use: not ready; a launch blocker.
+
+## Changed at build time
+
+| What | Why |
+|---|---|
+| A third member needs the yes of the newcomer and of every current member | "Both people accept before a group forms": nobody shares their week with someone they did not accept |
+| Pairings declined, left unanswered for 7 days, or left are never proposed again | Re-proposing the same silent person, or someone just left, helps nobody |
+| Leaving (and "Find a new group") puts the user back on the list; switching Peers off is how to stop | One way out of a group, one way to stop |
+| Blocking a proposed newcomer turns them away and the blocker stays | Leaving one's own group because of a newcomer would punish the wrong person |
+| Matching also runs when a waiting user opens Home or Peers | A match missed when two people join at the same moment heals on the next visit, still with no scheduled job |
+| "Same city" is a shared preferred location, not the CV town | Every user has preferred locations |
+| Pages name a member by their membership id, never a user id | Nothing that identifies an account reaches the browser |
+
+## Where it stands
+
+Built, tested and checked in a browser with three temporary users (never saved). The final review's 16 findings were fixed on 24 October 2026 (plan task 10), with 3 new proposals a day as the cap and "Your group will see you as" for surname-first names. The owner's three-account hand checks, the terms of use, and a signed-in session are left. See ARCHITECTURE sections 27 and 28.

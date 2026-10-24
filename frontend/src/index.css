@@ -345,6 +345,9 @@ input[type=checkbox] { accent-color: var(--green); width: 16px; height: 16px; }
 .filter { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 5px 12px; font-size: 13.5px; font-weight: 550; cursor: pointer; color: var(--ink-2); }
 .filter.active { background: var(--green); color: #fff; border-color: var(--green); }
 .member { display: grid; gap: 8px; }
+.buddy { display: flex; align-items: center; gap: 8px; }
+.buddy .state { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; }
+.buddy .state.met { background: var(--green); border-color: var(--green); color: #fff; }
 
 @media (max-width: 1100px) {
   .cols-3, .cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }

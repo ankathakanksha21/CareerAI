@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { BookOpen, BriefcaseBusiness, Check, Compass, FileText, House, Mic, Search, UserRound, Users } from 'lucide-react'
+import { BookOpen, BriefcaseBusiness, Check, Compass, FileText, Handshake, House, Mic, Search, UserRound, Users } from 'lucide-react'
 
 // Sidebar. key = route, label = what the user sees. Pages return here as their step goes live
 export const NAV = [
@@ -11,6 +11,7 @@ export const NAV = [
   { key: 'interview', label: 'Interview coach', icon: Mic },
   { key: 'applications', label: 'Applications', icon: BriefcaseBusiness },
   { key: 'networking', label: 'Networking', icon: Users },
+  { key: 'peers', label: 'Peers', icon: Handshake },
   { key: 'journal', label: 'Journal', icon: BookOpen },
 ]
 export const PAGE_LABEL = Object.fromEntries(NAV.map((i) => [i.key, i.label]))
@@ -50,12 +51,14 @@ export function useAction(fn) {
   return { run, loading, result, error, setResult, retry: () => run(...last.current) }
 }
 
-// For one-click actions (tick, drag, delete): if the request fails, tell the user instead of failing silently
-export const attempt = (notify) => async (fn) => {
+// For one-click actions (tick, drag, delete): if the request fails, tell the user instead of failing silently.
+// onGone, if given, runs when what was acted on no longer exists (404), so the page shows how things are now
+export const attempt = (notify, onGone) => async (fn) => {
   try {
     return await fn()
   } catch (e) {
     notify(e.message || 'That did not work. Try again.')
+    if (e.status === 404 && onGone) onGone()
   }
 }
 

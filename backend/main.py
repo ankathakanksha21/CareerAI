@@ -30,6 +30,8 @@ import jobs
 import limits
 import links
 import networking
+import peerdb
+import peers
 import prep
 import reed
 import repo
@@ -117,7 +119,7 @@ def get_config():
 
 def _pages() -> set[str]:
     """The pages this build has, so the weekly plan never offers a task on one that is not there."""
-    return ({"home", "profile", "pathways", "resume", "interview", "applications", "networking", "journal"}
+    return ({"home", "profile", "pathways", "resume", "interview", "applications", "networking", "peers", "journal"}
             | ({"jobs"} if jobs_configured() else set()))
 
 
@@ -174,6 +176,7 @@ def get_state(user: CurrentUser):
         profile = repo.get_or_create_profile(conn, user.id, user.name)
         state = repo.load_state(conn, user.id)
         state["achievements"] = [_achievement(a) for a in state["achievements"]]
+        state["peers"] = peerdb.status(conn, user.id)
         state["cv_versions"] = [_version(v) for v in state["cv_versions"]]
         usage = limits.usage(conn, user.id)
         job_counts = repo.job_counts(conn, user.id, since, fresh_since)
@@ -234,6 +237,8 @@ def _delete_auth_user(user_id: str) -> None:
 
 @app.delete("/api/account", status_code=204)
 def delete_account(user: CurrentUser):
+    with db.transaction() as conn:  # out of any buddy group first, so a group left with one member closes
+        peerdb.leave_all(conn, user.id)
     try:
         _delete_auth_user(user.id)
     except httpx.HTTPError:
@@ -1087,6 +1092,155 @@ def put_events_page(body: EventsPageIn, user: CurrentUser):
     with db.transaction() as conn:
         repo.get_or_create_profile(conn, user.id, user.name)
         return {"university_events_url": repo.set_university_events_url(conn, user.id, body.url)["university_events_url"]}
+
+
+# ---------- peers: buddy groups of two or three ----------
+# Everything one user sees of another comes from peerdb.peer_view; these routes only say who is asking.
+
+PROFILE_FIRST = "Add your university and course in Profile first: your buddies see them."
+BARRED = "You can't join buddy groups."
+ALREADY_ON = "Buddy groups are already on."
+
+
+class JoinIn(BaseModel):
+    """Switching Peers on: both confirmations, and the field to be matched on."""
+    over_18: Literal[True]
+    conduct: Literal[True]
+    field: Literal[tuple(peers.FIELDS)]
+
+
+def _in_peers(user: User, change) -> dict:
+    """Make one change for the caller, then return where they stand. A group or member they cannot
+    see (left, closed, never theirs) is 404."""
+    with db.transaction() as conn:
+        try:
+            change(conn)
+        except peerdb.Gone:
+            raise HTTPException(404, GONE)
+        return peerdb.status(conn, user.id)
+
+
+@app.get("/api/peers")
+def get_peers(user: CurrentUser):
+    with db.transaction() as conn:
+        return peerdb.status(conn, user.id)
+
+
+@app.post("/api/peers/join")
+def join_peers(body: JoinIn, user: CurrentUser):
+    with db.transaction() as conn:
+        if not repo.details_complete(repo.get_or_create_profile(conn, user.id, user.name)):
+            raise HTTPException(409, PROFILE_FIRST)
+        try:
+            peerdb.switch_on(conn, user.id, field=body.field)
+        except peerdb.Barred:
+            raise HTTPException(403, BARRED)
+        except peerdb.AlreadyOn:
+            raise HTTPException(409, ALREADY_ON)
+        return peerdb.status(conn, user.id)
+
+
+@app.post("/api/peers/leave-all")
+def leave_peers(user: CurrentUser):
+    """Switch Peers off: out of any group at once, and the user's check-ins and nudges gone."""
+    return _in_peers(user, lambda conn: peerdb.leave_all(conn, user.id))
+
+
+@app.post("/api/peers/groups/{group_id}/accept")
+def accept_group(group_id: UUID, user: CurrentUser):
+    return _in_peers(user, lambda conn: peerdb.answer(conn, user.id, str(group_id), yes=True))
+
+
+@app.post("/api/peers/groups/{group_id}/decline")
+def decline_group(group_id: UUID, user: CurrentUser):
+    return _in_peers(user, lambda conn: peerdb.answer(conn, user.id, str(group_id), yes=False))
+
+
+@app.post("/api/peers/groups/{group_id}/leave")
+def leave_group(group_id: UUID, user: CurrentUser):
+    return _in_peers(user, lambda conn: peerdb.leave(conn, user.id, str(group_id)))
+
+
+PEERS_OFF = "Switch buddy groups on first."
+
+
+class CheckinIn(BaseModel):
+    text: Text(peers.CHECKIN_CHARS)
+
+
+@app.put("/api/peers/groups/{group_id}/checkin")
+def put_checkin(group_id: UUID, body: CheckinIn, user: CurrentUser):
+    """This week's line. A second one in the same London week replaces the first."""
+    return _in_peers(user, lambda conn: peerdb.set_checkin(conn, user.id, str(group_id), body.text))
+
+
+class NudgeIn(BaseModel):
+    to: UUID  # a member, by their membership id
+
+
+@app.post("/api/peers/groups/{group_id}/nudge")
+def send_nudge(group_id: UUID, body: NudgeIn, user: CurrentUser):
+    """A nudge with fixed wording, at most one a day to each member."""
+    try:
+        return _in_peers(user, lambda conn: peerdb.nudge(conn, user.id, str(group_id), str(body.to)))
+    except peerdb.AlreadyNudged as e:
+        raise HTTPException(409, f"You have already nudged {e.name} today.")
+
+
+class ContactLinkIn(BaseModel):
+    link: Text(300, 0) = ""
+
+    @field_validator("link")
+    @classmethod
+    def linkedin_or_whatsapp(cls, value: str) -> str | None:
+        return peers.contact_link(value) if value else None
+
+
+@app.put("/api/peers/contact-link")
+def put_contact_link(body: ContactLinkIn, user: CurrentUser):
+    """A LinkedIn or WhatsApp link shown only to the user's current group, or cleared."""
+    with db.transaction() as conn:
+        try:
+            peerdb.set_contact_link(conn, user.id, body.link)
+        except peerdb.Gone:
+            raise HTTPException(409, PEERS_OFF)
+        return peerdb.status(conn, user.id)
+
+
+class MemberIn(BaseModel):
+    member: UUID  # by their membership id
+
+
+@app.post("/api/peers/block")
+def block_member(body: MemberIn, user: CurrentUser):
+    """Block and leave: the two are never shown to or matched with each other again."""
+    return _in_peers(user, lambda conn: peerdb.block(conn, user.id, str(body.member)))
+
+
+class ReportIn(BaseModel):
+    member: UUID
+    reason: Literal[tuple(peers.REPORT_REASONS)]
+    details: Text(peers.DETAILS_CHARS, 0) = ""
+    checkin_id: UUID | None = None
+
+
+@app.post("/api/peers/report")
+def report_member(body: ReportIn, user: CurrentUser):
+    """Kept for the owner to review (scripts/peer_reports.py). A reported line disappears for the reporter at once."""
+    return _in_peers(user, lambda conn: peerdb.report(conn, user.id, member=str(body.member), reason=body.reason, details=body.details,
+                                                      checkin_id=str(body.checkin_id) if body.checkin_id else None))
+
+
+@app.post("/api/ai/peers/field")
+def ai_peers_field(user: CurrentUser):
+    """A field suggested from the user's target roles, for the consent screen. One AI action; none
+    when there are no target roles. An answer outside the list comes back as null."""
+    with db.transaction() as conn:
+        roles = [f["name"] for f in repo.list_families(conn, user.id) if f["targeted"]]
+    if not roles:
+        return {"field": None}
+    _start_ai(user, "peers_field")
+    return {"field": ai.suggest_field(role_names=roles)}
 
 
 # ---------- jobs: real adverts matched to the user ----------

@@ -11,7 +11,9 @@ TABLES = ("profiles", "achievements", "role_families", "saved_jobs", "cv_version
           "applications", "journal_entries", "usage_events", "schema_migrations",
           "job_listings", "job_searches", "job_search_results", "sponsors", "reference_meta", "job_matches",
           "work_history", "education", "application_events", "weekly_goals", "companies", "prep_packs",
-          "contacts", "outreach_events", "networking_events")
+          "contacts", "outreach_events", "networking_events",
+          "peer_profiles", "peer_groups", "peer_group_members", "peer_passes", "peer_checkins", "peer_nudges",
+          "peer_blocks", "peer_reports")
 
 
 def test_apply_all_is_idempotent(conn):
@@ -518,3 +520,75 @@ def test_accounts_that_exist_at_the_migration_get_no_outreach_target_and_later_o
     conn.execute("insert into zzqx_profiles values (2)")
     rows = conn.execute("select outreach_default from zzqx_profiles order by user_id").fetchall()
     assert [r["outreach_default"] for r in rows] == [0, 2]
+
+
+# ---------- peers (010) ----------
+
+def _peer_group(conn, status="active"):
+    return conn.execute("insert into peer_groups (status) values (%s) returning id", (status,)).fetchone()["id"]
+
+
+def _member(conn, group, user, slot, status="accepted"):
+    return conn.execute("insert into peer_group_members (group_id, user_id, slot, status) values (%s, %s, %s, %s) returning id",
+                        (group, user, slot, status)).fetchone()["id"]
+
+
+def test_peer_tables_cascade_on_user_delete(conn, user_a, user_b):
+    conn.execute("insert into peer_profiles (user_id, enabled, consented_at, over_18, field) values (%s, true, now(), true, 'data')", (user_a,))
+    group = _peer_group(conn)
+    _member(conn, group, user_a, 1)
+    _member(conn, group, user_b, 2)
+    checkin = conn.execute("insert into peer_checkins (group_id, user_id, week_start, text) values (%s, %s, '2026-10-12', 'Two applications') "
+                           "returning id", (group, user_a)).fetchone()["id"]
+    conn.execute("insert into peer_nudges (group_id, from_user, to_user, on_day) values (%s, %s, %s, '2026-10-15')", (group, user_a, user_b))
+    conn.execute("insert into peer_nudges (group_id, from_user, to_user, on_day) values (%s, %s, %s, '2026-10-15')", (group, user_b, user_a))
+    conn.execute("insert into peer_passes (user_id, other_id) values (%s, %s)", (user_b, user_a))
+    conn.execute("insert into peer_blocks (blocker, blocked) values (%s, %s)", (user_a, user_b))
+    conn.execute("insert into peer_reports (reporter, about_user, group_id, checkin_id, reason) values (%s, %s, %s, %s, 'unkind')",
+                 (user_b, user_a, group, checkin))
+    conn.execute("delete from auth.users where id = %s", (user_a,))
+    for table, column in (("peer_profiles", "user_id"), ("peer_group_members", "user_id"), ("peer_checkins", "user_id"),
+                          ("peer_nudges", "from_user"), ("peer_nudges", "to_user"), ("peer_passes", "other_id"),
+                          ("peer_blocks", "blocker"), ("peer_reports", "about_user")):
+        assert _count(conn, table, column, user_a) == 0, table
+    assert _count(conn, "peer_group_members", "user_id", user_b) == 1  # the other member's row stays; the app closes the group
+
+
+def test_peer_group_never_holds_a_fourth_member(conn, user_a, user_b):
+    third, fourth = (conn.execute("insert into auth.users (id, email) values (gen_random_uuid(), 'zzqx-' || gen_random_uuid() || '@example.test') "
+                                  "returning id").fetchone()["id"] for _ in range(2))
+    group = _peer_group(conn)
+    for slot, user in enumerate((user_a, user_b, third), start=1):
+        _member(conn, group, user, slot)
+    with pytest.raises(psycopg.errors.UniqueViolation), conn.transaction():
+        _member(conn, group, fourth, 3, status="proposed")
+    with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+        _member(conn, group, fourth, 4)
+    conn.execute("update peer_group_members set status = 'left' where group_id = %s and user_id = %s", (group, third))
+    _member(conn, group, fourth, 3, status="proposed")  # a member who left frees their place
+
+
+def test_a_user_is_live_in_one_group_only(conn, user_a, user_b):
+    first, second = _peer_group(conn), _peer_group(conn, "proposed")
+    _member(conn, first, user_a, 1)
+    with pytest.raises(psycopg.errors.UniqueViolation), conn.transaction():
+        _member(conn, second, user_a, 1, status="proposed")
+    _member(conn, second, user_b, 1, status="declined")
+    conn.execute("update peer_group_members set status = 'declined' where group_id = %s and user_id = %s", (first, user_a))
+    _member(conn, second, user_a, 2, status="proposed")  # once declined in one, they can be proposed in another
+
+
+@pytest.mark.parametrize("statement", [
+    "insert into peer_groups (status) values ('paused')",
+    "insert into peer_group_members (group_id, user_id, slot, status) values ({group}, {user}, 1, 'kicked')",
+    "insert into peer_reports (reporter, about_user, reason) values ({user}, {user}, 'rude')",
+    "insert into peer_checkins (group_id, user_id, week_start, text) values ({group}, {user}, '2026-10-12', repeat('x', 141))",
+    "insert into peer_checkins (group_id, user_id, week_start, text) values ({group}, {user}, '2026-10-12', '')",
+    "insert into peer_reports (reporter, about_user, reason, details) values ({user}, {user}, 'other', repeat('x', 501))",
+    "insert into peer_profiles (user_id, enabled, consented_at, over_18) values ({user}, true, now(), true)",
+    "insert into peer_profiles (user_id, enabled, consented_at, field) values ({user}, true, now(), 'data')",
+])
+def test_peer_values_are_checked(conn, user_a, statement):
+    group = _peer_group(conn)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute(statement.format(group=f"'{group}'", user=f"'{user_a}'"))
