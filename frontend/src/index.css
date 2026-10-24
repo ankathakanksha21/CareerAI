@@ -61,7 +61,7 @@ ul.dots { padding-left: 18px; margin: 4px 0 0; display: grid; gap: 4px; }
 /* ---------- buttons, fields, chips ---------- */
 /* buttons: a green pill for the main action, a grey pill for the rest, green text for small links (D14).
    Hover darkens and lifts 1px; press settles to 98% (D16) */
-.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--green); background: var(--green); color: #fff; padding: 9px 18px; border-radius: var(--r-pill); font-weight: 600; cursor: pointer; font-size: 14px; line-height: 1.3; white-space: nowrap;
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--green); background: var(--green); color: #fff; padding: 9px 18px; border-radius: var(--r-pill); font-weight: 600; cursor: pointer; font-size: 14px; line-height: 1.3; white-space: nowrap; text-decoration: none;
   transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out); }
 .btn:hover { background: var(--green-dark); border-color: var(--green-dark); transform: translateY(-1px); box-shadow: 0 6px 16px -8px rgba(36, 86, 44, 0.55); }
 .btn:active { transform: scale(0.98); box-shadow: none; }
@@ -164,6 +164,9 @@ input[type=checkbox] { accent-color: var(--green); width: 16px; height: 16px; }
 .nav-item .count { margin-left: auto; font-size: 11.5px; font-weight: 700; background: var(--green); color: #fff; border-radius: 10px; padding: 0 7px; line-height: 18px; }
 .side-foot { margin-top: auto; display: flex; gap: 6px; align-items: center; }
 .side-foot .me { flex: 1; min-width: 0; width: auto; }
+/* Contact us sits just above the account row, quieter than the menu */
+.side-contact { margin-top: auto; color: var(--ink-3); font-size: 14px; }
+.side-contact + .side-foot { margin-top: -14px; }
 .icon-btn.side-signout { padding: 8px; }
 .me { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--r-control); }
 .me .name { font-weight: 650; font-size: 14px; line-height: 1.2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
@@ -204,7 +207,7 @@ input[type=checkbox] { accent-color: var(--green); width: 16px; height: 16px; }
 .steps3 > div::before { counter-increment: s; content: counter(s); width: 30px; height: 30px; border-radius: 50%; background: var(--green); color: #fff; font-weight: 700; display: grid; place-items: center; margin-bottom: 12px; font-size: 14px; }
 .steps3 h3 { font-size: 16px; font-weight: 650; }
 .steps3 p { color: var(--ink-2); font-size: 14px; margin-top: 4px; }
-.land-foot { border-top: 1px solid var(--line); padding: 20px 0; color: var(--ink-3); font-size: 13px; }
+.land-foot { border-top: 1px solid var(--line); padding: 20px 0; color: var(--ink-3); font-size: 13px; display: flex; gap: 22px; flex-wrap: wrap; }
 
 /* ---------- onboarding ---------- */
 .ob-top { display: flex; align-items: center; gap: 20px; padding: 14px 28px; border-bottom: 1px solid var(--line); }
@@ -219,6 +222,13 @@ input[type=checkbox] { accent-color: var(--green); width: 16px; height: 16px; }
 .ob-title { text-align: center; margin-bottom: 30px; }
 .ob-title h1 { font-size: 36px; font-weight: 650; letter-spacing: -0.035em; line-height: 1.1; }
 .ob-title p { color: var(--ink-3); margin-top: 6px; }
+/* Contact us: one card per owner, centred */
+.contact-cards { max-width: 680px; margin: 0 auto; }
+.contact-card { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 32px 24px 28px; }
+.contact-card h2 { font-size: 18px; margin-top: 4px; }
+.contact-email { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 14px; text-decoration: none; overflow-wrap: anywhere; margin-bottom: 6px; }
+.contact-email svg { flex: none; color: var(--green); }
+.contact-email:hover { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
 .choice { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; text-align: left; cursor: pointer; }
 .choice.selected { border-color: var(--green); box-shadow: 0 0 0 1px var(--green); }
 .choice p { font-size: 13.5px; color: var(--ink-3); }
@@ -407,6 +417,8 @@ input[type=checkbox] { accent-color: var(--green); width: 16px; height: 16px; }
   .side-foot .me .name, .side-foot .side-signout { display: none; }
   .nav-group { display: flex; gap: 2px; }
   .nav-item { white-space: nowrap; }
+  .side-contact { margin: 0; width: auto; flex: none; }
+  .side-contact + .side-foot { margin-top: 0; }
   .main { padding: 22px 16px 60px; }
   .cols-2, .cols-3, .cols-4, .steps3 { grid-template-columns: 1fr; }
   .topbar nav { display: none; }

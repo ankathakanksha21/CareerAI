@@ -296,7 +296,7 @@ frontend/src/
   tracker.js       the tracker's stage words and small rules, shared by Applications and Home
   prep.js          prep pack words and which pack belongs to a job or application
   networking.js    networking's labels and small rules: which drafts a contact can be sent, event times in London
-  pages/           Landing, Auth, Privacy, Onboarding, Home, Profile, Pathways, Jobs, Resume,
+  pages/           Landing, Auth, Privacy, Contact, Onboarding, Home, Profile, Pathways, Jobs, Resume,
                    Interview, Applications, Networking, Peers, Journal, Account
 app.py             Vercel entry point: the API plus the built frontend
 ```
@@ -1082,3 +1082,11 @@ Every draft is also refused if it claims a connection the user did not enter (a 
 The scroll reveal and hover rules, 25 October 2026: lint and build clean; in the real app with the stand-in session, cards below the fold waited at load (none on screen hidden) and rose as the page scrolled, at desktop and 375px, with no sideways scroll; every hover rule present in the loaded stylesheet. Hover itself could not be seen: a simulated pointer does not hover in the check browser.
 
 **Not verified:** a real sign-in, the hover effects under a real pointer, Safari and Firefox, and printing.
+
+## 31. Contact us (25 October 2026)
+
+**What it is.** A Contact us page (`pages/Contact.jsx`, address `#contact`) with one card for each of the two people who build the app, Akanksha Ankath first, then Dharan Teja Vipparla: name, email (opens the mail app) and a LinkedIn button (new tab). Their phone numbers were given but are left off on purpose, at the owners' choice. Like the privacy notice it opens signed in or out, and Back returns to the dashboard or the landing page. It is linked from the landing page's footer, beside Privacy, and from the bottom of the signed-in menu, just above the account row (on a phone, at the end of the scrolling menu row). The details live in the page itself, not the database: they are the owners' own, not user data. No backend change.
+
+**Verified, 25 October 2026.** Frontend lints with no errors and builds; the whole backend suite passed (2,174, 0 skipped; the backend is unchanged). In a browser, signed out: the page at desktop width and 375px (no sideways scroll, no phone number anywhere on it, both mail and LinkedIn addresses right, LinkedIn opening in a new tab) and the footer link. Signed in, through the scratch backend and stand-in session (both removed afterwards, no `check-%@example.test` user left): the menu link sits above the account row, opens the page, and Back returns to the dashboard; on a phone it shows at the end of the menu row with no sideways scroll.
+
+**Not verified:** a real sign-in, and that each email and LinkedIn address reaches its owner (they are as the owners gave them).
