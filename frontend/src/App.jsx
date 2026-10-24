@@ -132,7 +132,8 @@ export default function App() {
         </div>
       </aside>
       <main className="main">
-        <PageBoundary key={page}><Page {...props} /></PageBoundary>
+        {/* page-enter: the page's cards fade up in sequence when it opens (index.css, design board D18) */}
+        <PageBoundary key={page}><div className="page-enter"><Page {...props} /></div></PageBoundary>
       </main>
       {toastEl}
     </div>

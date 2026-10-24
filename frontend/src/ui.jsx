@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { BookOpen, BriefcaseBusiness, Check, ChevronDown, Compass, FileText, Handshake, House, Info, Mic, Search, UserRound, Users } from 'lucide-react'
 
 // Sidebar. key = route, label = what the user sees. Pages return here as their step goes live
@@ -44,21 +44,40 @@ export function InfoButton({ open, label, controls, onClick }) {
   )
 }
 
+// Whether the person has asked their device for less motion: then nothing waits for an animation to finish
+const lessMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
+// Open at once; close after the closing animation (index.css .closing), so a toggle or note leaves as gently as it came
+function useOpenClose(initial, closeMs) {
+  const [open, setOpen] = useState(initial)
+  const [closing, setClosing] = useState(false)
+  const timer = useRef(null)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const close = useCallback(() => {
+    if (lessMotion()) { setOpen(false); return }
+    setClosing(true)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => { setOpen(false); setClosing(false) }, closeMs)
+  }, [closeMs])
+  const openNow = () => { clearTimeout(timer.current); setClosing(false); setOpen(true) }
+  return { open, closing, shown: open && !closing, openNow, close }
+}
+
 // A short explanation tucked behind an (i). It opens on click, tap or Enter, closes on Escape or a click elsewhere,
 // and is kept inside the screen on a phone
 export function InfoTip({ label = 'More information', children }) {
-  const [open, setOpen] = useState(false)
+  const { open, closing, shown, openNow, close } = useOpenClose(false, 150)
   const id = useId()
   const box = useRef(null)
   const pop = useRef(null)
   useEffect(() => {
-    if (!open) return
-    const away = (e) => { if (!box.current?.contains(e.target)) setOpen(false) }
-    const esc = (e) => { if (e.key === 'Escape') setOpen(false) }
+    if (!shown) return
+    const away = (e) => { if (!box.current?.contains(e.target)) close() }
+    const esc = (e) => { if (e.key === 'Escape') close() }
     document.addEventListener('pointerdown', away)
     document.addEventListener('keydown', esc)
     return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
-  }, [open])
+  }, [shown, close])
   useLayoutEffect(() => {
     const el = pop.current
     if (!open || !el) return
@@ -68,8 +87,8 @@ export function InfoTip({ label = 'More information', children }) {
   }, [open])
   return (
     <span className="info" ref={box}>
-      <InfoButton open={open} label={label} controls={open ? id : undefined} onClick={() => setOpen(!open)} />
-      {open && <span id={id} ref={pop} role="note" className="info-pop">{children}</span>}
+      <InfoButton open={shown} label={label} controls={shown ? id : undefined} onClick={() => (shown ? close() : openNow())} />
+      {open && <span id={id} ref={pop} role="note" className={`info-pop ${closing ? 'closing' : ''}`}>{children}</span>}
     </span>
   )
 }
@@ -77,18 +96,18 @@ export function InfoTip({ label = 'More information', children }) {
 // Longer text tucked behind a toggle, closed unless defaultOpen. With no label the toggle reads Show more / Show less.
 // heading ('h2', 'h3') wraps the toggle in a heading, so a section title can open its own section
 export function ShowMore({ label, openLabel, heading: Heading, defaultOpen = false, buttonClassName = 'linkish small', className = '', children }) {
-  const [open, setOpen] = useState(defaultOpen)
+  const { open, closing, shown, openNow, close } = useOpenClose(defaultOpen, 220)
   const id = useId()
-  const text = open ? (openLabel || label || 'Show less') : (label || 'Show more')
+  const text = shown ? (openLabel || label || 'Show less') : (label || 'Show more')
   const toggle = (
-    <button type="button" className={`showmore-btn ${buttonClassName}`} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
-      {text}<ChevronDown size={15} aria-hidden="true" className={open ? 'flip' : ''} />
+    <button type="button" className={`showmore-btn ${buttonClassName}`} aria-expanded={shown} aria-controls={id} onClick={() => (shown ? close() : openNow())}>
+      {text}<ChevronDown size={15} aria-hidden="true" className={shown ? 'flip' : ''} />
     </button>
   )
   return (
     <div className={`showmore ${className}`}>
       {Heading ? <Heading className="showmore-head">{toggle}</Heading> : toggle}
-      <div id={id} className="showmore-body" hidden={!open}>{children}</div>
+      <div id={id} className={`showmore-body ${closing ? 'closing' : ''}`} hidden={!open}>{children}</div>
     </div>
   )
 }
