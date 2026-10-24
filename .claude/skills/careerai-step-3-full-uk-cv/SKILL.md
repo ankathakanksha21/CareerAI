@@ -98,7 +98,7 @@ File name: `Firstname-Lastname-CV-<Company>.docx` (or `.pdf`); the base CV omits
 
 **Resume page.** A job picker with "Base CV (no job)" as the first choice. Building takes one AI action.
 
-- **Left:** the CV as it will print. Clicking any text edits it. Each bullet and entry can be dragged to reorder, hidden, or restored. "Add a bullet from my profile" lists achievements not yet used.
+- **Left:** the CV as it will print. Clicking any text edits it. Each bullet and entry can be dragged to reorder, hidden, or restored. "Add a bullet from profile" lists achievements not yet used.
 - **Right:** page count with a warning over two pages; keyword coverage; "Be ready to talk about" (gaps); Download Word, Download PDF; the cover letter with its own editing and downloads and a Copy button; "Applied with this CV".
 
 **Keyword coverage** lists the main terms from the job description in three groups: covered in this CV; in your profile but not in this CV (with "Add" where an achievement evidences it); not in your profile (a gap, shown for honesty, never added automatically).

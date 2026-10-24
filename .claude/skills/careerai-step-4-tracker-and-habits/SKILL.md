@@ -61,7 +61,7 @@ This is the product's main differentiator in the owner's words: tracking quality
 | What counts as an application, rechecked | Still only one with a CV version recorded | Owner, 14 Oct 2026 |
 | When a goal change applies | The first goal a user ever sets applies to the current week as well, so a new user is not judged by defaults they never chose. Every later change applies from the following Monday | Owner, 14 Oct 2026 |
 | Contact on an application | Two fields: the contact's name, and how to reach them. Only the name is ever sent to the AI (for a follow-up draft). The existing `contact` column becomes "how to reach them"; one new column, `contact_name` | Owner, 14 Oct 2026 |
-| Milestone banner | At the top of Home, above "Your next best step", because it is shown once and marked seen as soon as it appears | Owner, 14 Oct 2026 |
+| Milestone banner | At the top of Home, above "Next step", because it is shown once and marked seen as soon as it appears | Owner, 14 Oct 2026 |
 
 ## In scope
 
