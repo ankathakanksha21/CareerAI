@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
-import { ArrowLeft, Mic, Printer, RefreshCw, Trash2 } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
+import { ArrowLeft, Award, ChevronDown, Mic, Printer, RefreshCw, Trash2 } from 'lucide-react'
 import { api, del, patch, post } from '../api'
-import { ErrorRetry, attempt, fmtDate, useAction } from '../ui'
+import { ErrorRetry, ShowMore, attempt, fmtDate, useAction } from '../ui'
 import { INTERVIEW_TYPE_LABEL, QUESTION_KIND, SECTION_LABEL } from '../prep'
 
 const host = (url) => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url } }
@@ -57,6 +57,10 @@ export default function PrepPack({ id, s, go, refresh, notify, onBack }) {
     await refresh()
     notify('Pack refreshed')
   })
+  // what is opened on screen: a talking point's full fact, a likely question's reason. Print shows them all
+  const [opened, setOpened] = useState([])
+  const flip = (key) => setOpened(opened.includes(key) ? opened.filter((k) => k !== key) : [...opened, key])
+  const uid = useId()
   const remove = () => {
     if (!window.confirm(`Delete the prep pack for ${pack.role} at ${pack.company}?`)) return
     attempt(notify)(async () => { await del(`/api/prep/${id}`); await refresh(); notify('Prep pack deleted'); onBack() })
@@ -82,16 +86,16 @@ export default function PrepPack({ id, s, go, refresh, notify, onBack }) {
         <div className="row">
           <div style={{ flex: 1, minWidth: 220 }}>
             <h2>{pack.role} at {pack.company}</h2>
-            <p className="small muted">Researched on {longDate(c.brief.researched_at)}. Every line links to where it was read.</p>
+            <p className="small muted">Researched on {longDate(c.brief.researched_at)}. Every line links to its source.</p>
           </div>
           <div className="row no-print">
-            {pack.saved_job_id && <button className="btn ghost small" onClick={() => go('interview', null, { jobId: pack.saved_job_id })}><Mic size={14} />Practise with this pack</button>}
+            {pack.saved_job_id && <button className="btn ghost small" aria-label="Practise with this pack" title="Practise with this pack" onClick={() => go('interview', null, { jobId: pack.saved_job_id })}><Mic size={14} aria-hidden="true" />Practise</button>}
             {canRefresh && <button className="btn ghost small" disabled={again.loading} onClick={() => again.run()}><RefreshCw size={14} />{again.loading ? 'Refreshing' : 'Refresh'}</button>}
-            <button className="btn ghost small" onClick={() => window.print()}><Printer size={14} />Print</button>
-            <button className="icon-btn" aria-label="Delete this pack" onClick={remove}><Trash2 size={16} /></button>
+            <button type="button" className="icon-btn calm" aria-label="Print this pack" title="Print this pack" onClick={() => window.print()}><Printer size={16} aria-hidden="true" /></button>
+            <button className="icon-btn" aria-label="Delete this pack" title="Delete this pack" onClick={remove}><Trash2 size={16} /></button>
           </div>
         </div>
-        {again.loading && <p className="small muted no-print">Researching again and rewriting the pack. About a minute. Your own pitch and right-to-work line are kept.</p>}
+        {again.loading && <p className="small muted no-print">Researching and rewriting. About a minute. Your pitch and right-to-work line are kept.</p>}
         <ErrorRetry error={again.error} onRetry={again.retry} />
       </section>
 
@@ -102,24 +106,35 @@ export default function PrepPack({ id, s, go, refresh, notify, onBack }) {
 
       <section className="card pack-section">
         <h2>Why this company, for you</h2>
-        {c.talking_points.length === 0 ? <p className="muted">Nothing was found about the company to build these from.</p> : (
+        {c.talking_points.length === 0 ? <p className="muted">No company facts to build these from.</p> : (
           <ol className="stack" style={{ gap: 10, paddingLeft: 18 }}>
-            {c.talking_points.map((t, i) => (
-              <li key={i}>
-                {t.text}
-                <span className="small muted" style={{ display: 'block' }}>
-                  {facts[t.fact_id] && <>From: {facts[t.fact_id].text} <Source f={facts[t.fact_id]} /></>}
-                  {achievements[t.achievement_id] && <> Your achievement: {achievements[t.achievement_id].title}</>}
-                </span>
-              </li>
-            ))}
+            {c.talking_points.map((t, i) => {
+              const f = facts[t.fact_id]
+              const whole = opened.includes(`fact:${i}`)
+              return (
+                <li key={i}>
+                  {t.text}
+                  {/* the fact it rests on, one line until clicked; print shows it whole */}
+                  {f && (
+                    <span className="small muted pack-from">
+                      From:
+                      <button type="button" className={`pack-fact ${whole ? 'open' : ''}`} aria-expanded={whole} onClick={() => flip(`fact:${i}`)}>{f.text}</button>
+                      <Source f={f} />
+                    </span>
+                  )}
+                  {achievements[t.achievement_id] && (
+                    <span className="chip muted pack-achievement"><Award size={13} aria-hidden="true" /><span className="sr-only">Your achievement: </span>{achievements[t.achievement_id].title}</span>
+                  )}
+                </li>
+              )
+            })}
           </ol>
         )}
       </section>
 
       <section className="card pack-section">
         <h2>Tell me about yourself</h2>
-        <p className="small muted no-print">About a minute to 90 seconds spoken. Edit it into your own words; your version is kept when the pack is refreshed.</p>
+        <p className="small muted no-print">About a minute to 90 seconds spoken. Make it your own; your edits are kept on Refresh.</p>
         <textarea key={`pitch:${c.pitch}`} rows={9} defaultValue={c.pitch} maxLength={2500} onBlur={blur('pitch', c.pitch)} aria-label="Tell me about yourself" />
         <p className="print-only draft">{c.pitch}</p>
       </section>
@@ -127,16 +142,24 @@ export default function PrepPack({ id, s, go, refresh, notify, onBack }) {
       <section className="card pack-section">
         <h2>Likely questions</h2>
         <ol className="stack" style={{ gap: 12, paddingLeft: 18 }}>
-          {c.likely_questions.map((q, i) => (
-            <li key={i}>
-              <span className="strong">{q.question}</span> <span className="chip">{kinds[q.competency] || 'Role knowledge'}</span>
-              {q.why && <span className="small muted" style={{ display: 'block' }}>{q.why}</span>}
-              <span className="small" style={{ display: 'block' }}>
-                {stories[q.story_id] ? <>Use your story: <span className="strong">{stories[q.story_id].title}</span></>
-                  : <>No story yet. <button className="linkish small no-print" onClick={() => go('interview', 'stories')}>Write one</button></>}
-              </span>
-            </li>
-          ))}
+          {c.likely_questions.map((q, i) => {
+            const why = opened.includes(`why:${i}`)
+            return (
+              <li key={i}>
+                {/* why it is likely opens when the question is clicked; print shows every reason */}
+                {q.why ? (
+                  <button type="button" className="pack-q" aria-expanded={why} aria-controls={`${uid}-why-${i}`} onClick={() => flip(`why:${i}`)}>
+                    {q.question}<ChevronDown size={14} aria-hidden="true" className={why ? 'flip' : ''} />
+                  </button>
+                ) : <span className="strong">{q.question}</span>} <span className="chip">{kinds[q.competency] || 'Role knowledge'}</span>
+                {q.why && <div id={`${uid}-why-${i}`} className="small muted pack-print-open" hidden={!why}>{q.why}</div>}
+                <span className="small" style={{ display: 'block' }}>
+                  {stories[q.story_id] ? <>Use your story: <span className="strong">{stories[q.story_id].title}</span></>
+                    : <>No story yet. <button className="linkish small no-print" onClick={() => go('interview', 'stories')}>Write one</button></>}
+                </span>
+              </li>
+            )
+          })}
         </ol>
       </section>
 
@@ -158,7 +181,7 @@ export default function PrepPack({ id, s, go, refresh, notify, onBack }) {
         {c.right_to_work || c.right_to_work_edited ? (
           <input type="text" key={`rtw:${c.right_to_work}`} defaultValue={c.right_to_work} maxLength={300} onBlur={blur('right_to_work', c.right_to_work)} aria-label="Your right-to-work answer" />
         ) : (
-          <p className="small">Add your visa type and end date in <button className="linkish" onClick={() => go('profile')}>Your details</button> to get this line.</p>
+          <p className="small">Add your visa type and end date in <button className="linkish" onClick={() => go('profile')}>Your details</button>.</p>
         )}
         <p className="print-only">{c.right_to_work}</p>
         <p className="small muted">Employers often ask next whether you will need sponsorship. That answer is yours to add. This is not immigration advice.</p>
@@ -171,10 +194,13 @@ export default function PrepPack({ id, s, go, refresh, notify, onBack }) {
             {s.options.interview_types.map((t) => <option key={t} value={t}>{INTERVIEW_TYPE_LABEL[t]}</option>)}
           </select>
         </div>
-        <h3>{INTERVIEW_TYPE_LABEL[c.interview_type]} interview</h3>
+        {/* on screen the picker shows the type; print hides the picker, so it prints this instead */}
+        <h3 className="print-only">{INTERVIEW_TYPE_LABEL[c.interview_type]} interview</h3>
         <ul className="dots small">{s.content.interview_day[c.interview_type].map((x) => <li key={x}>{x}</li>)}</ul>
-        <h3>UK interview norms</h3>
-        <ul className="dots small">{s.content.tone_norms.map((x) => <li key={x}>{x}</li>)}</ul>
+        <h3 className="print-only">UK interview norms</h3>
+        <ShowMore label={`UK interview norms (${s.content.tone_norms.length})`} heading="h3" buttonClassName="pack-norms-btn" className="pack-norms">
+          <ul className="dots small">{s.content.tone_norms.map((x) => <li key={x}>{x}</li>)}</ul>
+        </ShowMore>
       </section>
     </div>
   )

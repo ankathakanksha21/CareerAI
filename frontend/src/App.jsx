@@ -2,7 +2,7 @@ import { Component, useCallback, useEffect, useState } from 'react'
 import { LogOut } from 'lucide-react'
 import { api, onSignedOut } from './api'
 import { getSupabase } from './supabase'
-import { Avatar, Brand, ErrorRetry, NAV } from './ui'
+import { Avatar, Brand, ErrorRetry, NAV, Spinner } from './ui'
 import Landing from './pages/Landing'
 import Auth from './pages/Auth'
 import Privacy from './pages/Privacy'
@@ -90,7 +90,7 @@ export default function App() {
   }
 
   const toastEl = toast && <div className="toast" role="status">{toast}</div>
-  if (session === undefined && !error) return <div className="main muted">Loading</div>
+  if (session === undefined && !error) return <div className="main app-loading"><Spinner /></div>
   if (nav.page === 'privacy') return <Privacy go={go} signedIn={!!session} />
 
   if (!session) {
@@ -101,7 +101,7 @@ export default function App() {
 
   if (reset) return <Auth mode="newpassword" go={go} onDone={finishReset} />
   if (error && !s) return <div className="main"><ErrorRetry error={new Error(error)} onRetry={refresh} /></div>
-  if (!s) return <div className="main muted">Loading</div>
+  if (!s) return <div className="main app-loading"><Spinner /></div>
 
   const props = { s, refresh, go, tab: nav.tab, focus, notify, session, signOut }
   if (nav.page === 'landing') return <><Landing go={go} signedIn />{toastEl}</>
@@ -124,14 +124,11 @@ export default function App() {
           ))}
         </nav>
         <div className="side-foot">
-          <button className="me" onClick={() => go('account')} aria-label="Your account">
+          <button className="me" onClick={() => go('account')} aria-label="Your account" title="Your account">
             <Avatar name={s.profile.full_name} size="sm" />
-            <span style={{ minWidth: 0, textAlign: 'left' }}>
-              <span className="name" style={{ display: 'block' }}>{s.profile.full_name}</span>
-              <span className="course" style={{ display: 'block' }}>{s.profile.course}</span>
-            </span>
+            <span className="name">{s.profile.full_name}</span>
           </button>
-          <button className="btn ghost small" onClick={signOut}><LogOut size={14} />Sign out</button>
+          <button className="icon-btn calm side-signout" onClick={signOut} aria-label="Sign out" title="Sign out"><LogOut size={17} aria-hidden="true" /></button>
         </div>
       </aside>
       <main className="main">

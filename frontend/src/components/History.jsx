@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X } from 'lucide-react'
+import { Pencil, Trash2, X } from 'lucide-react'
 import { del, patch, post, put } from '../api'
 import { attempt, period } from '../ui'
 
@@ -17,16 +17,16 @@ const JOB_FIELDS = [
   { key: 'start_month', label: 'Started', type: 'month' },
   { key: 'end_month', label: 'Ended', type: 'month', offWhen: 'is_current' },
   { key: 'is_current', label: 'I still work here', type: 'check' },
-  { key: 'employer_context', label: 'What the employer does, in one line for a UK reader', type: 'text', max: 300, wide: true, placeholder: 'e.g. A logistics company with 40 depots across India' },
+  { key: 'employer_context', label: 'What the employer does, for a UK reader', type: 'text', max: 300, wide: true, placeholder: 'e.g. A logistics company with 40 depots across India' },
 ]
 const COURSE_FIELDS = [
   { key: 'institution', label: 'University, college or school', type: 'text', max: 160 },
   { key: 'qualification', label: 'Qualification', type: 'text', max: 120, placeholder: 'e.g. MSc, BTech, A levels' },
   { key: 'subject', label: 'Subject', type: 'text', max: 160 },
   { key: 'country', label: 'Country', type: 'text', max: 80 },
-  { key: 'start_month', label: 'Started', type: 'month' },
-  { key: 'end_month', label: 'Finished or finishes', type: 'month' },
-  { key: 'grade', label: 'Grade or classification', type: 'text', max: 80, wide: true, placeholder: 'e.g. 2:1, Merit, CGPA 8.4/10' },
+  { key: 'start_month', label: 'Start', type: 'month' },
+  { key: 'end_month', label: 'End', type: 'month' },
+  { key: 'grade', label: 'Grade', type: 'text', max: 80, wide: true, placeholder: 'e.g. 2:1, Merit, CGPA 8.4/10' },
 ]
 const SET_IN_DETAILS = ['institution', 'qualification', 'end_month'] // the current course takes these from "Your details"
 
@@ -128,7 +128,7 @@ function Entries({ title, hint, noun, addLabel, emptyText, items, path, fields, 
     <div className="section">
       <div className="section-head">
         <h2>{title} ({items.length})</h2>
-        <p>{hint}</p>
+        {hint && <p>{hint}</p>}
         <span className="spacer" />
         {editing !== 'new' && <button className="btn ghost small" onClick={() => setEditing('new')}>{addLabel}</button>}
       </div>
@@ -138,7 +138,7 @@ function Entries({ title, hint, noun, addLabel, emptyText, items, path, fields, 
           {items.map((e) => (editing === e.id ? (
             <EntryForm key={e.id} fields={fields} initial={e} onSave={save(e)} onCancel={() => setEditing(null)}
               locked={e.from_details ? SET_IN_DETAILS : []}
-              lockedNote={e.from_details && 'This is your current course. Change its university, name or end month in your details at the top of this page.'} />
+              lockedNote={e.from_details && 'Your current course: change its university, name or end month in Edit details at the top of the page.'} />
           ) : (
             <div key={e.id} className="entry">
               <div className="who">
@@ -150,10 +150,10 @@ function Entries({ title, hint, noun, addLabel, emptyText, items, path, fields, 
                 {e.employer_context && <div className="small muted">{e.employer_context}</div>}
               </div>
               <div className="acts">
-                <button className="linkish small" onClick={() => setEditing(e.id)}>Edit</button>
+                <button className="icon-btn calm" aria-label={`Edit ${line(e)}`} title={`Edit ${line(e)}`} onClick={() => setEditing(e.id)}><Pencil size={16} aria-hidden="true" /></button>
                 {e.from_details
                   ? <span className="small muted">From your details</span>
-                  : <button className="linkish small" onClick={() => remove(e)}>Delete</button>}
+                  : <button className="icon-btn" aria-label={`Delete ${line(e)}`} title={`Delete ${line(e)}`} onClick={() => remove(e)}><Trash2 size={16} aria-hidden="true" /></button>}
               </div>
             </div>
           )))}
@@ -168,8 +168,8 @@ const both = (...parts) => parts.filter(Boolean).join(', ')
 
 export function WorkHistory({ s, refresh, notify }) {
   return (
-    <Entries title="Work history" hint="Jobs, internships and placements, newest first." noun="Job" addLabel="Add a job"
-      emptyText="No jobs yet. Add one here, or upload your CV above and we will find them."
+    <Entries title="Work history" hint="Include internships and placements." noun="Job" addLabel="Add a job"
+      emptyText="No jobs yet. Add one, or upload your CV above."
       items={s.work_history} path="/api/work-history" fields={JOB_FIELDS} refresh={refresh} notify={notify}
       line={(e) => both(e.job_title, e.employer)} place={(e) => both(e.location, e.country)} />
   )
@@ -177,8 +177,8 @@ export function WorkHistory({ s, refresh, notify }) {
 
 export function Education({ s, refresh, notify }) {
   return (
-    <Entries title="Education" hint="Your current course first." noun="Course" addLabel="Add a course"
-      emptyText="No courses yet. Add one here, or upload your CV above and we will find them."
+    <Entries title="Education" noun="Course" addLabel="Add a course"
+      emptyText="No courses yet. Add one, or upload your CV above."
       items={s.education} path="/api/education" fields={COURSE_FIELDS} refresh={refresh} notify={notify}
       line={(e) => both(`${e.qualification} ${e.subject}`.trim(), e.institution)} place={(e) => both(e.country, e.grade)} />
   )
@@ -211,21 +211,21 @@ export function Skills({ s, refresh, notify }) {
 
   return (
     <div className="section">
-      <div className="section-head"><h2>Skills and languages</h2><p>The tools you use and the languages you speak, for your CV.</p></div>
+      <div className="section-head"><h2>Skills and languages</h2></div>
       <div className="card stack">
         <div className="field">
-          <label htmlFor="skill">Skills <span className="muted" style={{ fontWeight: 400 }}>(press Enter after each)</span></label>
+          <label htmlFor="skill">Skills</label>
           <div className="row">
             {skills.map((x) => (
               <span key={x} className="chip">{x}<button type="button" className="chip-x" aria-label={`Remove ${x}`} onClick={() => save(skills.filter((y) => y !== x), languages)}><X size={12} /></button></span>
             ))}
             {skills.length < MAX_SKILLS && (
-              <input id="skill" type="text" value={skill} maxLength={60} style={{ width: 200 }} placeholder={skills.length ? 'Add a skill' : 'e.g. SQL, Excel, Power BI'}
+              <input id="skill" type="text" value={skill} maxLength={60} style={{ width: 200 }} placeholder={skills.length ? 'Add a skill, then Enter' : 'e.g. SQL, Excel, Power BI'}
                 onChange={(e) => setSkill(e.target.value)} onBlur={addSkill}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addSkill() } }} />
             )}
           </div>
-          {skills.length === 0 && <span className="small muted" style={{ fontWeight: 400 }}>No skills yet. Type one, or upload your CV above and we will find them.</span>}
+          {skills.length === 0 && <span className="small muted" style={{ fontWeight: 400 }}>No skills yet. Type one, or upload your CV above.</span>}
         </div>
         <div className="field">
           <span>Languages</span>

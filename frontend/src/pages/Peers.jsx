@@ -1,14 +1,32 @@
 import { useState } from 'react'
+import { BellRing, CalendarCheck, Clock, Eye, EyeOff, PenLine } from 'lucide-react'
 import { post } from '../api'
 import { PageHead, attempt, fmtDate } from '../ui'
 import PeerConsent from '../components/PeerConsent'
 import PeerGroup, { ContactLinkBox, Proposal } from '../components/PeerGroup'
 
+const INTRO = 'A buddy group of two or three people in your position, to keep each other going.'
+
+// What the group sees of the user, and never sees. Spans, so the rows can sit inside the page's lede
+function Sees() {
+  return (
+    <span className="peers-sees">
+      <span className="peers-sees-row"><Eye size={15} aria-hidden="true" /><span>Your group sees: first name, university, course, target roles, weekly progress and anything you share.</span></span>
+      <span className="peers-sees-row"><EyeOff size={15} aria-hidden="true" /><span>Never: your visa, applications or CVs.</span></span>
+    </span>
+  )
+}
+
 function Off({ p, onJoin }) {
   return (
     <section className="card empty">
-      <h2>Job hunting is easier with company</h2>
-      <p className="muted">Join a buddy group of two or three people in a similar position. Each week you see whether the others kept going, nudge them, and share one line about your focus. There is no chat, and nobody sees your applications.</p>
+      <h2>Buddy groups</h2>
+      <ul className="peers-features">
+        <li><CalendarCheck size={16} aria-hidden="true" />See who kept going each week</li>
+        <li><BellRing size={16} aria-hidden="true" />Send a nudge</li>
+        <li><PenLine size={16} aria-hidden="true" />Share your weekly focus in one line</li>
+      </ul>
+      <p className="small muted">No chat.</p>
       {p.barred ? <p className="strong">You can't join buddy groups.</p> : <button className="btn" onClick={onJoin}>Join a buddy group</button>}
     </section>
   )
@@ -21,9 +39,15 @@ function Waiting({ s, refresh, notify, switchOff }) {
       <section className="card stack">
         <h2>You are on the list</h2>
         {p.again_tomorrow
-          ? <p>We have suggested {p.options.proposals_a_day} possible buddies for you today, the most in one day. We will look again tomorrow.</p>
-          : <p>We will match you when someone joins. Nobody is invented: until then, you wait here.</p>}
-        {p.waiting_since && <p className="small muted">On the list since {fmtDate(p.waiting_since.slice(0, 10), { day: 'numeric', month: 'long' })}.</p>}
+          ? <p>{p.options.proposals_a_day} possible buddies suggested today, the most in one day. We will look again tomorrow.</p>
+          : <p>We will match you when someone joins. We never show invented people.</p>}
+        {p.waiting_since && (
+          <div>
+            <span className="chip muted" title="On the list since">
+              <Clock size={12} aria-hidden="true" /><span className="sr-only">On the list </span>Since {fmtDate(p.waiting_since.slice(0, 10), { day: 'numeric', month: 'long' })}
+            </span>
+          </div>
+        )}
         <div><button className="btn ghost small" onClick={switchOff}>Switch Peers off</button></div>
       </section>
       <section className="card"><ContactLinkBox p={p} refresh={refresh} notify={notify} /></section>
@@ -40,10 +64,15 @@ export default function Peers({ s, refresh, notify }) {
     if (!window.confirm('Switch Peers off? You leave your group straight away, and your check-ins and nudges disappear for the others.')) return
     safely(async () => { await post('/api/peers/leave-all'); setJoining(false); await refresh(); notify('Peers is off') })
   }
+  const consenting = p.status === 'off' && joining && !p.barred
+  // what the group sees: in view while Peers is off, left to the consent screen's full lists, then one tap away once on
+  const head = p.status === 'off'
+    ? <PageHead title="Peers" lede={consenting ? INTRO : <>{INTRO}<Sees /></>} />
+    : <PageHead title="Peers" lede={INTRO} info={<Sees />} infoLabel="What your group sees" />
   return (
     <>
-      <PageHead title="Peers" lede="A small buddy group of people in the same position as you, to keep each other going. Your group sees your first name, university, course, target roles and weekly progress, and anything you choose to share. Never your visa, applications or CVs." />
-      {p.status === 'off' && (joining && !p.barred
+      {head}
+      {p.status === 'off' && (consenting
         ? <PeerConsent s={s} refresh={refresh} notify={notify} onCancel={() => setJoining(false)} />
         : <Off p={p} onJoin={() => setJoining(true)} />)}
       {p.status === 'waiting' && <Waiting s={s} refresh={refresh} notify={notify} switchOff={switchOff} />}

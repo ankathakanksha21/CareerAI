@@ -52,13 +52,13 @@ export default function PersonForm({ s, person, preset = {}, onSaved, onCancel }
       <label className="field">Profile link<input type="text" maxLength={500} placeholder="linkedin.com/in/their-name" value={form.link} onChange={set('link')} /></label>
       <label className="field">Notes<textarea rows={3} maxLength={4000} value={form.notes} onChange={set('notes')} /></label>
       {person && (
-        <label className="field">Where they are
+        <label className="field">Stage
           <select value={form.status} onChange={set('status')}>
             {s.options.contact_statuses.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </label>
       )}
-      <p className="small muted">Only what you need to stay in touch. No email addresses or phone numbers are asked for, and a draft only ever mentions how you know them.</p>
+      <p className="small muted">No email or phone number needed. Drafts mention only how you know them.</p>
       <div className="row">
         <button className="btn" type="submit" disabled={saving}>{person ? 'Save' : 'Add'}</button>
         <button className="btn ghost" type="button" onClick={onCancel}>Cancel</button>

@@ -4,11 +4,13 @@ import { Check } from 'lucide-react'
 export default function PeerCard({ s, go }) {
   const p = s.peers
   if (p.status === 'proposed') {
+    // not yet answered: the button asks for the answer, which is given on Peers, where both choices are
+    const yes = p.proposal.said_yes
     return (
       <section className="card tint">
         <h2>{p.proposal.members.length > 1 ? 'We found a group for you' : 'We found a buddy for you'}</h2>
-        <p className="small">{p.proposal.said_yes ? 'You said yes. Waiting for an answer.' : 'Say yes or not this time on Peers.'}</p>
-        <button className="btn small" style={{ marginTop: 10 }} onClick={() => go('peers')}>Open</button>
+        {yes && <p className="small">You said yes. Waiting for an answer.</p>}
+        <button className="btn small" style={{ marginTop: 10 }} onClick={() => go('peers')}>{yes ? 'Open' : 'Answer'}</button>
       </section>
     )
   }
@@ -27,7 +29,7 @@ export default function PeerCard({ s, go }) {
           </div>
         ))}
       </div>
-      {asked && <p className="small" style={{ marginTop: 8 }}>Someone could join your group. Say yes or not this time on Peers.</p>}
+      {asked && <p className="small" style={{ marginTop: 8 }}>Someone could join your group: answer on Peers.</p>}
       {p.nudges.map((n) => <p key={n.member} className="small" style={{ marginTop: 8 }}>{n.text}</p>)}
     </section>
   )

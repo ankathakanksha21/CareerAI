@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Copy, Trash2, X } from 'lucide-react'
+import { Check, Copy, ExternalLink, Trash2, X } from 'lucide-react'
 import { del, patch, post } from '../api'
 import { ErrorRetry, attempt, fmtDate, useAction } from '../ui'
 import { CLOSED, ENDED_PHRASE, HISTORY_FROM, REJECTED, STAGE_LABEL, useEscape } from '../tracker'
@@ -81,10 +81,11 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
               </select>
             </label>
             {a.history.length > 0 ? (
-              <ol className="history">
-                {a.history.map((h, i) => <li key={i}><span>{h.from_stage ? `Moved to ${STAGE_LABEL[h.to_stage]}` : `Logged at ${STAGE_LABEL[h.to_stage]}`}</span><span className="muted">{when(h.at)}</span></li>)}
+              // a timeline, a dot per stage; the entry with no stage before it is when the card was logged
+              <ol className="history panel-timeline">
+                {a.history.map((h, i) => <li key={i}><span>{h.from_stage ? STAGE_LABEL[h.to_stage] : `${STAGE_LABEL[h.to_stage]} (logged)`}</span><span className="muted">{when(h.at)}</span></li>)}
               </ol>
-            ) : <p className="small muted" style={{ marginTop: 6 }}>Stage changes are recorded from {HISTORY_FROM}.</p>}
+            ) : <p className="small muted" style={{ marginTop: 6 }}>History starts {HISTORY_FROM}.</p>}
             {s.config.prep && PREP_STAGES.has(a.stage) && (
               <button type="button" className="btn small" style={{ marginTop: 10 }} onClick={() => go('interview', 'prep', { prepAppId: a.id })}>
                 {packFor(s, { appId: a.id }) ? 'Open prep pack' : 'Prepare for this interview'}
@@ -105,7 +106,7 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
               </select>
               {cv && <button type="button" className="btn ghost small" onClick={() => go('resume', null, { cvId: cv.id })}>Open CV</button>}
             </span>
-            {!cv && <span className="small muted" style={{ fontWeight: 400 }}>Without a CV recorded, this application does not count toward your weekly goal.</span>}
+            {!cv && <span className="small muted" style={{ fontWeight: 400 }}>Without a CV, this does not count towards your weekly goal.</span>}
           </label>
 
           <div className="grid cols-2">
@@ -118,25 +119,25 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
               </select>
             </label>
           </div>
-          <label className="field">Link to the advert
+          <label className="field">Advert link
             <span className="row"><input type="text" maxLength={500} placeholder="https://" style={{ flex: 1 }} key={stamp('job_url')} {...text('job_url')} />
-              {/^https?:\/\//.test(a.job_url || '') && <a className="small" href={a.job_url} target="_blank" rel="noopener noreferrer">Open advert</a>}</span>
+              {/^https?:\/\//.test(a.job_url || '') && <a className="small" href={a.job_url} target="_blank" rel="noopener noreferrer">Advert <ExternalLink size={12} aria-hidden="true" style={{ verticalAlign: '-1px' }} /></a>}</span>
           </label>
 
           <section className="sub-block">
             <h3>Follow-up</h3>
-            {CLOSED.has(a.stage) ? <p className="small muted">This application has ended, so there is nothing to follow up.</p> : (
+            {CLOSED.has(a.stage) ? <p className="small muted">Ended: nothing to follow up.</p> : (
               <>
                 <div className="form-row">
                   <label className="field">Follow up on<input type="date" key={stamp('follow_up_on')} {...text('follow_up_on')} /></label>
-                  <button type="button" className="btn ghost small" onClick={followedUp}>Mark as followed up</button>
+                  <button type="button" className="btn ghost small" title="Mark as followed up" onClick={followedUp}><Check size={14} aria-hidden="true" />I followed up</button>
                   {a.follow_up_on && <button type="button" className="linkish small" onClick={() => save({ follow_up_on: null })}>Clear</button>}
                 </div>
-                {a.last_followed_up_on && <p className="small muted">You last followed up on {fmtDate(a.last_followed_up_on, { day: 'numeric', month: 'long' })}.</p>}
-                {a.stage === 'no_response' && <p className="small muted">At No reply, this application is not listed under Follow-ups due. Move it back to Applied to be reminded.</p>}
+                {a.last_followed_up_on && <p className="small muted">Last followed up {fmtDate(a.last_followed_up_on, { day: 'numeric', month: 'long' })}.</p>}
+                {a.stage === 'no_response' && <p className="small muted">Not in Follow-ups due while at No reply. Move back to Applied to be reminded.</p>}
                 <div className="row">
                   <button type="button" className="btn ghost small" disabled={draft.loading} onClick={() => draft.run()}>{draft.loading ? 'Drafting' : 'Draft a follow-up'}</button>
-                  <span className="small muted">One AI action. Nothing is sent for you: copy it into your email.</span>
+                  <span className="small muted">One AI action. Nothing is sent for you.</span>
                 </div>
                 <ErrorRetry error={draft.error} onRetry={draft.retry} />
                 {draft.result && (
@@ -154,7 +155,7 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
             <label className="field">Contact name<input type="text" maxLength={120} placeholder="Who you dealt with" key={stamp('contact_name')} {...text('contact_name')} /></label>
             <label className="field">How to reach them<input type="text" maxLength={200} placeholder="Email, phone or LinkedIn" key={stamp('contact')} {...text('contact')} /></label>
           </div>
-          <p className="small muted" style={{ marginTop: -6 }}>Only the name is used in a follow-up draft.</p>
+          <p className="small muted" style={{ marginTop: -6 }}>Only the name is used in a draft.</p>
           {(s.contacts.length > 0 || a.contact_id) && (
             <label className="field">Saved contact
               <span className="row">
@@ -164,7 +165,7 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
                 </select>
                 {a.contact_id && <button type="button" className="btn ghost small" onClick={() => go('networking')}>Open Networking</button>}
               </span>
-              <span className="small muted" style={{ fontWeight: 400 }}>Their name becomes the contact name. Someone who offered a referral makes Referral where you applied.</span>
+              <span className="small muted" style={{ fontWeight: 400 }}>Fills in the contact name. A referral offer sets Where you applied to Referral.</span>
             </label>
           )}
           <label className="field">Notes<textarea rows={4} maxLength={4000} key={stamp('notes')} {...text('notes')} /></label>
@@ -182,7 +183,7 @@ export default function ApplicationPanel({ app: a, s, refresh, go, notify, close
                   <button type="button" className="linkish small" onClick={() => onReject(a)}>Change the answers</button>
                 </>
               ) : (
-                <div className="row"><span className="small">Say where it ended to get one lesson from it.</span><button type="button" className="btn small" onClick={() => onReject(a)}>Where did it end?</button></div>
+                <div className="row"><button type="button" className="btn small" onClick={() => onReject(a)}>Where did it end?</button></div>
               )}
             </section>
           )}

@@ -21,7 +21,7 @@ export const endedFrom = (stage, target = null) => {
 }
 
 // The page that fixes what a lesson found, and its button
-export const LESSON_LINK = { resume: 'Open Resume', interview: 'Practise an interview', profile: 'Open your profile' }
+export const LESSON_LINK = { resume: 'Open CV', interview: 'Practise an interview', profile: 'Open profile' }
 
 // The day stage changes started being recorded; an older card has no history before it
 export const HISTORY_FROM = '14 October 2026'

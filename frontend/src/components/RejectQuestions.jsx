@@ -45,15 +45,15 @@ export default function RejectQuestions({ app, from, target, refresh, go, close 
                 <label key={key} className="check"><input type="radio" name="ended" value={key} checked={ended === key} onChange={() => setEnded(key)} />{label}</label>
               ))}
             </fieldset>
-            <label className="field">Did they give feedback? <span className="muted" style={{ fontWeight: 400 }}>Optional. Their words, as near as you remember them.</span>
-              <textarea rows={3} maxLength={2000} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="Leave this blank if they gave none" />
+            <label className="field"><span>Did they give feedback? <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></span>
+              <textarea rows={3} maxLength={2000} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="Their words, as near as you remember them" />
             </label>
-            <p className="small muted">If the CV you sent or the job description was recorded, the app compares them and writes one lesson, using one AI action.</p>
+            <p className="small muted">Writes one lesson from the CV you sent and the job description, if either was recorded. One AI action.</p>
             <div className="row">
               <button className="btn" type="submit" disabled={send.loading}>{send.loading ? 'Saving and writing a lesson' : 'Save'}</button>
               <button className="btn ghost" type="button" disabled={send.loading} onClick={close}>{answersKept(send.error) ? 'Close' : 'Cancel'}</button>
             </div>
-            {answersKept(send.error) && <p className="small">The rejection and your answers are saved. You can ask for the lesson again from the application.</p>}
+            {answersKept(send.error) && <p className="small">Rejection and answers saved. Ask for the lesson again from the application.</p>}
             <ErrorRetry error={send.error} onRetry={async () => { await send.retry(); refresh() }} />
           </form>
         ) : (

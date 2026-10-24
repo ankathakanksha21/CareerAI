@@ -1,7 +1,34 @@
-import { useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { post } from '../api'
 
 const MIN_DESCRIPTION = 30
+
+// A job's advert text cut to two lines, with More to read the rest. More shows only when something is cut.
+// Screen readers always get the whole text
+export function JobText({ text, className = 'small' }) {
+  const [open, setOpen] = useState(false)
+  const [cut, setCut] = useState(false)
+  const box = useRef(null)
+  const id = useId()
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el || open) return
+    const watch = new ResizeObserver(() => setCut(el.scrollHeight > el.clientHeight + 1)) // runs once on start, then on every resize
+    watch.observe(el)
+    return () => watch.disconnect()
+  }, [text, open])
+  return (
+    <div className="jobtext">
+      <p id={id} ref={box} className={`${className} ${open ? '' : 'jobtext-clamp'}`}>{text}</p>
+      {(cut || open) && (
+        <button type="button" className="linkish small showmore-btn" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+          {open ? 'Less' : 'More'}<ChevronDown size={15} aria-hidden="true" className={open ? 'flip' : ''} />
+        </button>
+      )}
+    </div>
+  )
+}
 
 export function JobPicker({ jobs, value, onChange, allowNone = false }) {
   return (
@@ -47,7 +74,7 @@ export function AddJob({ onAdded, onCancel }) {
         <label className="field">Company<input type="text" value={form.company} onChange={set('company')} />{err('company')}</label>
       </div>
       <label className="field">Job description
-        <textarea rows={7} value={form.description} onChange={set('description')} placeholder="Paste the full description from the job advert" />
+        <textarea rows={7} value={form.description} onChange={set('description')} placeholder="Paste the full advert" />
         {err('description')}
       </label>
       <div className="grid cols-2">

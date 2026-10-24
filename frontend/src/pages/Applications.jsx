@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { BellRing, Plus, Trash2 } from 'lucide-react'
+import { BadgeCheck, BellRing, BookOpen, CircleCheck, Clock, ExternalLink, FileText, MessageSquare, Plus, RefreshCw, Target, Trash2, TriangleAlert, Users } from 'lucide-react'
 import { del, patch, post } from '../api'
-import { Empty, ErrorRetry, Meter, PageHead, attempt, fmtDate, isoDay, parseDay, pct, plural, today, useAction } from '../ui'
+import { Chips, Empty, ErrorRetry, InfoTip, Meter, PageHead, attempt, fmtDate, isoDay, parseDay, pct, plural, today, useAction } from '../ui'
 import { ENDED_PHRASE, LESSON_LINK, REJECTED, STAGE_LABEL, isDue } from '../tracker'
 import ApplicationPanel from '../components/ApplicationPanel'
 import FollowUps from '../components/FollowUps'
@@ -18,7 +18,18 @@ const COLUMNS = [
 const RESPONDED = new Set(['screening', 'interview', 'rejected_after_interview', 'offer'])
 // a rejection after a phone screen was still a reply
 const replied = (a) => RESPONDED.has(a.stage) || (a.stage === 'rejected' && a.rejected_at_stage === 'screening')
-const KIND = { cv: 'CV and tailoring', story: 'Storytelling', network: 'Network', timing: 'Timing', sponsor: 'Sponsorship', lessons: 'Lessons from rejections' }
+// A finding's kind, shown as an icon whose name is the label (read out, and shown on hover)
+const KIND = {
+  cv: ['CV and tailoring', FileText], story: ['Storytelling', MessageSquare], network: ['Network', Users],
+  timing: ['Timing', Clock], sponsor: ['Sponsorship', BadgeCheck], lessons: ['Lessons from rejections', BookOpen],
+}
+function Kind({ type }) {
+  if (!KIND[type]) return null
+  const [label, Icon] = KIND[type]
+  return <span className="kind apps-kind" role="img" aria-label={label} title={label}><Icon size={16} aria-hidden="true" /></span>
+}
+// The four parts of the AI weekly review, in the order the model writes them
+const REVIEW = [['working', 'Working', CircleCheck], ['problem', 'Biggest problem', TriangleAlert], ['one_change', 'One change', RefreshCw], ['signal', 'Success looks like', Target]]
 const FAST_DAYS = 2
 
 const monday = (iso) => {
@@ -52,14 +63,14 @@ function WeeklyProgress({ s }) {
       <div className="grid cols-2" style={{ marginTop: 14, alignItems: 'end' }}>
         <div className="stack" style={{ gap: 14 }}>
           <div>
-            <div className="row" style={{ alignItems: 'baseline' }}><span style={{ fontSize: 30, fontWeight: 750, color: 'var(--green)' }}>{week.applications}</span><span className="muted">of {goal} {goal === 1 ? 'application' : 'applications'} with a CV this week</span></div>
+            <div className="row" style={{ alignItems: 'baseline' }}><span style={{ fontSize: 30, fontWeight: 750, color: 'var(--green)' }}>{week.applications}</span><span className="muted">of {goal} {goal === 1 ? 'application' : 'applications'} with a CV</span></div>
             <div style={{ marginTop: 6 }}><Meter value={(week.applications / goal) * 100} /></div>
           </div>
-          <p className="small muted">
-            {week.goal.practice > 0 && `${week.practice} of ${plural(week.goal.practice, 'mock interview')}. `}
-            {week.without_cv > 0 && `${plural(week.without_cv, 'more application')} logged without a CV, which ${week.without_cv === 1 ? 'does' : 'do'} not count toward the goal. `}
-            {fast} sent within 48 hours of the job being posted.
-          </p>
+          <Chips tone="muted" items={[
+            week.goal.practice > 0 && `${week.practice} of ${plural(week.goal.practice, 'mock interview')}`,
+            week.without_cv > 0 && `${week.without_cv} without a CV, not counted`,
+            `${fast} sent within 48 hours of posting`,
+          ].filter(Boolean)} />
         </div>
         <div>
           <div className="week-bars" aria-label="Applications per week">
@@ -76,7 +87,7 @@ function WeeklyProgress({ s }) {
               )
             })}
           </div>
-          <div className="legend" style={{ marginTop: 8 }}><span><i style={{ background: 'var(--green-line)' }} />Applied</span><span><i style={{ background: 'var(--green)' }} />Got a reply</span></div>
+          <div className="legend" style={{ marginTop: 8 }}><span><i style={{ background: 'var(--green-line)' }} />Applied</span><span><i style={{ background: 'var(--green)' }} />Replied</span></div>
         </div>
       </div>
     </section>
@@ -94,7 +105,7 @@ function Board({ s, refresh, notify, open, reject }) {
     ? reject(a, stage)
     : safely(async () => { await patch(`/api/applications/${a.id}`, { stage }); await refresh() }))
   const remove = (a) => {
-    if (!window.confirm(`Delete the application to ${a.company}?`)) return
+    if (!window.confirm(`Delete the application to ${a.company}? Its history and lesson go with it.`)) return
     safely(async () => { await del(`/api/applications/${a.id}`); await refresh(); notify('Application deleted') })
   }
   const drop = (e, col) => {
@@ -133,11 +144,13 @@ function Board({ s, refresh, notify, open, reject }) {
                     {fam[a.role_family_id] && <span className="chip">{fam[a.role_family_id]}</span>}
                   </div>
                 )}
-                <div className="foot">{cvs[a.cv_version_id] ? `${cvs[a.cv_version_id]} CV` : 'No CV recorded'}, via {a.source}</div>
+                <div className="foot">
+                  {cvs[a.cv_version_id] ? `${cvs[a.cv_version_id]} CV, via ${a.source}` : <><span className="chip warn">No CV</span><span>via {a.source}</span></>}
+                </div>
                 {(a.job_url || a.sponsor_licence != null) && (
                   <div className="foot">
                     {a.sponsor_licence != null && <span className={`chip ${a.sponsor_licence ? 'good' : ''}`}>{a.sponsor_licence ? 'On the sponsor register' : 'Not found on the register'}</span>}
-                    {a.job_url && <a className="small" href={a.job_url} target="_blank" rel="noopener noreferrer" onClick={keep}>View advert</a>}
+                    {a.job_url && <a className="small" href={a.job_url} target="_blank" rel="noopener noreferrer" onClick={keep}>Advert <ExternalLink size={12} aria-hidden="true" style={{ verticalAlign: '-1px' }} /></a>}
                   </div>
                 )}
                 <div className="foot">
@@ -185,17 +198,18 @@ function AddApplication({ s, refresh, notify, close }) {
         <button className="btn" type="submit">Add</button>
         <button className="btn ghost" type="button" onClick={close}>Cancel</button>
       </div>
-      {!form.cv_version_id && <p className="small muted" style={{ marginTop: 8 }}>Without a CV version this application is still logged, but it does not count toward your weekly goal.</p>}
+      {!form.cv_version_id && <p className="small muted" style={{ marginTop: 8 }}>Without a CV it is still logged, but does not count towards your weekly goal.</p>}
       <ErrorRetry error={error} />
     </form>
   )
 }
 
+// One chart of reply rates. The grid's caption "Reply rate by" is said in each title for screen readers
 function Bars({ title, rows }) {
   const max = Math.max(...rows.map((r) => r.response_rate), 0.01)
   return (
     <section className="card">
-      <h3>{title}</h3>
+      <h3><span className="sr-only">Reply rate by </span>{title}</h3>
       <div style={{ marginTop: 10 }}>
         {rows.map((r) => (
           <div key={r.key ?? r.label} className="hbar">
@@ -217,8 +231,11 @@ function Learned({ s, go, open }) {
   return (
     <section className="card section">
       <h2>What you have learned</h2>
-      <p className="sub">One change from each rejection, newest first. When three point to the same thing, it appears under What to fix.</p>
-      {lessons.length === 0 && <p className="muted">No lessons yet. Open a rejected application and say where it ended to get one.</p>}
+      <p className="sub">
+        One change from each rejection, newest first.{' '}
+        <InfoTip label="When a lesson repeats">When three point to the same thing, it appears under What to fix.</InfoTip>
+      </p>
+      {lessons.length === 0 && <p className="muted">No lessons yet. Open a rejected card and say where it ended.</p>}
       <div className="list">
         {lessons.map((a) => (
           <div key={a.id} className="finding">
@@ -248,7 +265,8 @@ export default function Applications({ s, refresh, go, focus, notify }) {
 
   return (
     <>
-      <PageHead title="Applications" lede="Every application with its CV version, source, stage and history. Drag a card when you hear back; click it for every detail. The tracker uses this to tell you what to fix.">
+      {/* with no cards yet there is nothing to drag, so the empty page has no lede */}
+      <PageHead title="Applications" lede={empty ? null : 'Drag a card when you hear back; click it for every detail.'}>
         {!empty && <button className="btn" onClick={() => setAdding(true)}><Plus size={16} />Add application</button>}
       </PageHead>
       {adding && <AddApplication s={s} refresh={refresh} notify={notify} close={() => setAdding(false)} />}
@@ -256,8 +274,8 @@ export default function Applications({ s, refresh, go, focus, notify }) {
       {empty ? (
         !adding && (
           <>
-            <Empty title="Log your first application" body="Add each application as you send it. Once there are a few, the tracker shows which roles, CVs and sources get replies." action="Add application" onAction={() => setAdding(true)} />
-            <p className="small muted" style={{ textAlign: 'center', marginTop: 10 }}>Looking for something to apply to? <button className="linkish" onClick={() => go('jobs')}>See matching jobs</button></p>
+            <Empty title="Log your first application" body="With a few logged, you will see which roles, CVs and sources get replies." action="Add application" onAction={() => setAdding(true)} />
+            <p className="small muted" style={{ textAlign: 'center', marginTop: 10 }}>Or <button className="linkish small" onClick={() => go('jobs')}>see matching jobs</button></p>
           </>
         )
       ) : (
@@ -267,31 +285,31 @@ export default function Applications({ s, refresh, go, focus, notify }) {
           <div className="section"><Board s={s} refresh={refresh} notify={notify} open={setOpenId} reject={reject} /></div>
 
           <section className="card section">
-            <div className="row">
-              <h2>What to fix</h2>
+            <div className="row" style={{ marginBottom: 14 }}>
+              <div className="row" style={{ gap: 6 }}>
+                <h2>What to fix</h2>
+                <InfoTip label="About What to fix">Patterns in your applications, each pointing to the part of the app that fixes it.</InfoTip>
+              </div>
               <span className="spacer" />
               <button className="btn ghost" disabled={review.loading} onClick={() => review.run()}>{review.loading ? 'Reviewing your week' : 'Weekly review with AI'}</button>
             </div>
-            <p className="sub">Patterns in your applications, each pointing to the part of the app that fixes it.</p>
             <ErrorRetry error={review.error} onRetry={review.retry} />
             {r && (
               <div className="card tint" style={{ marginBottom: 14 }}>
                 <h3>{r.headline}</h3>
                 <div className="grid cols-2" style={{ marginTop: 10, gap: 10 }}>
-                  <p className="small"><span className="strong">Working: </span>{r.working}</p>
-                  <p className="small"><span className="strong">Biggest problem: </span>{r.problem}</p>
-                  <p className="small"><span className="strong">One change for the next batch: </span>{r.one_change}</p>
-                  <p className="small"><span className="strong">How you will know it worked: </span>{r.signal}</p>
+                  {REVIEW.map(([key, label, Icon]) => (
+                    <p key={key} className="small apps-review-part"><Icon size={14} aria-hidden="true" /><span><span className="strong">{label}: </span>{r[key]}</span></p>
+                  ))}
                 </div>
               </div>
             )}
-            {st.findings.length === 0 && <p className="muted">Nothing to fix yet. Findings appear once there are enough applications to see a pattern.</p>}
+            {st.findings.length === 0 && <p className="muted">Nothing to fix yet. Findings appear once there is a pattern.</p>}
             <div className="list">
               {st.findings.map((f) => (
                 <div key={f.id} className="finding">
                   <div>
-                    <span className="kind">{KIND[f.type]}</span>
-                    <h3>{f.title}</h3>
+                    <div className="apps-finding-head"><Kind type={f.type} /><h3>{f.title}</h3></div>
                     <p className="ev">{f.evidence}</p>
                     <p className="act">{f.action}</p>
                   </div>
@@ -303,12 +321,19 @@ export default function Applications({ s, refresh, go, focus, notify }) {
 
           <Learned s={s} go={go} open={setOpenId} />
 
-          <div className="section-head section"><h2>Insights</h2><p>{st.funnel.applied} applications, {pct(st.funnel.response_rate)} reply rate, {st.funnel.interviews} interviews, {st.funnel.offers} offers.</p></div>
+          <div className="section-head section"><h2>Insights</h2></div>
+          <div className="stats4">
+            <div><b>{st.funnel.applied}</b><span>applied</span></div>
+            <div><b>{pct(st.funnel.response_rate)}</b><span>reply rate</span></div>
+            <div><b>{st.funnel.interviews}</b><span>interviews</span></div>
+            <div><b>{st.funnel.offers}</b><span>offers</span></div>
+          </div>
+          <p className="small muted apps-caption" aria-hidden="true">Reply rate by</p>
           <div className="grid cols-2">
-            <Bars title="Reply rate by role family" rows={st.by_family} />
-            <Bars title="Reply rate by CV version" rows={st.by_cv} />
-            <Bars title="Reply rate by source" rows={st.by_source} />
-            {st.timing.timed > 0 && <Bars title={`Speed: you apply ${st.timing.avg_days} days after posting on average`} rows={[st.timing.fast, st.timing.slow]} />}
+            <Bars title="Role family" rows={st.by_family} />
+            <Bars title="CV version" rows={st.by_cv} />
+            <Bars title="Source" rows={st.by_source} />
+            {st.timing.timed > 0 && <Bars title={`Speed (you average ${st.timing.avg_days} days after posting)`} rows={[st.timing.fast, st.timing.slow]} />}
           </div>
         </>
       )}

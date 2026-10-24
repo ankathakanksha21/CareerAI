@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Conversation } from '@elevenlabs/client'
 import { api } from './api'
+import { InfoTip } from './ui'
 
 const STORED_TRIES = 4 // reads of ElevenLabs' stored transcript when the browser missed the user's words
 const STORED_WAIT_MS = 1500
@@ -115,11 +116,11 @@ export default function VoiceAgent({ agent, agentLabel, userId, dynamicVariables
           <div className="strong">
             {status === 'idle' && intro}
             {status === 'connecting' && 'Connecting'}
-            {status === 'live' && (speaking ? `${agentLabel} is speaking` : 'Listening to you')}
+            {status === 'live' && (speaking ? `${agentLabel} is speaking` : 'Listening')}
             {status === 'ended' && 'Call ended'}
           </div>
           <div className="small muted">
-            {status === 'live' ? 'Speak naturally. Press End when you are done.' : 'Uses your microphone. Your voice is processed by ElevenLabs to run and transcribe this call.'}
+            {status === 'live' ? 'Press End when you are done.' : 'Uses your microphone. Your voice goes to ElevenLabs to run and transcribe the call.'}
           </div>
         </div>
         {status === 'live' || status === 'connecting'
@@ -131,13 +132,20 @@ export default function VoiceAgent({ agent, agentLabel, userId, dynamicVariables
       {status !== 'idle' && (
         <div className="heard">
           <div className="heard-head">
-            <span className="strong">{status === 'ended' ? 'Transcript of this call' : 'Live transcript'}</span>
-            <span className="small muted">
-              {status === 'ended' ? `Everything below is built from these words.` : `What the ${agentLabel.toLowerCase()} hears. Your words appear a moment after each sentence.`}
-            </span>
+            {status === 'ended' ? (
+              <span className="voice-heard-title">
+                <span className="strong">Call transcript</span>
+                <InfoTip label="About this transcript">Everything made from this call is built from these words.</InfoTip>
+              </span>
+            ) : (
+              <>
+                <span className="strong">Live transcript</span>
+                <span className="small muted">Your words appear a moment after each sentence.</span>
+              </>
+            )}
           </div>
           <div className="transcript" ref={boxRef} aria-live="polite">
-            {turns.length === 0 && <p className="small muted">{status === 'ended' ? 'Nothing was captured in this call.' : 'Nothing yet. Start speaking when you are ready.'}</p>}
+            {turns.length === 0 && <p className="small muted">{status === 'ended' ? 'Nothing was captured.' : 'Nothing yet. Start speaking.'}</p>}
             {turns.map((t, i) => (
               <div key={i} className={`turn ${t.role}`}>
                 <span className="who">{t.role === 'agent' ? agentLabel : 'You said'}</span>

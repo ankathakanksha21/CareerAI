@@ -31,7 +31,7 @@ export default function CvEditor({ version, s, go, notify, refresh, onSaved }) {
           latest.current = saved.content
           setDoc(saved.content)
         }
-        if (saved.replaced) setNotice(`This CV was sent with an application, so it is kept as it was. Your changes are saved as a new version, ${saved.name}.`)
+        if (saved.replaced) setNotice(`Sent CVs never change, so your edits are saved as a new version, ${saved.name}.`)
         onSaved(saved)
         setStatus('saved')
       } catch (e) {
@@ -61,7 +61,7 @@ export default function CvEditor({ version, s, go, notify, refresh, onSaved }) {
         {notice && <p className="card tight tint small" role="status">{notice}</p>}
         {factsChanged(doc, s) && (
           <div className="card tight row" role="status">
-            <span className="small" style={{ flex: 1, minWidth: 220 }}>Your profile has changed since this CV was built: a job, a course or your contact details.</span>
+            <span className="small" style={{ flex: 1, minWidth: 220 }}>Profile changed since this CV was built: a job, course or contact detail.</span>
             <button type="button" className="btn ghost small" disabled={status === 'saving'} onClick={() => save({ content: latest.current, refresh_facts: true })}>Update from profile</button>
           </div>
         )}

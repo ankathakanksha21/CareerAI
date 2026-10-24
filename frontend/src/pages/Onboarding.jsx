@@ -6,7 +6,7 @@ import DetailsForm from '../components/DetailsForm'
 import BackgroundInput from '../components/BackgroundInput'
 import FoundFacts, { hasFacts, mergeFound } from '../components/FoundFacts'
 
-const STEPS = ['Your details', 'Your background', 'Your profile', 'Target roles']
+const STEPS = ['Details', 'Background', 'Profile', 'Target roles']
 
 // Where a user should land: the first step they have not finished
 function firstOpenStep(s) {
@@ -29,7 +29,7 @@ function ProfileStep({ s, back, next, found, clearFound }) {
     <>
       <div className="ob-title">
         <h1>Your profile</h1>
-        <p>Here is what you gave us, written the way UK employers read it. Each one shows the words it came from.</p>
+        <p>Rewritten for UK employers, each with the words it came from.</p>
       </div>
       <div className="card">
         <div className="profile-head">
@@ -41,7 +41,7 @@ function ProfileStep({ s, back, next, found, clearFound }) {
           </div>
         </div>
       </div>
-      <div className="section-head section"><h2>{s.achievements.length} {s.achievements.length === 1 ? 'achievement' : 'achievements'} captured</h2></div>
+      <div className="section-head section"><h2>{s.achievements.length} {s.achievements.length === 1 ? 'achievement' : 'achievements'}</h2></div>
       <div className="stack">
         {s.achievements.map((e) => (
           <div key={e.id} className="card tight">
@@ -72,13 +72,13 @@ function RolesStep({ s, refresh, go, notify }) {
     <>
       <div className="ob-title">
         <h1>Your target roles</h1>
-        <p>Role families that fit your profile, with what UK employers expect. Pick 3 to 5 to target.</p>
+        <p>Roles that fit you, with what UK employers expect. Pick 3 to 5.</p>
       </div>
       <div className="grid cols-2">
         {s.role_families.map((f) => <FamilyCard key={f.id} f={f} onToggle={toggle} />)}
       </div>
       <div className="ob-actions">
-        <span className="small muted" style={{ alignSelf: 'center' }}>{targeted === 0 ? 'Tick at least one role to continue.' : `${targeted} targeted`}</span>
+        <span className="small muted" style={{ alignSelf: 'center' }}>{targeted === 0 ? 'Tick at least one role.' : `${targeted} targeted`}</span>
         <button className="btn large" disabled={targeted === 0} onClick={() => go('home')}>Go to my dashboard</button>
       </div>
     </>
@@ -117,8 +117,8 @@ export default function Onboarding({ s, refresh, go, session, notify }) {
         {current === 0 && (
           <>
             <div className="ob-title">
-              <h1>Welcome to UK Career Navigator</h1>
-              <p>A few exact details first, so everything else fits you.</p>
+              <h1>Welcome</h1>
+              <p>A few exact details, so everything fits you.</p>
             </div>
             <div className="card"><DetailsForm profile={s.profile} submitLabel="Continue" onSaved={async () => { await refresh(); setStep(1) }} /></div>
           </>
@@ -126,14 +126,14 @@ export default function Onboarding({ s, refresh, go, session, notify }) {
         {current === 1 && (
           <>
             <div className="ob-title">
-              <h1>Tell us about your background</h1>
-              <p>Work, projects, internships, volunteering. Use any of these, and more than one if you like.</p>
+              <h1>Your background</h1>
+              <p>Work, projects, internships, volunteering. Use one or more ways below.</p>
             </div>
             <BackgroundInput s={s} userId={session.user.id} onBuilt={built} />
             {s.achievements.length === 0 && hasFacts(found) && (
               <FoundFacts found={found} onSaved={async () => { setFound(null); await refresh() }} onDismiss={() => setFound(null)} />
             )}
-            {s.achievements.length > 0 && <div className="ob-actions"><button className="btn ghost large" onClick={() => setStep(2)}>Continue with what I have</button></div>}
+            {s.achievements.length > 0 && <div className="ob-actions"><button className="btn ghost large" onClick={() => setStep(2)}>Continue</button></div>}
           </>
         )}
         {current === 2 && <ProfileStep s={s} found={found} clearFound={() => setFound(null)} back={() => setStep(1)} next={async () => { await refresh(); setStep(3) }} />}

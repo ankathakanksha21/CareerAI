@@ -1,4 +1,7 @@
-import { dayBox, eventWhen } from '../networking'
+import { dayBox } from '../networking'
+
+// Weekday and time only ("Thu 18:30"), in London time like Networking's eventWhen: the date box beside it has the date
+const dayTime = (iso) => new Date(iso).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'short', hour: '2-digit', minute: '2-digit' })
 
 // The next saved events the user is interested in or going to. One today stays until midnight
 export default function ComingUp({ s, go }) {
@@ -14,8 +17,8 @@ export default function ComingUp({ s, go }) {
               <div className="datebox" style={{ width: 52 }}><b>{box.day}</b><span>{box.month}</span></div>
               <div>
                 <div className="strong">{ev.name}</div>
-                <div className="small muted">{eventWhen(ev.starts_at)}{ev.online ? ', online' : ev.place ? `, ${ev.place}` : ''}</div>
-                <button className="linkish small" onClick={() => go('networking', 'events')}>{ev.prep ? 'Read your preparation' : 'Prepare'}</button>
+                <div className="small muted">{dayTime(ev.starts_at)}{ev.online ? ', online' : ev.place ? `, ${ev.place}` : ''}</div>
+                <button className="linkish small" onClick={() => go('networking', 'events')}>{ev.prep ? 'View prep' : 'Prepare'}</button>
               </div>
             </div>
           )
