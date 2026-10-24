@@ -51,12 +51,14 @@ export function useAction(fn) {
   return { run, loading, result, error, setResult, retry: () => run(...last.current) }
 }
 
-// For one-click actions (tick, drag, delete): if the request fails, tell the user instead of failing silently
-export const attempt = (notify) => async (fn) => {
+// For one-click actions (tick, drag, delete): if the request fails, tell the user instead of failing silently.
+// onGone, if given, runs when what was acted on no longer exists (404), so the page shows how things are now
+export const attempt = (notify, onGone) => async (fn) => {
   try {
     return await fn()
   } catch (e) {
     notify(e.message || 'That did not work. Try again.')
+    if (e.status === 404 && onGone) onGone()
   }
 }
 

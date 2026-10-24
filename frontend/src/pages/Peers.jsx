@@ -20,7 +20,9 @@ function Waiting({ s, refresh, notify, switchOff }) {
     <div className="grid split">
       <section className="card stack">
         <h2>You are on the list</h2>
-        <p>We will match you when someone joins. Nobody is invented: until then, you wait here.</p>
+        {p.again_tomorrow
+          ? <p>We have suggested {p.options.proposals_a_day} possible buddies for you today, the most in one day. We will look again tomorrow.</p>
+          : <p>We will match you when someone joins. Nobody is invented: until then, you wait here.</p>}
         {p.waiting_since && <p className="small muted">On the list since {fmtDate(p.waiting_since.slice(0, 10), { day: 'numeric', month: 'long' })}.</p>}
         <div><button className="btn ghost small" onClick={switchOff}>Switch Peers off</button></div>
       </section>
@@ -33,14 +35,14 @@ function Waiting({ s, refresh, notify, switchOff }) {
 export default function Peers({ s, refresh, notify }) {
   const p = s.peers
   const [joining, setJoining] = useState(false)
-  const safely = attempt(notify)
+  const safely = attempt(notify, refresh)
   const switchOff = () => {
     if (!window.confirm('Switch Peers off? You leave your group straight away, and your check-ins and nudges disappear for the others.')) return
     safely(async () => { await post('/api/peers/leave-all'); setJoining(false); await refresh(); notify('Peers is off') })
   }
   return (
     <>
-      <PageHead title="Peers" lede="A small buddy group of people in the same position as you, to keep each other going. Only first names, courses, target roles and weekly progress are shared." />
+      <PageHead title="Peers" lede="A small buddy group of people in the same position as you, to keep each other going. Your group sees your first name, university, course, target roles and weekly progress, and anything you choose to share. Never your visa, applications or CVs." />
       {p.status === 'off' && (joining && !p.barred
         ? <PeerConsent s={s} refresh={refresh} notify={notify} onCancel={() => setJoining(false)} />
         : <Off p={p} onJoin={() => setJoining(true)} />)}

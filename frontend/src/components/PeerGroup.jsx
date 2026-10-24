@@ -7,7 +7,7 @@ const linkName = (url) => (url.startsWith('https://wa.me/') ? 'WhatsApp' : 'Link
 const names = (members) => members.map((m) => m.first_name).join(' and ')
 
 // What anyone may see of a member: first name, university, course and target roles
-function Who({ m }) {
+export function Who({ m }) {
   return (
     <div className="head">
       <Avatar name={m.first_name} />
@@ -35,6 +35,7 @@ function ReportForm({ s, member, checkin, refresh, notify, onDone }) {
       notify('Report sent. Thank you for telling us.')
     } catch (err) {
       setError(err)
+      if (err.status === 404) refresh() // they have left, or the line has changed: show the group as it is now
     }
   }
   return (
@@ -63,7 +64,7 @@ function blockAndLeave(m, refresh, notify, safely, inGroup) {
 
 function MemberCard({ s, g, m, refresh, notify }) {
   const [reporting, setReporting] = useState(null) // 'member' | 'line'
-  const safely = attempt(notify)
+  const safely = attempt(notify, refresh)
   const met = m.progress.met === m.progress.of
   const nudge = () => safely(async () => { await post(`/api/peers/groups/${g.id}/nudge`, { to: m.member }); await refresh(); notify(`Nudge sent to ${m.first_name}`) })
   return (
@@ -92,7 +93,8 @@ function MemberCard({ s, g, m, refresh, notify }) {
 // A proposal: who they are, and yes or not this time. Nothing more is shown until everyone has said yes
 export function Proposal({ s, p, refresh, notify }) {
   const [reporting, setReporting] = useState(null)
-  const safely = attempt(notify)
+  const safely = attempt(notify, refresh)
+  const until = fmtDate(p.expires_on, { day: 'numeric', month: 'long' })
   const answer = (yes) => safely(async () => {
     await post(`/api/peers/groups/${p.group_id}/${yes ? 'accept' : 'decline'}`)
     await refresh()
@@ -113,10 +115,13 @@ export function Proposal({ s, p, refresh, notify }) {
         </div>
       ))}
       {p.said_yes ? (
-        <p className="small">You said yes. Waiting for {names(p.members)} to answer, until {fmtDate(p.expires_on, { day: 'numeric', month: 'long' })}.</p>
+        // with one other person, they are the one still to answer; with two, either may already have said yes
+        <p className="small">{p.members.length === 1
+          ? `You said yes. Waiting for ${p.members[0].first_name} to answer, until ${until}.`
+          : `You said yes. You join once ${names(p.members)} have both said yes, by ${until}.`}</p>
       ) : (
         <>
-          <p className="small muted">If you say yes and so do they, you will see each other's weekly progress and check-ins. Nothing else.</p>
+          <p className="small muted">If you all say yes, you will also see each other's weekly progress and streak, this week's line, any contact link shared, and whether someone has done nothing that counts for three weeks.</p>
           <div className="row">
             <button className="btn" onClick={() => answer(true)}>Accept</button>
             <button className="btn ghost" onClick={() => answer(false)}>Not this time</button>
@@ -128,7 +133,7 @@ export function Proposal({ s, p, refresh, notify }) {
 }
 
 function Newcomer({ g, n, refresh, notify }) {
-  const safely = attempt(notify)
+  const safely = attempt(notify, refresh)
   const answer = (yes) => safely(async () => {
     await post(`/api/peers/groups/${g.id}/${yes ? 'accept' : 'decline'}`)
     await refresh()
@@ -160,6 +165,7 @@ function CheckinBox({ g, me, refresh, notify }) {
       notify('Your line for this week is saved')
     } catch (err) {
       setError(err)
+      if (err.status === 404) refresh() // the group has closed: show where the user stands now
     }
   }
   return (
@@ -204,7 +210,7 @@ export function ContactLinkBox({ p, refresh, notify }) {
 export default function PeerGroup({ s, refresh, notify, switchOff }) {
   const p = s.peers
   const g = p.group
-  const safely = attempt(notify)
+  const safely = attempt(notify, refresh)
   const leave = (words) => {
     if (!window.confirm(words)) return
     safely(async () => { await post(`/api/peers/groups/${g.id}/leave`); await refresh(); notify('You left the group') })
@@ -224,12 +230,13 @@ export default function PeerGroup({ s, refresh, notify, switchOff }) {
         {p.nudges.length > 0 && (
           <section className="card">
             <h2>Nudges this week</h2>
-            <div className="list" style={{ marginTop: 10 }}>{p.nudges.map((n) => <p key={n.first_name} className="small">{n.text}</p>)}</div>
+            <div className="list" style={{ marginTop: 10 }}>{p.nudges.map((n) => <p key={n.member} className="small">{n.text}</p>)}</div>
           </section>
         )}
         <section className="card stack">
           <h2>You</h2>
           <p className="small">{g.me.progress.met} of {g.me.progress.of} targets met this week. Streak: {plural(g.me.streak, 'week')}.</p>
+          {p.appears_as && <p className="small muted">Your group sees you as <strong>{p.appears_as.first_name}</strong>. If that is your surname, or not the name you go by, put your given name first in Profile.</p>}
           <CheckinBox g={g} me={g.me} refresh={refresh} notify={notify} />
           <ContactLinkBox p={p} refresh={refresh} notify={notify} />
         </section>

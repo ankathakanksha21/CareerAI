@@ -6,13 +6,14 @@ export default function PeerCard({ s, go }) {
   if (p.status === 'proposed') {
     return (
       <section className="card tint">
-        <h2>We found a buddy for you</h2>
-        <p className="small">Say yes or not this time on Peers.</p>
+        <h2>{p.proposal.members.length > 1 ? 'We found a group for you' : 'We found a buddy for you'}</h2>
+        <p className="small">{p.proposal.said_yes ? 'You said yes. Waiting for an answer.' : 'Say yes or not this time on Peers.'}</p>
         <button className="btn small" style={{ marginTop: 10 }} onClick={() => go('peers')}>Open</button>
       </section>
     )
   }
   if (p.status !== 'group') return null
+  const asked = p.group.newcomer && !p.group.newcomer.said_yes
   const people = [{ key: 'me', name: 'You', met: p.group.me.progress.met === p.group.me.progress.of },
     ...p.group.members.map((m) => ({ key: m.member, name: m.first_name, met: m.progress.met === m.progress.of }))]
   return (
@@ -26,7 +27,8 @@ export default function PeerCard({ s, go }) {
           </div>
         ))}
       </div>
-      {p.nudges.map((n) => <p key={n.first_name} className="small" style={{ marginTop: 8 }}>{n.text}</p>)}
+      {asked && <p className="small" style={{ marginTop: 8 }}>Someone could join your group. Say yes or not this time on Peers.</p>}
+      {p.nudges.map((n) => <p key={n.member} className="small" style={{ marginTop: 8 }}>{n.text}</p>)}
     </section>
   )
 }
