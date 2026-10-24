@@ -1062,3 +1062,19 @@ Every draft is also refused if it claims a connection the user did not enter (a 
 **Verified, 24 October 2026.** Whole backend suite: 2,174 passed, 0 skipped. Frontend lints with no errors and builds. In a browser, signed out: Landing (212 words), sign-in and the privacy notice (all 7 sections open; about 1,370 words with all open, as before). Signed in, through a scratch backend with one made-up user in a transaction never committed: all 11 signed-in pages render with no crash and no sideways scroll at desktop width and at 375px, and every toggle opens to show its text (Pathways 155 words closed, 369 open). No `check-%@example.test` user left.
 
 **Not verified:** the sidebar and the phone avatar button (the check page has no app frame), anything signed in for real, print output on paper, and the screens with an AI result on them (the model was not called).
+
+## 30. The new look (24 October 2026)
+
+**What changed.** A design board of 24 decisions, drawn from Mobbin's own stylesheet (neutral base, see-through greys, pill buttons, fast ease-out motion) and approved by the owner, then two changes the owner asked for after seeing it: no serif anywhere, and cards that rise slightly as they scroll into view. Only `index.html` (fonts), `index.css`, `ui.jsx` (`ShowMore`, `InfoTip`) and `App.jsx` (one wrapper) changed; no screen was rewritten and no behaviour changed.
+
+**Tokens** (the top of `index.css`; every colour, font, size, corner, shadow and timing comes from them):
+- Colour: page `#f6f7f6`, white cards, text `#0c0f0d`, greys made from that text at 66%, 48%, 4 to 9% and 8 to 14%; green `#24562c` is the only accent; red and amber only for status.
+- Type: Geist for everything, with titles and the big numbers (visa days left, streaks, counts) bold (650) and tight (-0.035em to -0.045em), close to Mobbin's paid Saans; Geist Mono for small uppercase labels such as "Next step". Instrument Serif was tried on the board and dropped by the owner.
+- Shape: cards 18px corners, inputs 10px and 44px tall with a soft fill, buttons and chips pills; hairline borders and a whisper of shadow; more room (card padding 24px, 32px between sections, 48px page margins on a laptop).
+- Motion: one ease-out curve; 150ms for hover and press, 220ms for toggles and notes, 420ms for arrivals.
+
+**Motion.** Buttons lift 1px on hover and settle on press; clickable cards lift 2px. Show more and (i) notes fade in and out (the closing animation plays before the content hides; the toggle reports itself closed at once). A page's cards fade up in sequence when it opens, at most 8, and the animation leaves no transform behind, so a fixed panel inside a page is never trapped. Progress bars fill from empty. Cards further down rise as they scroll into view, driven by the scroll itself (`animation-timeline: view()`), so nothing on screen at load is hidden and browsers without it show every card at once. Loading placeholders shimmer, the save toast slides up, a new milestone pops in. Anyone who asks their device for less motion gets none (a spinner still turns slowly).
+
+**Verified, 24 October 2026.** Frontend lints with no errors and builds; the whole backend suite passed (2,174, 0 skipped; the backend is unchanged). In a browser: Landing at desktop and 375px (fonts loaded, no sideways scroll, the brand name on two lines on a phone). The real app, sidebar included, against a scratch backend with one made-up user in a transaction never committed and a stand-in session (both removed afterwards): every page opened from the sidebar with no crash, no sideways scroll and no console error; on a phone the avatar shows in the top bar and opens Account; Show more and an (i) note open and close with their state right, including Escape and a click elsewhere. No `check-%@example.test` user left.
+
+**Not verified:** a real sign-in, Safari and Firefox (where the scroll animation is simply absent), and printing.
