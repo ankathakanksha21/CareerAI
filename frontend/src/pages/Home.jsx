@@ -5,6 +5,7 @@ import Milestones from '../components/Milestones'
 import Plan from '../components/Plan'
 import ThisWeek from '../components/ThisWeek'
 import ComingUp from '../components/ComingUp'
+import PeerCard from '../components/PeerCard'
 
 function VisaCard({ profile }) {
   const days = daysUntil(profile.visa_end_date)
@@ -87,6 +88,7 @@ export default function Home({ s, go, refresh, notify }) {
         </div>
 
         <div className="stack">
+          <PeerCard s={s} go={go} />
           <ComingUp s={s} go={go} />
           <VisaCard profile={s.profile} />
           <section className="card">
