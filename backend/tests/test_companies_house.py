@@ -113,3 +113,8 @@ def test_no_key_makes_no_request(monkeypatch, no_env_file):
     monkeypatch.setattr(ch, "_client", lambda: pytest.fail("a request was made without a key"))
     with pytest.raises(ch.CompaniesHouseError):
         ch.search("Zzqx")
+
+
+def test_unreachable_says_only_what_failed():
+    """The company search screen adds how to carry on, so the message does not say it again."""
+    assert ch.UNREACHABLE == "We could not reach Companies House."

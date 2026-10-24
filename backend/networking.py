@@ -145,7 +145,7 @@ def findings(outreach: list[dict], contacts: list[dict]) -> list[dict]:
         "id": "outreach-no-replies", "type": "network", "severity": 2,
         "title": "Your messages are not getting replies yet",
         "evidence": f"{plural(messages, 'message')} sent and no replies yet.",
-        "action": "Send shorter messages that ask for 15 minutes of advice, not a job, and read how networking works in the UK.",
+        "action": "Send shorter messages asking for 15 minutes of advice, not a job.",
         "link": {"page": "networking", "label": "Read the guide", "tab": "guide"},
     }]
 

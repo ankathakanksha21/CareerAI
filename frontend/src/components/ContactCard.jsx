@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ExternalLink, Pencil, Trash2 } from 'lucide-react'
+import { CalendarDays, ExternalLink, Pencil, Trash2 } from 'lucide-react'
 import { del, patch, post } from '../api'
 import { attempt, fmtDate } from '../ui'
 import { ANSWERED, NEXT_STEPS, STEP_WORDS, label } from '../networking'
@@ -16,7 +16,7 @@ export default function ContactCard({ s, c, refresh, notify, go }) {
   const step = (kind, words) => safely(async () => { setOpen(null); await post(`/api/contacts/${c.id}/events`, { kind }); await refresh(); notify(words) })
   const ownMessage = () => step('sent', `Message to ${c.name} counted`)
   const remove = () => {
-    if (!window.confirm(`Delete ${c.name}? Their details go. Messages you sent them still count in their weeks.`)) return
+    if (!window.confirm(`Delete ${c.name}? Messages you sent them still count toward your weekly targets.`)) return
     safely(async () => { await del(`/api/contacts/${c.id}`); await refresh(); notify('Contact deleted') })
   }
   const saveNotes = (e) => {
@@ -42,21 +42,25 @@ export default function ContactCard({ s, c, refresh, notify, go }) {
       </div>
 
       <p className={`next-line ${c.next.late ? 'late' : ''}`}>
-        <span className="strong">Next: </span>{c.next.text}
-        {c.next.due_on && <span className="muted"> {c.next.late ? '(was due' : '(by'} {fmtDate(c.next.due_on, { day: 'numeric', month: 'short' })})</span>}
+        <span className="strong">Next: </span>{c.next.text}{' '}
+        {c.next.due_on && (
+          <span className={`chip contactcard-due ${c.next.late ? 'warn' : 'muted'}`}>
+            <CalendarDays size={12} aria-hidden="true" />{c.next.late ? 'was due' : 'by'} {fmtDate(c.next.due_on, { day: 'numeric', month: 'short' })}
+          </span>
+        )}
       </p>
 
       <div className="row" style={{ flexWrap: 'wrap' }}>
-        <button className="btn small" onClick={() => (open === 'draft' ? setOpen(null) : openDraft())}>{open === 'draft' ? 'Close the draft' : 'Write a message'}</button>
+        <button className="btn small" onClick={() => (open === 'draft' ? setOpen(null) : openDraft())}>{open === 'draft' ? 'Close draft' : 'Write a message'}</button>
         <button className="btn ghost small" onClick={ownMessage}>I sent my own message</button>
         {NEXT_STEPS[c.status].map(([kind, words]) => <button key={kind} className="btn ghost small" onClick={() => step(kind, words)}>{words}</button>)}
       </div>
 
       {c.status === 'chat_booked' && (
         <div className="sub-block">
-          <h4>Questions to ask in your chat</h4>
+          <h4>Questions to ask</h4>
           <ol className="small">{c.chat_questions.map((q) => <li key={q}>{q}</li>)}</ol>
-          <p className="small muted">Keep it to the 15 minutes you asked for, and end by asking who else you should talk to.</p>
+          <p className="small muted">Keep to 15 minutes. End by asking who else you should talk to.</p>
         </div>
       )}
 
@@ -64,7 +68,7 @@ export default function ContactCard({ s, c, refresh, notify, go }) {
         <div className="sub-block">
           <h4>After the chat</h4>
           <label className="field">What you talked about<textarea rows={3} maxLength={4000} defaultValue={c.notes} key={c.notes} onBlur={saveNotes} /></label>
-          <p className="small">Did you ask who else you should talk to? A name from them is the warmest introduction you can get.</p>
+          <p className="small">Did you ask who else to talk to? A name from them is your warmest introduction.</p>
           {c.next.text.startsWith('Send a thank-you') && open !== 'draft' && (
             <div><button className="btn small" onClick={openDraft}>Write the thank-you</button></div>
           )}
@@ -73,7 +77,7 @@ export default function ContactCard({ s, c, refresh, notify, go }) {
 
       {c.status === 'referral_offered' && (
         <div className="sub-block">
-          <p className="small">Open the application and choose {c.name} under Saved contact. Its source becomes Referral, and the tracker can tell you whether referrals work for you.</p>
+          <p className="small">In the application, choose {c.name} under Saved contact. Its source becomes Referral.</p>
           <div><button className="btn ghost small" onClick={() => go('applications')}>Open Applications</button></div>
         </div>
       )}

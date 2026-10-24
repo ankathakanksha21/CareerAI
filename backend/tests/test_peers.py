@@ -20,6 +20,10 @@ def test_fields_and_conduct_follow_the_copy_rules():
         assert "—" not in text
 
 
+def test_the_nudge_says_who_and_what_it_asks():
+    assert peers.NUDGE.format(name="Zzqxasha") == "Zzqxasha nudged you: one step today keeps your week on track."
+
+
 # ---------- contact links ----------
 
 @pytest.mark.parametrize("typed, stored", [

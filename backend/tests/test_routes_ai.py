@@ -49,7 +49,7 @@ def test_achievements_saved_and_journalled(client, stub):
     s = state(client)
     assert len(s["achievements"]) == 2 and all(a["source"] == "paste" for a in s["achievements"])
     assert s["profile"]["pitch"] == "I am a pitch."
-    assert [(j["type"], j["title"]) for j in s["journal"]] == [("coach", "Profile built from your pasted background")]
+    assert [(j["type"], j["title"]) for j in s["journal"]] == [("coach", "Pasted background")]
     assert s["usage"]["ai"]["used"] == 1
 
 
@@ -57,7 +57,7 @@ def test_voice_source_journal_title(client, stub):
     stub("extract_achievements", {"items": ITEMS, "pitch": ""})
     client.post("/api/ai/achievements", json={"transcript": TRANSCRIPT, "source": "voice"})
     s = state(client)
-    assert s["journal"][0]["title"] == "Background call with your careers coach"
+    assert s["journal"][0]["title"] == "Background call"
     assert s["profile"]["pitch"] is None  # an empty pitch does not overwrite
 
 

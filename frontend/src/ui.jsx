@@ -1,14 +1,14 @@
-import { useRef, useState } from 'react'
-import { BookOpen, BriefcaseBusiness, Check, Compass, FileText, Handshake, House, Mic, Search, UserRound, Users } from 'lucide-react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { BookOpen, BriefcaseBusiness, Check, ChevronDown, Compass, FileText, Handshake, House, Info, Mic, Search, UserRound, Users } from 'lucide-react'
 
 // Sidebar. key = route, label = what the user sees. Pages return here as their step goes live
 export const NAV = [
   { key: 'home', label: 'This week', icon: House },
   { key: 'profile', label: 'Profile', icon: UserRound },
-  { key: 'pathways', label: 'Career pathways', icon: Compass },
+  { key: 'pathways', label: 'Pathways', icon: Compass },
   { key: 'jobs', label: 'Jobs', icon: Search },
-  { key: 'resume', label: 'Resume', icon: FileText },
-  { key: 'interview', label: 'Interview coach', icon: Mic },
+  { key: 'resume', label: 'CV', icon: FileText },
+  { key: 'interview', label: 'Interview', icon: Mic },
   { key: 'applications', label: 'Applications', icon: BriefcaseBusiness },
   { key: 'networking', label: 'Networking', icon: Users },
   { key: 'peers', label: 'Peers', icon: Handshake },
@@ -16,16 +16,102 @@ export const NAV = [
 ]
 export const PAGE_LABEL = Object.fromEntries(NAV.map((i) => [i.key, i.label]))
 
-export function PageHead({ title, lede, children }) {
+// info, if given, is a page's subtitle tucked behind an (i) beside the title. It opens on click, tap or Enter
+export function PageHead({ title, lede, info, infoLabel = 'About this page', children }) {
+  const [open, setOpen] = useState(false)
+  const id = useId()
   return (
     <header className="page-head">
       <div style={{ flex: 1, minWidth: 260 }}>
-        <h1>{title}</h1>
+        <div className="page-title">
+          <h1>{title}</h1>
+          {info && <InfoButton open={open} label={infoLabel} controls={id} onClick={() => setOpen(!open)} />}
+        </div>
         {lede && <p className="lede">{lede}</p>}
+        {info && <div id={id} className="lede" hidden={!open}>{info}</div>}
       </div>
       {children}
     </header>
   )
+}
+
+// The (i) button. Icon only, so it carries its words in aria-label and title
+export function InfoButton({ open, label, controls, onClick }) {
+  return (
+    <button type="button" className={`info-btn ${open ? 'open' : ''}`} aria-label={label} title={label} aria-expanded={open} aria-controls={controls} onClick={onClick}>
+      <Info size={16} aria-hidden="true" />
+    </button>
+  )
+}
+
+// A short explanation tucked behind an (i). It opens on click, tap or Enter, closes on Escape or a click elsewhere,
+// and is kept inside the screen on a phone
+export function InfoTip({ label = 'More information', children }) {
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  const box = useRef(null)
+  const pop = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const away = (e) => { if (!box.current?.contains(e.target)) setOpen(false) }
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', away)
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
+  }, [open])
+  useLayoutEffect(() => {
+    const el = pop.current
+    if (!open || !el) return
+    const r = el.getBoundingClientRect()
+    const shift = Math.min(0, window.innerWidth - 16 - r.right) || Math.max(0, 16 - r.left)
+    if (shift) el.style.translate = `${shift}px 0`
+  }, [open])
+  return (
+    <span className="info" ref={box}>
+      <InfoButton open={open} label={label} controls={open ? id : undefined} onClick={() => setOpen(!open)} />
+      {open && <span id={id} ref={pop} role="note" className="info-pop">{children}</span>}
+    </span>
+  )
+}
+
+// Longer text tucked behind a toggle, closed unless defaultOpen. With no label the toggle reads Show more / Show less.
+// heading ('h2', 'h3') wraps the toggle in a heading, so a section title can open its own section
+export function ShowMore({ label, openLabel, heading: Heading, defaultOpen = false, buttonClassName = 'linkish small', className = '', children }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const id = useId()
+  const text = open ? (openLabel || label || 'Show less') : (label || 'Show more')
+  const toggle = (
+    <button type="button" className={`showmore-btn ${buttonClassName}`} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+      {text}<ChevronDown size={15} aria-hidden="true" className={open ? 'flip' : ''} />
+    </button>
+  )
+  return (
+    <div className={`showmore ${className}`}>
+      {Heading ? <Heading className="showmore-head">{toggle}</Heading> : toggle}
+      <div id={id} className="showmore-body" hidden={!open}>{children}</div>
+    </div>
+  )
+}
+
+// Short facts as chips. label is a small muted word before them; tone is '', 'muted', 'good', 'warn' or 'bad'.
+// Anything passed as children (a link, say) follows the chips on the same line
+export function Chips({ label, items, tone = '', className = '', children }) {
+  const id = useId()
+  if (!items?.length) return null
+  return (
+    <div className={`chips ${className}`}>
+      {label && <span className="chips-label" id={id}>{label}</span>}
+      <ul className="chips-list" aria-labelledby={label ? id : undefined}>
+        {items.map((x, i) => <li key={i} className={`chip ${tone}`}>{x}</li>)}
+      </ul>
+      {children}
+    </div>
+  )
+}
+
+// A small busy circle. Its label is read out to screen readers instead of being shown
+export function Spinner({ label = 'Loading' }) {
+  return <span className="spinner" role="status"><span className="sr-only">{label}</span></span>
 }
 
 // Wraps a call so each button gets its own loading, result and error state, and can be retried
@@ -73,9 +159,11 @@ export function ErrorRetry({ error, onRetry }) {
   )
 }
 
-export function Empty({ title, body, action, onAction }) {
+// icon, if given, is a lucide icon shown above the heading
+export function Empty({ icon: Icon, title, body, action, onAction }) {
   return (
     <div className="card empty">
+      {Icon && <span className="icon-box" aria-hidden="true"><Icon size={20} /></span>}
       <h2>{title}</h2>
       {body && <p className="muted">{body}</p>}
       {action && <button className="btn" onClick={onAction}>{action}</button>}
@@ -118,17 +206,19 @@ export const FIT_LABEL = { direct: 'Direct fit', near: 'Near fit', stretch: 'Str
 export const money = (n) => `£${Math.round(n).toLocaleString('en-GB')}`
 export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-// Live adverts for one targeted role family: how many, what they pay, how many employers can sponsor
-function marketLine(m) {
-  if (!m || !m.jobs) return 'No live jobs found yet.'
-  const parts = [`${plural(m.jobs, 'live job')}.`]
-  if (m.salary_n) parts.push(`Median advertised salary ${money(m.salary_median)} from ${plural(m.salary_n, 'advert')}.`)
-  if (m.named) parts.push(`${m.listed} of ${plural(m.named, 'named employer')} ${m.listed === 1 ? 'is' : 'are'} on the sponsor register.`)
-  return parts.join(' ')
+// Live adverts for one targeted role family, as chips: how many, what they advertise, how many named employers are on the sponsor register
+function marketChips(m) {
+  const items = [plural(m.jobs, 'live job')]
+  if (m.salary_n) items.push(`Median advertised ${money(m.salary_median)} from ${plural(m.salary_n, 'advert')}`)
+  if (m.named) items.push(`${m.listed} of ${plural(m.named, 'named employer')} on the sponsor register`)
+  return items
 }
 
-// One AI-suggested role family: fit, estimated overlap, and what the user already shows or lacks
+// One AI-suggested role family: fit, estimated overlap, and what the user already shows or lacks.
+// Every need stays in view; what shows each met need is one tap away behind Show evidence
 export function FamilyCard({ f, onToggle, market, onJobs }) {
+  const [evidence, setEvidence] = useState(false)
+  const needsId = useId()
   return (
     <article className={`card family ${f.targeted ? 'selected' : ''}`}>
       <div className="row">
@@ -139,21 +229,27 @@ export function FamilyCard({ f, onToggle, market, onJobs }) {
       <h3 style={{ fontSize: 17 }}>{f.name}</h3>
       <div className="row small"><span style={{ width: 170 }}>{f.overlap}% overlap (AI estimate)</span><span style={{ flex: 1 }}><Meter value={f.overlap} /></span></div>
       {f.why && <p className="small">{f.why}</p>}
-      {f.uk_titles.length > 0 && <p className="small muted">UK job titles: {f.uk_titles.join(', ')}</p>}
-      {f.targeted && onJobs && (
-        <p className="small market">{marketLine(market)} <button className="linkish" onClick={onJobs}>See jobs</button></p>
+      <Chips label="UK titles" items={f.uk_titles} tone="muted" />
+      {f.targeted && onJobs && (market?.jobs
+        ? <Chips items={marketChips(market)} className="market"><button className="linkish small" onClick={onJobs}>See jobs</button></Chips>
+        : <p className="small market">No live jobs found yet. <button className="linkish" onClick={onJobs}>See jobs</button></p>
       )}
-      <div className="stack" style={{ gap: 8 }}>
+      <ul className="plain stack" id={needsId} style={{ gap: 8 }}>
         {f.needs.map((n) => (
-          <div key={n.need} className="need">
-            <span className={`mark ${n.shown_by ? 'yes' : 'no'}`}>{n.shown_by ? <Check size={13} strokeWidth={3} /> : ''}</span>
+          <li key={n.need} className="need">
+            <span className={`mark ${n.shown_by ? 'yes' : 'no'}`} aria-hidden="true">{n.shown_by ? <Check size={13} strokeWidth={3} /> : ''}</span>
             <div>
-              <div className={n.shown_by ? '' : 'strong'}>{n.need}</div>
-              <div className="small muted">{n.shown_by ? `Shown by: ${n.shown_by}` : 'Gap'}</div>
+              <div className={n.shown_by ? '' : 'strong'}>{n.need}{!n.shown_by && <span className="sr-only"> (Gap)</span>}</div>
+              {n.shown_by && evidence && <div className="small muted"><span className="sr-only">Shown by: </span>{n.shown_by}</div>}
             </div>
-          </div>
+          </li>
         ))}
-      </div>
+      </ul>
+      {f.needs.some((n) => n.shown_by) && (
+        <button type="button" className="linkish small showmore-btn family-evidence" aria-expanded={evidence} aria-controls={needsId} onClick={() => setEvidence(!evidence)}>
+          {evidence ? 'Hide evidence' : 'Show evidence'}<ChevronDown size={15} aria-hidden="true" className={evidence ? 'flip' : ''} />
+        </button>
+      )}
     </article>
   )
 }
@@ -168,10 +264,7 @@ export function Brand({ onClick }) {
   return (
     <button className="brand" onClick={onClick} aria-label="UK Career Navigator home">
       <span className="brand-mark"><Compass size={18} /></span>
-      <span>
-        <span className="brand-name">UK Career Navigator</span>
-        <span className="brand-sub">for international students and graduates</span>
-      </span>
+      <span className="brand-name">UK Career Navigator</span>
     </button>
   )
 }

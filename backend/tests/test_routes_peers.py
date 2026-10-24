@@ -301,7 +301,7 @@ def test_one_nudge_a_day_through_the_api(client, conn, user_a, user_b, as_user):
     assert (again.status_code, again.json()["detail"]) == (409, "You have already nudged Zzqxben today.")
     as_user(user_b, "Zzqxben Okafor")
     [received] = peers_of(client)["nudges"]
-    assert (received["first_name"], received["text"]) == ("Zzqxasha", "Zzqxasha sent you a nudge: one step today keeps your week on track.")
+    assert (received["first_name"], received["text"]) == ("Zzqxasha", "Zzqxasha nudged you: one step today keeps your week on track.")
 
 
 def test_a_nudge_to_someone_outside_the_group_is_404(client, conn, user_a, user_b):

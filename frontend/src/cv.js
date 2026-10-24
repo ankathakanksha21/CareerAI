@@ -89,14 +89,14 @@ export function trimIdeas(doc) {
   const ideas = []
   const jobs = doc.work.filter((w) => !w.hidden).map((w) => ({ name: w.employer, n: w.bullets.filter((b) => !b.hidden).length }))
   const fullest = jobs.toSorted((a, b) => b.n - a.n)[0]
-  if (fullest && fullest.n >= 3) ideas.push(`Hide a bullet under ${fullest.name}: ${fullest.n} are showing.`)
+  if (fullest && fullest.n >= 3) ideas.push(`Hide a bullet under ${fullest.name} (${fullest.n} shown).`)
   const projects = doc.projects.filter((p) => !p.hidden && p.bullets.some((b) => !b.hidden)).length
-  if (projects >= 2) ideas.push(`Hide a project: ${projects} are showing.`)
-  if (jobs.length >= 4) ideas.push(`Hide your oldest or least relevant job: ${jobs.length} are showing.`)
+  if (projects >= 2) ideas.push(`Hide a project (${projects} shown).`)
+  if (jobs.length >= 4) ideas.push(`Hide your oldest or least relevant job (${jobs.length} shown).`)
   const words = wordCount(doc.profile)
-  if (words > 70) ideas.push(`Shorten your profile: it is ${words} words, and 50 to 70 is enough.`)
+  if (words > 70) ideas.push(`Shorten your profile to 50 to 70 words (now ${words}).`)
   const lines = doc.additional.lines.filter((l) => !l.hidden).length
-  if (lines >= 4) ideas.push(`Hide a line under Additional information: ${lines} are showing.`)
+  if (lines >= 4) ideas.push(`Hide a line under Additional information (${lines} shown).`)
   return ideas.length ? ideas : ['Shorten your longest bullets to one line each.']
 }
 

@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { getSupabase } from '../supabase'
-import { Brand } from '../ui'
+import { Brand, Spinner } from '../ui'
 
 const MIN_PASSWORD = 8
+// Title and subtitle of each view; the password rule is shown under the password field instead
 const TITLES = {
-  signup: ['Create your account', 'Takes a minute. You can delete your account and data at any time.'],
-  signin: ['Sign in', 'Welcome back.'],
-  forgot: ['Reset your password', 'We will email you a link to set a new one.'],
-  newpassword: ['Set a new password', 'Choose a password of at least 8 characters.'],
+  signup: ['Create your account', 'You can delete your account and data at any time.'],
+  signin: ['Welcome back', ''],
+  forgot: ['Reset your password', 'We will email you a reset link.'],
+  newpassword: ['Set a new password', ''],
 }
 
 // Supabase's wording for the common failures, in plainer terms
@@ -33,7 +34,7 @@ export default function Auth({ mode, go, onDone }) {
     if (needs.password && (view === 'signin' ? !form.password : form.password.length < MIN_PASSWORD)) {
       e.password = view === 'signin' ? 'Enter your password.' : `Use at least ${MIN_PASSWORD} characters.`
     }
-    if (view === 'signup' && !form.agree) e.agree = 'Please agree to the privacy notice to continue.'
+    if (view === 'signup' && !form.agree) e.agree = 'Agree to the privacy notice to continue.'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -75,7 +76,7 @@ export default function Auth({ mode, go, onDone }) {
       <div className="ob-title">
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}><Brand onClick={() => go('landing')} /></div>
         <h1>{title}</h1>
-        <p>{sub}</p>
+        {sub && <p>{sub}</p>}
       </div>
       <form className="card stack" onSubmit={submit} noValidate>
         {needs.name && (
@@ -93,9 +94,11 @@ export default function Auth({ mode, go, onDone }) {
         {needs.password && (
           <label className="field">{view === 'newpassword' ? 'New password' : 'Password'}
             <input type="password" value={form.password} onChange={set('password')} autoComplete={view === 'signin' ? 'current-password' : 'new-password'} />
+            {view !== 'signin' && <span className="auth-hint">At least {MIN_PASSWORD} characters</span>}
             {errors.password && <span className="error">{errors.password}</span>}
           </label>
         )}
+        {view === 'signin' && <button type="button" className="linkish small auth-forgot" onClick={() => go('auth', 'forgot')}>Forgot password?</button>}
         {view === 'signup' && (
           <div>
             <label className="check">
@@ -107,11 +110,11 @@ export default function Auth({ mode, go, onDone }) {
         )}
         {errors.form && <p className="error" role="alert">{errors.form}</p>}
         {notice && <p className="note" role="status">{notice}</p>}
-        <button className="btn large" type="submit" disabled={busy}>{busy ? 'One moment' : label}</button>
+        <button className="btn large" type="submit" disabled={busy}>{busy && <Spinner label="One moment" />}{label}</button>
       </form>
       <div className="row small" style={{ justifyContent: 'center', marginTop: 16, gap: 18 }}>
-        {view === 'signin' && <><button className="linkish" onClick={() => go('auth', 'signup')}>Create an account</button><button className="linkish" onClick={() => go('auth', 'forgot')}>Forgot password?</button></>}
-        {view === 'signup' && <button className="linkish" onClick={() => go('auth', 'signin')}>I already have an account</button>}
+        {view === 'signin' && <button className="linkish" onClick={() => go('auth', 'signup')}>Create an account</button>}
+        {view === 'signup' && <button className="linkish" onClick={() => go('auth', 'signin')}>Sign in</button>}
         {view === 'forgot' && <button className="linkish" onClick={() => go('auth', 'signin')}>Back to sign in</button>}
       </div>
     </main>

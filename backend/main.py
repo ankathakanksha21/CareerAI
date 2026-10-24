@@ -742,8 +742,8 @@ def delete_application(app_id: UUID, user: CurrentUser):
 NOTHING_TO_COMPARE = ("No CV or job description was recorded for this application, so there is nothing to compare. "
                       "Attach both next time.")
 ENDED = "This application has ended, so there is nothing to follow up."
-LESSON_CHANGED = ("This application changed while the lesson was being written, so it was not saved. "
-                  "Ask for it again from the application.")
+LESSON_CHANGED = ("This application changed while the lesson was written, so it was not saved. "
+                  "Ask again from the application.")
 
 
 class RejectIn(BaseModel):
@@ -1460,12 +1460,12 @@ def _start_ai(user: User, action: str) -> dict:
 # ---------- building a profile: a coach call, pasted text, a CV file, GitHub ----------
 
 NOTHING_FOUND = "We could not find any achievements in that. Add more detail and try again."
-FILE_CUT = "That file is long, so only the first part of it was read."
+FILE_CUT = "Only the first part of this long file was read."
 # How each kind of import is counted against the daily limit and logged in the journal: action, entry type, with whom, title
 IMPORTS = {
-    "voice": ("achievements", "coach", "Careers coach", "Background call with your careers coach"),
-    "paste": ("achievements", "coach", "Careers coach", "Profile built from your pasted background"),
-    "cv": ("cv", "import", "", "Profile built from your uploaded CV"),
+    "voice": ("achievements", "coach", "Careers coach", "Background call"),
+    "paste": ("achievements", "coach", "Careers coach", "Pasted background"),
+    "cv": ("cv", "import", "", "CV upload"),
 }
 
 
@@ -1492,7 +1492,7 @@ def _import_background(user: User, text: str, source: str) -> dict:
         repo.add_journal_entry(
             conn, user.id, type=kind, with_whom=with_whom, title=title,
             summary=(f"{analytics.plural(len(saved), 'achievement')} captured and rewritten for UK employers." if saved
-                     else "Nothing new to add as achievements. Your work history and education were read for you to confirm."),
+                     else "No new achievements. Your work history and education were read for you to confirm."),
             points=[i["title"] for i in saved], actions=["Review your profile and add any missing numbers"], transcript=text)
     return {"items": [_achievement(a) for a in saved], "pitch": found["pitch"], "facts": offered,
             "notice": intake.FACTS_FAILED if found["facts"] is None else None}
@@ -1591,7 +1591,7 @@ def ai_achievements_github(body: GitHubImport, user: CurrentUser):
         saved = repo.add_achievements(conn, user.id, items, "github")
         repo.set_github_username(conn, user.id, body.username)
         repo.add_journal_entry(
-            conn, user.id, type="import", with_whom="", title="Projects imported from GitHub",
+            conn, user.id, type="import", with_whom="", title="GitHub projects",
             summary=f"{analytics.plural(len(saved), 'project')} added from github.com/{body.username}.",
             points=[i["title"] for i in saved], actions=["Add a number to each project where you can"],
             transcript="\n\n".join(f"{r['name']}\n{r['description']}\n{r['readme']}".strip() for r in repos))

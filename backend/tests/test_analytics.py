@@ -73,20 +73,32 @@ def test_low_reply_rule_silent_at_15_percent_or_more():
 
 def test_low_reply_detail_when_no_tailored_cv():
     stats = analytics.compute([app(role_family_id=F) for _ in range(4)], FAMILIES, [], [])
-    assert finding(stats, f"cv-{F}")["evidence"] == "0 responses from 4 applications. None of them used a tailored CV."
+    assert finding(stats, f"cv-{F}")["evidence"] == "0 replies from 4 applications. None used a tailored CV."
 
 
 def test_low_reply_detail_when_other_family_cv():
     cvs = [{"id": "cv9", "name": "Product CV v1", "role_family_id": G}]
     stats = analytics.compute([app(role_family_id=F, cv_version_id="cv9") for _ in range(4)], FAMILIES, cvs, [])
     evidence = finding(stats, f"cv-{F}")["evidence"]
-    assert "a CV written for another role" in evidence and "Product CV v1" in evidence
+    assert "They used a CV for another role (Product CV v1)." in evidence
 
 
 def test_low_reply_no_detail_when_own_family_cv_used():
     cvs = [{"id": "cv1", "name": "Data CV v1", "role_family_id": F}]
     stats = analytics.compute([app(role_family_id=F, cv_version_id="cv1") for _ in range(4)], FAMILIES, cvs, [])
-    assert finding(stats, f"cv-{F}")["evidence"] == "0 responses from 4 applications."
+    assert finding(stats, f"cv-{F}")["evidence"] == "0 replies from 4 applications."
+
+
+def test_low_reply_evidence_spells_one_reply():
+    apps = [app(role_family_id=F) for _ in range(6)] + [app(role_family_id=F, stage="screening")]  # 1 of 7 = 14%
+    assert finding(analytics.compute(apps, FAMILIES, [], []), f"cv-{F}")["evidence"] == "1 reply from 7 applications. None used a tailored CV."
+
+
+def test_low_reply_action_names_the_role():
+    f = finding(analytics.compute([app(role_family_id=F) for _ in range(4)], FAMILIES, [], []), f"cv-{F}")
+    assert f["action"] == "Send the next batch with a tailored Data Analyst CV."
+    assert finding(analytics.compute([app() for _ in range(4)], FAMILIES, [], []), "cv-none")["action"] == (
+        "Send the next batch with a CV tailored to each job.")
 
 
 def test_low_reply_rule_covers_apps_without_a_family():
@@ -100,7 +112,7 @@ def test_story_rule_needs_three_interviews_no_offers():
     three = [app(stage="interview"), app(stage="interview"), app(stage="rejected_after_interview")]
     f = finding(analytics.compute(three, [], [], []), "story")
     assert f["link"] == {"page": "interview", "label": "Practise an interview"}
-    assert f["action"] == "Run a mock interview and strengthen your STAR stories before the next one."
+    assert f["action"] == "Do a mock interview and strengthen your STAR stories."
     assert finding(analytics.compute(three[:2], [], [], []), "story") is None
     assert finding(analytics.compute(three + [app(stage="offer")], [], [], []), "story") is None
 
@@ -123,7 +135,7 @@ def test_network_rule_links_to_finding_people():
     f = finding(analytics.compute(apps, [], [], []), "network")
     assert f["link"] == {"page": "networking", "label": "Find people"}
     assert f["evidence"] == "Referrals got replies 2 of 2 times. Job boards: 0 of 10."
-    assert f["action"] == "Ask people you know inside companies that are hiring for a referral before you apply."
+    assert f["action"] == "Before you apply, ask someone you know at the company for a referral."
 
 
 def test_network_rule_silent_without_job_board_applications():
@@ -173,7 +185,7 @@ def test_next_steps_empty_state():
     assert steps[2]["text"] == "Save a job you want" and "paste an advert" in steps[2]["why"]
     assert not any(s["done"] for s in steps)
     assert steps[0]["text"] == "Build your profile"
-    assert steps[0]["why"] == "Your CVs, stories and interview practice are all built from it."
+    assert steps[0]["why"] == "Your CVs, stories and practice all come from it."
 
 
 def test_next_steps_progress():
@@ -212,7 +224,7 @@ def test_sponsor_finding_fires_at_ten_named_adverts_under_twenty_percent():
     stats = analytics.compute([], targeted(F), [], [], market={F: adverts(named=10, listed=1, jobs=14)})
     f = finding(stats, f"sponsor-{F}")
     assert f["type"] == "sponsor" and f["title"] == "Few Data Analyst roles come from licensed sponsors"
-    assert f["evidence"] == "1 of 10 current adverts that name their employer are from employers on the sponsor register."
+    assert f["evidence"] == "1 of 10 current adverts naming their employer are from employers on the sponsor register."
     assert f["link"] == {"page": "jobs", "label": "Open Jobs"} and "Sponsors only" in f["action"]
 
 
@@ -276,7 +288,7 @@ def test_three_lessons_on_one_page_make_a_finding():
     assert found["type"] == "lessons" and found["severity"] == 3
     assert found["title"] == "3 of your rejections point to your CV"
     assert found["action"] == "Change three"  # the latest lesson's change
-    assert all(name in found["evidence"] for name in ("Zzqx One", "Zzqx Two", "Zzqx Three"))
+    assert found["evidence"] == "Lessons from Zzqx One, Zzqx Two and Zzqx Three."
     assert found["link"]["page"] == "resume"
 
 

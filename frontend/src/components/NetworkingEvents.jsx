@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ExternalLink, Trash2 } from 'lucide-react'
+import { useId, useState } from 'react'
+import { ExternalLink, Pencil, Trash2 } from 'lucide-react'
 import { del, patch, post, put } from '../api'
 import { Empty, ErrorRetry, attempt, useAction } from '../ui'
 import { dayBox, eventWhen, label, londonInput } from '../networking'
@@ -20,40 +20,51 @@ function LinkList({ title, items }) {
 
 // Where to look: Meetup and Eventbrite searches for the user's field and city, their university's events page, professional bodies
 function WhereToLook({ s, links, error, retry, refresh, notify }) {
-  const [page, setPage] = useState(s.profile.university_events_url || '')
+  const saved = s.profile.university_events_url
+  const [page, setPage] = useState(saved || '')
+  const [editing, setEditing] = useState(false) // once a page is saved, its field opens from the pencil
+  const formId = useId()
   const save = useAction(async () => {
     const r = await put('/api/profile/events-url', { url: page })
     setPage(r.university_events_url || '')
     await refresh()
     notify(r.university_events_url ? 'Saved' : 'Removed')
+    setEditing(false)
     return r
   })
+  const toggle = () => { setPage(saved || ''); setEditing(!editing) }
   return (
     <section className="card">
       <h2>Where to look</h2>
-      <p className="sub">Searches built from your target roles and locations. Each opens on the other site; nothing is listed here for you.</p>
+      <p className="sub">Searches from your target roles and locations. Each opens on its own site.</p>
       <ErrorRetry error={error} onRetry={retry} />
       {links && (
         <div className="stack" style={{ marginTop: 10 }}>
           {links.meetup.length + links.eventbrite.length === 0 && (
-            <p className="small">Pick target roles in Career pathways and add your locations in your profile to get searches for your field and city.</p>
+            <p className="small">Add target roles in Pathways and locations in your profile to get searches here.</p>
           )}
           <LinkList title="Meetup" items={links.meetup} />
           <LinkList title="Eventbrite" items={links.eventbrite} />
           <div>
             <h3>Your university</h3>
-            {s.profile.university_events_url && (
-              <p><a href={s.profile.university_events_url} target="_blank" rel="noopener noreferrer">Your university's careers events <ExternalLink size={13} /></a></p>
+            {saved && (
+              <p className="events-uni-link">
+                <a href={saved} target="_blank" rel="noopener noreferrer">Careers events <ExternalLink size={13} /></a>
+                <button type="button" className="icon-btn calm" aria-label="Change careers events page" title="Change careers events page"
+                  aria-expanded={editing} aria-controls={editing ? formId : undefined} onClick={toggle}><Pencil size={14} aria-hidden="true" /></button>
+              </p>
             )}
-            <form className="form-row" onSubmit={(e) => { e.preventDefault(); save.run() }} style={{ marginTop: 6 }}>
-              <label className="field" style={{ flex: 1 }}>Careers events page
-                <input type="text" maxLength={500} placeholder="careers.youruni.ac.uk/events" value={page} onChange={(e) => setPage(e.target.value)} />
-              </label>
-              <button className="btn ghost small" type="submit" disabled={save.loading}>Save</button>
-            </form>
+            {(!saved || editing) && (
+              <form id={formId} className="form-row" onSubmit={(e) => { e.preventDefault(); save.run() }} style={{ marginTop: 6 }}>
+                <label className="field" style={{ flex: 1 }}>Careers events page
+                  <input type="text" maxLength={500} placeholder="careers.youruni.ac.uk/events" value={page} onChange={(e) => setPage(e.target.value)} />
+                </label>
+                <button className="btn ghost small" type="submit" disabled={save.loading}>Save</button>
+              </form>
+            )}
             <ErrorRetry error={save.error} />
           </div>
-          <LinkList title="Professional bodies for your field" items={links.bodies} />
+          <LinkList title="Professional bodies" items={links.bodies} />
         </div>
       )}
     </section>
@@ -81,7 +92,7 @@ function EventForm({ s, event, onSaved, onCancel }) {
       <label className="field">Event<input type="text" required maxLength={200} value={form.name} onChange={set('name')} /></label>
       <div className="grid cols-2">
         <label className="field">Date and time (UK)<input type="datetime-local" required value={form.starts_at} onChange={set('starts_at')} /></label>
-        <label className="field">Kind of event
+        <label className="field">Type
           <select value={form.type} onChange={set('type')}>{s.options.event_types.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
         </label>
         <label className="field">Place<input type="text" maxLength={200} placeholder="Venue and town" value={form.place} onChange={set('place')} /></label>
@@ -132,13 +143,13 @@ function SavedEvent({ s, ev, refresh, notify }) {
 
       <div className="row" style={{ flexWrap: 'wrap' }}>
         {ev.status !== 'attended' && (
-          <button className="btn ghost small" disabled={prepare.loading} onClick={() => prepare.run()}>
+          <button className="btn ghost small" disabled={prepare.loading} onClick={() => prepare.run()} title="A 30-second introduction, openers and a goal">
             {prepare.loading ? 'Preparing' : p ? 'Prepare again' : 'Prepare'}
           </button>
         )}
         {ev.status === 'attended' && <button className="btn small" onClick={() => setOpen(open === 'met' ? null : 'met')}>Who did you meet?</button>}
         <button className="btn ghost small" onClick={() => setOpen(open === 'edit' ? null : 'edit')}>Edit</button>
-        {ev.status !== 'attended' && !p && <span className="small muted">One AI action: an introduction, openers and a goal.</span>}
+        {ev.status !== 'attended' && !p && <span className="chip muted">1 AI action</span>}
       </div>
       <ErrorRetry error={prepare.error} onRetry={prepare.retry} />
 
@@ -146,13 +157,13 @@ function SavedEvent({ s, ev, refresh, notify }) {
         <div className="sub-block">
           <h4>Your 30-second introduction</h4>
           <p className="draft">{p.introduction}</p>
-          <h4>Ways to start a conversation</h4>
+          <h4>Conversation openers</h4>
           <ul className="small">{p.openers.map((o) => <li key={o}>{o}</li>)}</ul>
           <p className="small"><span className="strong">Your goal: </span>{p.goal}</p>
         </div>
       )}
 
-      {met.length > 0 && <p className="small">Met here: {met.map((c) => c.name).join(', ')}. Message each within 48 hours.</p>}
+      {met.length > 0 && <p className="small">Met here: {met.map((c) => c.name).join(', ')}.</p>}
       {open === 'met' && (
         <PersonForm s={s} preset={{ relationship: 'event', event_id: ev.id }}
           onSaved={async (c) => { setOpen(null); await refresh(); notify(`${c.name} added. Send a message within 48 hours.`) }}
@@ -174,7 +185,7 @@ export default function NetworkingEvents({ s, links, error, retry, refresh, noti
           <div className="row"><h2>My events</h2><span className="spacer" />{!adding && events.length > 0 && <button className="btn small" onClick={() => setAdding(true)}>Save an event</button>}</div>
           {adding && <EventForm s={s} onSaved={async () => { setAdding(false); await refresh(); notify('Event saved') }} onCancel={() => setAdding(false)} />}
           {events.length === 0 && !adding && (
-            <Empty title="No events saved yet" body="Find a meetup, careers fair or webinar through the searches here, then save it to prepare for it and track who you meet."
+            <Empty title="No events saved yet" body="Save a meetup, careers fair or webinar to prepare for it and track who you meet."
               action="Save an event" onAction={() => setAdding(true)} />
           )}
           {events.length > 0 && <div className="list" style={{ marginTop: 12 }}>{events.map((ev) => <SavedEvent key={ev.id} s={s} ev={ev} refresh={refresh} notify={notify} />)}</div>}

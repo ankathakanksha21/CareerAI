@@ -31,7 +31,7 @@ export default function PrepPacks({ s, focus, go, refresh, notify }) {
     <div className="stack">
       <section className="card">
         <h2>Prepare for an interview</h2>
-        <p className="sub">One page to prepare from: who the company is, with a source for every line, the questions you are likely to be asked matched to your stories, and good questions to ask back.</p>
+        <p className="sub">A sourced company brief, likely questions matched to your stories, and questions to ask them.</p>
         {s.saved_jobs.length > 0 && (
           <div className="row">
             <JobPicker jobs={s.saved_jobs} value={jobId} onChange={setJobId} />
@@ -40,13 +40,13 @@ export default function PrepPacks({ s, focus, go, refresh, notify }) {
           </div>
         )}
         {s.saved_jobs.length === 0 && !adding && (
-          <div className="row"><span className="small">Save the job you are interviewing for first.</span><button className="btn" onClick={() => setAdding(true)}>Add a job</button></div>
+          <div className="row"><span className="small">No saved jobs yet.</span><button className="btn" onClick={() => setAdding(true)}>Add a job</button></div>
         )}
         {adding && <div style={{ marginTop: 14 }}><AddJob onCancel={() => setAdding(false)} onAdded={async (j) => { await refresh(); setAdding(false); setJobId(j.id); notify('Job saved') }} /></div>}
       </section>
 
       {s.prep_packs.length === 0 ? (
-        <p className="muted">No prep packs yet. When you have an interview, prepare for it here or from the application.</p>
+        <p className="muted">No packs yet. You can also start one from an application.</p>
       ) : (
         <section className="card">
           <h2>Your packs</h2>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, EyeOff, GripVertical } from 'lucide-react'
+import { ChevronDown, ChevronUp, EyeOff, GripVertical, Lock } from 'lucide-react'
 import EditableText from './EditableText'
 import { SECTION_TITLE, SKILL_LABEL, abroad, addAchievement, contactLine, cvPeriod, joined, moved, shownAt, unused } from '../cv'
 
@@ -44,6 +44,11 @@ function Acts({ what, list, at, onMove, onHide, grip }) {
   )
 }
 
+// A short note on the sheet, led by an icon: EyeOff for a section that is not printed, Lock for facts edited on the Profile
+function Note({ icon: Icon, style, children }) {
+  return <p className="small muted cv-note" style={style}><Icon size={13} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 5 }} />{children}</p>
+}
+
 function Hidden({ list, label, onRestore }) {
   const hidden = list.map((item, at) => ({ item, at })).filter((x) => x.item.hidden)
   if (!hidden.length) return null
@@ -86,7 +91,7 @@ function Entries({ doc, change, section, what, idKey, name, empty, children }) {
   const list = doc[section]
   const reorder = (from, to) => change((d) => { d[section] = moved(d[section], from, to) })
   const edit = (at) => (fn) => change((d) => fn(d[section][at]))
-  if (!list.length) return <p className="small muted cv-note">{empty}</p>
+  if (!list.length) return <Note icon={EyeOff}>{empty}</Note>
   return (
     <>
       {shownAt(list).map((at) => {
@@ -113,7 +118,7 @@ function Skills({ doc, change }) {
             onChange={(v) => change((d) => { d.skills[group] = v.split(',').map((x) => x.trim()).filter(Boolean) })} />
         </div>
       ))}
-      {!any && <p className="small muted cv-note">No skills are listed, so this section is not printed.</p>}
+      {!any && <Note icon={EyeOff}>No skills listed. Not printed.</Note>}
     </>
   )
 }
@@ -145,7 +150,7 @@ function Additional({ doc, change }) {
             onChange={(v) => change((d) => { d.additional.lines.push({ text: v, hidden: false }) })} />
         )}
         <label className="check"><input type="checkbox" checked={visa.shown} onChange={(e) => change((d) => { d.right_to_work.shown = e.target.checked })} />Show a right-to-work line</label>
-        {visa.shown && <p className="small muted">It states your current visa and the date it ends, nothing more. Check it against your own visa before you send it. This is not immigration advice.</p>}
+        {visa.shown && <p className="small muted">States your visa and its end date only. Check it against your own visa before sending. Not immigration advice.</p>}
       </div>
     </>
   )
@@ -157,7 +162,7 @@ function AddFromProfile({ doc, change, achievements }) {
   if (!spare.length) return null
   return (
     <div className="cv-add">
-      <button type="button" className="btn ghost small" onClick={() => setOpen(!open)}>{open ? 'Close' : `Add a bullet from my profile (${spare.length} not used)`}</button>
+      <button type="button" className="btn ghost small" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Close' : `Add a bullet from profile (${spare.length} unused)`}</button>
       {open && (
         <div className="list" style={{ marginTop: 12 }}>
           {spare.map((a) => (
@@ -179,20 +184,20 @@ export default function CvSheet({ doc, change, s, go }) {
   const sections = {
     education: (
       <Entries doc={doc} change={change} section="education" what="course" idKey="education_id" name={(e) => joined(e.institution, e.qualification)}
-        empty="No courses on your profile, so this section is not printed.">
+        empty="No courses on your profile. Not printed.">
         {(e, edit, acts) => (
           <>
             <div className="cv-row"><div className="cv-line"><span className="cv-strong">{joined(e.institution, abroad(e.country) ? e.country : '')}</span><span className="cv-dates">{cvPeriod(e, true)}</span></div>{acts}</div>
             {(e.qualification || e.subject) && <div className="cv-strong">{[e.qualification, e.subject].filter(Boolean).join(' ')}</div>}
             {e.grade && <div>Grade: {e.grade}</div>}
-            <div><EditableText value={e.note} allowEmpty max={300} label="modules or dissertation" placeholder="Add relevant modules or your dissertation (optional)" onChange={(v) => edit((x) => { x.note = v })} /></div>
+            <div><EditableText value={e.note} allowEmpty max={300} label="modules or dissertation" placeholder="Relevant modules or dissertation (optional)" onChange={(v) => edit((x) => { x.note = v })} /></div>
           </>
         )}
       </Entries>
     ),
     work: (
       <Entries doc={doc} change={change} section="work" what="job" idKey="work_history_id" name={(e) => joined(e.job_title, e.employer)}
-        empty="No jobs on your profile, so this section is not printed.">
+        empty="No jobs on your profile. Not printed.">
         {(e, edit, acts) => (
           <>
             <div className="cv-row"><div className="cv-line"><span className="cv-strong">{joined(e.employer, e.location, e.country)}</span><span className="cv-dates">{cvPeriod(e)}</span></div>{acts}</div>
@@ -205,7 +210,7 @@ export default function CvSheet({ doc, change, s, go }) {
     ),
     projects: (
       <Entries doc={doc} change={change} section="projects" what="project" idKey="achievement_id" name={(e) => e.title}
-        empty="No projects on this CV, so this section is not printed.">
+        empty="No projects on this CV. Not printed.">
         {(e, edit, acts) => (
           <>
             <div className="cv-row">
@@ -229,12 +234,12 @@ export default function CvSheet({ doc, change, s, go }) {
     <section className="cvdoc" aria-label="Your CV as it will print">
       <div className="cv-name">{doc.contact.name}</div>
       <div>{contactLine(doc.contact)}</div>
-      <p className="small muted cv-note" style={{ marginTop: 4 }}>
-        Your contact details, employers, dates and courses come from your profile. <button type="button" className="linkish" onClick={() => go('profile')}>Edit them on Profile</button>
-      </p>
+      <Note icon={Lock} style={{ marginTop: 4 }}>
+        Contact details, jobs, courses and dates come from your Profile. <button type="button" className="linkish" onClick={() => go('profile')}>Edit on Profile</button>
+      </Note>
       <div className="cv-row cv-h-row"><h3 className="cv-h">Personal profile</h3></div>
       <div className="cv-row">
-        <EditableText value={doc.profile} allowEmpty max={1500} label="personal profile" placeholder="Add three or four lines on who you are and what you are looking for"
+        <EditableText value={doc.profile} allowEmpty max={1500} label="personal profile" placeholder="3 or 4 lines on who you are and the role you want"
           onChange={(v) => change((d) => { d.profile = v })} />
       </div>
       {order.map((key, at) => (

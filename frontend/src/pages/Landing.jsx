@@ -1,11 +1,11 @@
 import { BriefcaseBusiness, Compass, FileText, Mic } from 'lucide-react'
-import { Brand } from '../ui'
+import { Brand, Chips } from '../ui'
 
 const FEATURES = [
-  { icon: FileText, title: 'UK-standard CV and cover letter', body: 'A complete two-page UK CV built from your own records and tailored to each job you choose. Edit it on screen, then download it as Word or PDF.' },
-  { icon: Mic, title: 'Interview practice', body: 'Voice mock interviews for HR screens, behavioural rounds and job-specific questions, with feedback on your answers.' },
-  { icon: BriefcaseBusiness, title: 'Application tracker', body: 'A board for every application, and a plain answer to what is not working.' },
-  { icon: Compass, title: 'Career pathways and jobs', body: 'Role families that fit your background, then current adverts for them, each compared with your profile and checked against the gov.uk sponsor register.' },
+  { icon: FileText, title: 'UK-standard CV and cover letter', body: 'A two-page UK CV built from your own records and tailored to each job. Edit on screen, download as Word or PDF.' },
+  { icon: Mic, title: 'Interview practice', body: 'Voice mock interviews with feedback on your answers.', chips: ['HR screen', 'Behavioural', 'Job-specific'] },
+  { icon: BriefcaseBusiness, title: 'Application tracker', body: 'Every application on one board, and what to fix.' },
+  { icon: Compass, title: 'Career pathways and jobs', body: 'Roles that fit your background, then live adverts matched to your profile and checked against the gov.uk sponsor register.' },
 ]
 
 // The same six steps a new account sees, shown as an example
@@ -28,12 +28,13 @@ export default function Landing({ go, signedIn }) {
 
       <section className="hero">
         <div>
+          <p className="hero-kicker">For international students and recent graduates in the UK</p>
           <h1>A clear plan for your UK job search.</h1>
-          <p className="lede">For international students and recent graduates in the UK. Turn your experience into UK-standard applications, practise interviews out loud, and see why applications are or are not working.</p>
+          <p className="lede">Turn your experience into UK-standard applications, practise interviews out loud, and see what to fix.</p>
           <div className="row">
             <button className="btn large" onClick={start}>{signedIn ? 'Open dashboard' : 'Get started'}</button>
           </div>
-          <p className="fine">Takes about three minutes. Talk to our coach or paste your CV.</p>
+          <p className="fine">Takes about three minutes.</p>
         </div>
         <div className="preview" aria-label="Example getting-started checklist">
           <div className="row"><span className="strong">Getting started</span><span className="spacer" /><span className="small muted">Example</span></div>
@@ -47,14 +48,14 @@ export default function Landing({ go, signedIn }) {
       </section>
 
       <section className="land-section" id="features">
-        <h2>What you can do</h2>
-        <p>Four tools that share one profile, so each one knows what the others found.</p>
+        <h2>Four tools, one profile</h2>
         <div className="grid cols-2">
-          {FEATURES.map(({ icon: Icon, title, body }) => (
+          {FEATURES.map(({ icon: Icon, title, body, chips }) => (
             <div key={title} className="card feature" style={{ cursor: 'default' }}>
               <span className="icon-box"><Icon size={19} /></span>
               <h3>{title}</h3>
               <p>{body}</p>
+              {chips && <Chips items={chips} tone="muted" />}
             </div>
           ))}
         </div>
@@ -62,11 +63,10 @@ export default function Landing({ go, signedIn }) {
 
       <section className="land-section" id="how">
         <h2>How it works</h2>
-        <p>From your background to a tracked search.</p>
         <div className="steps3">
-          <div><h3>Tell us your background</h3><p>Talk to our careers coach for a few minutes, or paste your CV. We turn it into evidence UK employers understand.</p></div>
-          <div><h3>See what employers look for</h3><p>Your profile against the roles you target: what you already show, and the gaps to close.</p></div>
-          <div><h3>Apply, practise, track</h3><p>Tailor a CV to each job, rehearse the interview, and let the tracker show what to change.</p></div>
+          <div><h3>Tell us your background</h3><p>Talk to our coach or add your CV. We turn it into evidence UK employers understand.</p></div>
+          <div><h3>See what employers look for</h3><p>What you already show for your target roles, and the gaps to close.</p></div>
+          <div><h3>Apply, practise, track</h3><p>Tailor a CV to each job, rehearse the interview, see what to change.</p></div>
         </div>
         <div className="row" style={{ marginTop: 28 }}><button className="btn large" onClick={start}>{signedIn ? 'Open dashboard' : 'Get started'}</button></div>
       </section>

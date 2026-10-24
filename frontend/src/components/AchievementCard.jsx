@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react'
 import { del, patch, post } from '../api'
 import { ErrorRetry, QUOTE_LABEL, Quote, attempt, useAction } from '../ui'
 
@@ -35,13 +36,13 @@ function EditForm({ a, s, onSave, onCancel }) {
     <form className="stack" onSubmit={submit} noValidate>
       <label className="field">Title<input type="text" value={form.title} maxLength={160} onChange={set('title')} /></label>
       <label className="field">CV bullet<textarea rows={3} value={form.uk_version} maxLength={600} onChange={set('uk_version')} /></label>
-      {a.raw && <p className="small muted">{QUOTE_LABEL[a.source]}: "{a.raw}". The quote is kept as it is, as the record of where this came from.</p>}
+      {a.raw && <p className="small muted">{QUOTE_LABEL[a.source]}: "{a.raw}" (kept unchanged as the source)</p>}
       <label className="field">Result<input type="text" value={form.outcome} maxLength={300} onChange={set('outcome')} placeholder="e.g. Late deliveries fell by 8%" /></label>
       <label className="field">Scale<input type="text" value={form.scale} maxLength={200} onChange={set('scale')} placeholder="e.g. 15 depot managers" /></label>
-      <label className="field">Skills, separated by commas<input type="text" value={form.skills} onChange={set('skills')} /></label>
-      <label className="field">Where did this happen?
+      <label className="field">Skills (comma-separated)<input type="text" value={form.skills} onChange={set('skills')} /></label>
+      <label className="field">Job or course
         <select value={form.place} onChange={set('place')}>
-          <option value="">Not linked to a job or course</option>
+          <option value="">Not linked</option>
           {s.work_history.length > 0 && <optgroup label="Work history">{s.work_history.map((e) => <option key={e.id} value={`w:${e.id}`}>{jobName(e)}</option>)}</optgroup>}
           {s.education.length > 0 && <optgroup label="Education">{s.education.map((e) => <option key={e.id} value={`e:${e.id}`}>{courseName(e)}</option>)}</optgroup>}
         </select>
@@ -110,7 +111,7 @@ export default function AchievementCard({ a, s, refresh, notify, onStar, starrin
       </div>
       <p className="uk">{a.uk_version}</p>
       <Quote a={a} />
-      {a.source_url && <a className="small linkish" href={a.source_url} target="_blank" rel="noopener noreferrer">View the repository</a>}
+      {a.source_url && <a className="small linkish achievement-link" href={a.source_url} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} aria-hidden="true" />On GitHub</a>}
       {(result || a.scale) && (
         <dl className="kv">
           {result && <><dt>Result</dt><dd>{result}</dd></>}
@@ -123,15 +124,15 @@ export default function AchievementCard({ a, s, refresh, notify, onStar, starrin
 
       {mode === 'improve' ? (
         <form className="stack" onSubmit={(e) => { e.preventDefault(); improve.run(note) }}>
-          <label className="field">{a.needs_number ? 'What is the number? One line is enough' : 'What should it say better? One line is enough'}
+          <label className="field">{a.needs_number ? 'What is the number?' : 'What should it say better?'}
             <input type="text" value={note} maxLength={300} autoFocus onChange={(e) => setNote(e.target.value)}
               placeholder={a.needs_number ? 'e.g. 15 managers used it and late deliveries fell 8%' : 'e.g. mention that I led the team of four'} />
           </label>
-          <p className="small muted">The AI uses only what is on this card and what you type here.</p>
+          <p className="small muted">The AI uses only this card and your note.</p>
           <ErrorRetry error={improve.error} onRetry={improve.retry} />
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="button" className="btn ghost small" onClick={() => setMode(null)}>Cancel</button>
-            <button className="btn small" type="submit" disabled={improve.loading}>{improve.loading ? 'Rewriting' : 'Rewrite the bullet'}</button>
+            <button className="btn small" type="submit" disabled={improve.loading}>{improve.loading ? 'Rewriting' : 'Rewrite'}</button>
           </div>
         </form>
       ) : (
@@ -142,11 +143,11 @@ export default function AchievementCard({ a, s, refresh, notify, onStar, starrin
             </button>
           )}
           <div className="row">
-            <button className="linkish small" onClick={() => setMode('edit')}>Edit</button>
-            <button className="linkish small" onClick={remove}>Delete</button>
+            <button className="icon-btn calm" aria-label={`Edit ${a.title}`} title={`Edit ${a.title}`} onClick={() => setMode('edit')}><Pencil size={16} aria-hidden="true" /></button>
+            <button className="icon-btn" aria-label={`Delete ${a.title}`} title={`Delete ${a.title}`} onClick={remove}><Trash2 size={16} aria-hidden="true" /></button>
             <span className="spacer" />
             <button className="btn ghost small" onClick={() => setMode('improve')}>Improve with AI</button>
-            <button className="btn ghost small" disabled={starring} onClick={() => onStar(a.id)}>Make a STAR story</button>
+            <button className="btn ghost small" disabled={starring} onClick={() => onStar(a.id)}><Plus size={14} aria-hidden="true" />STAR story</button>
           </div>
         </>
       )}

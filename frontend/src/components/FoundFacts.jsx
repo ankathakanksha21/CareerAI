@@ -70,7 +70,7 @@ export default function FoundFacts({ found, onSaved, onDismiss, embedded, ref })
     <section className="card tint stack">
       <div>
         <h2>We also found</h2>
-        <p className="small muted">Untick anything that is wrong. You can edit every entry on your Profile page afterwards.</p>
+        <p className="small muted">Untick anything wrong. You can edit it all later in Profile.</p>
       </div>
       {facts.work_history.length > 0 && (
         <div className="stack" style={{ gap: 6 }}>

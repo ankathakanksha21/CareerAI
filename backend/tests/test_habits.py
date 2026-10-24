@@ -348,12 +348,17 @@ def test_plan_at_most_five():
 def test_plan_copy():
     tasks = {t["id"]: t for t in plan(follow_ups=[DUE], story_count=4, missing_numbers=1)}
     assert tasks["follow-ups"]["text"] == "Follow up with Zzqx Holdings Ltd"
-    assert (tasks["applications"]["text"], tasks["applications"]["why"]) == (
-        "Send 5 more applications with a tailored CV", "Your goal is 5 this week and 0 have a CV recorded.")
-    assert tasks["practice"]["text"] == "Do 2 more mock interviews"
+    # a goal task carries its numbers as a short count, shown as a chip, in place of a sentence
+    assert (tasks["applications"]["text"], tasks["applications"]["why"], tasks["applications"]["count"]) == (
+        "Send 5 more applications with a tailored CV", None, "0 of 5 done")
+    assert (tasks["practice"]["text"], tasks["practice"]["why"], tasks["practice"]["count"]) == ("Do 2 more mock interviews", None, "0 of 2 done")
     assert (tasks["stories"]["text"], tasks["stories"]["page"], tasks["stories"]["tab"]) == ("Write 2 more STAR stories", "interview", "stories")
+    assert tasks["stories"]["why"] == "Six stories cover most UK competency questions."
     assert tasks["numbers"]["text"] == "Add a number to 1 achievement"
-    assert all(t["why"] and t["label"] and t["page"] in PAGES for t in tasks.values())
+    assert all((t["why"] or t["count"]) and t["label"] and t["page"] in PAGES for t in tasks.values())
+    assert all(t["count"] is None for t in tasks.values() if t["why"])
+    jobs = next(t for t in plan(fresh_jobs=3) if t["id"] == "new-jobs")
+    assert (jobs["text"], jobs["why"]) == ("Look at 3 new matching jobs from the last 48 hours", "Most applications arrive in the first few days.")
     two = plan(follow_ups=[DUE, DUE | {"id": "app-2", "company": "Zzqx Two"}])
     assert two[0]["text"] == "Follow up on 2 applications"
 
@@ -401,8 +406,8 @@ def test_contact_follow_ups_come_after_application_follow_ups():
 
 def test_an_unmet_outreach_target_names_who_to_message():
     task = next(t for t in plan(week=outreach_week(2, sent=1), to_message=PERSON | {"name": "Zzqx Sam"}) if t["id"] == "outreach")
-    assert (task["text"], task["why"], task["page"], task["tab"]) == (
-        "Message Zzqx Sam", "Your target is 2 messages this week and you have sent 1.", "networking", "people")
+    assert (task["text"], task["why"], task["count"], task["page"], task["tab"]) == (
+        "Message Zzqx Sam", None, "1 of 2 sent", "networking", "people")
 
 
 def test_with_nobody_to_message_the_task_is_to_find_someone():

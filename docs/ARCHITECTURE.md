@@ -658,7 +658,7 @@ If the AI allowance is used up the adverts are still listed, unscored. If Reed i
 | Class | When | Effect |
 |---|---|---|
 | `employer` | Reed says direct employer and the name does not say otherwise | Looked up on the register; counted in the figures |
-| `agency` | Reed says agency, or the name contains recruit, career, staffing, resourcing or RPO | "Advertised by a recruiter or job board; the employer is not named." Scored and shown as a job |
+| `agency` | Reed says agency, or the name contains recruit, career, staffing, resourcing or RPO | "Recruiter or job board advert; employer not named." Scored and shown as a job |
 | `training` | The name contains training, learning, course or bootcamp; or a recruiter-named company's advert reads like a programme; or the same company was seen selling one in the same fetch | Shown in a closed group, "Training programmes, not jobs". Never scored, never looked up, left out of the figures, and no Save or Track buttons |
 
 A real employer's trainee job is left alone: the wording alone never reclassifies an advert.
@@ -886,7 +886,7 @@ The last three rules came from the real model on 14 October 2026, which wrote "T
 
 **Where it starts.** "Prepare" beside the job picker on Interview coach, and "Prepare for this interview" on any application at Phone screen or Interview. Both open the Prep packs tab, which also lists the user's packs. If the job or application already has a pack, it opens.
 
-**Confirming the company.** The employer's name (editable) is looked up on Companies House and up to five matches are shown with their town, status and year. The user picks one, "None of these" or "It is not a UK company", and may type the website. Without a register entry the pack still builds and says so.
+**Confirming the company.** The employer's name (editable) is looked up on Companies House and up to five matches are shown with their town, status and year. The user picks one, "None of these" or "Not a UK company", and may type the website. Without a register entry the pack still builds and says so.
 
 **Research** (`POST /api/companies/research`, `research.py`). Companies House's profile, the employer's home page and up to five useful pages of the same site (about, careers, values, news and the like), a news search for the last year and a competitor search all run side by side. Any of them may fail; the brief then says what is missing ("Not included: the news search"). The register's lines are written by code. Everything else goes to the model as numbered passages: the website's text split between lines (each page in turn, at most 18 passages), then each news and competitor result that names the company. The model returns statements, each citing one passage, and code keeps a statement only if:
 
@@ -1011,7 +1011,7 @@ Every draft is also refused if it claims a connection the user did not enter (a 
 
 **Proposals.** Two people both say yes before a group forms. A third needs the yes of the newcomer and of each current member; until then each side sees only the other's first name, university, course and target roles. "Not this time" puts both back on the list, and matching runs again at once. A proposal unanswered for 7 days lapses on the next visit of anyone in it. A group never holds more than three live members: each holds one of three places, enforced by a unique index, so two people accepting at the same moment cannot make four.
 
-**The group page.** Each member's card: who they are, targets met this week, streak, this week's line with Report, the contact link as a button, Send a nudge (one a day to each member, fixed wording: "<name> sent you a nudge: one step today keeps your week on track."), Report and Block and leave. The group streak counts the weeks in a row, ending last week, in which every current member met all their targets, plus this week once all have, only since the group became active. The user's own card: their targets, streak, "What is your focus this week?" (140 characters, one per London week, editable that week) and an optional LinkedIn (`linkedin.com/in/...`) or WhatsApp (`wa.me/<number>`) link, refused for any other host or for anything but https. Home shows a small card with each member's first name and a tick for all targets met, and this week's nudges.
+**The group page.** Each member's card: who they are, targets met this week, streak, this week's line with Report, the contact link as a button, Send a nudge (one a day to each member, fixed wording: "<name> nudged you: one step today keeps your week on track."), Report and Block and leave. The group streak counts the weeks in a row, ending last week, in which every current member met all their targets, plus this week once all have, only since the group became active. The user's own card: their targets, streak, "What is your focus this week?" (140 characters, one per London week, editable that week) and an optional LinkedIn (`linkedin.com/in/...`) or WhatsApp (`wa.me/<number>`) link, refused for any other host or for anything but https. Home shows a small card with each member's first name and a tick for all targets met, and this week's nudges.
 
 **Ways out.** Leave group (back on the list for a new one; "Find a new group" is the same, shown when a member has been inactive for three weeks); Block and leave (the blocker leaves, the other two stay; never matched again; a blocked newcomer is turned away instead); Report (four fixed reasons and optional details; the reported line disappears for the reporter at once and is copied into the report); Switch Peers off (out of any group at once, contact link cleared, the user's check-ins and the nudges they sent and received deleted). A group left with one member closes and that member goes back on the list. Deleting the account switches Peers off first. Switching off re-reads the membership once its group is locked and repeats until the user is in no group, so a proposal made while it waited for the lock cannot keep them; as a second guard, a group holding someone switched off or barred closes on the next visit of anyone in it, and a proposal in which nobody can be seen reads as waiting. When something on an open page has gone (404), the page refreshes itself.
 
@@ -1044,3 +1044,21 @@ Every draft is also refused if it claims a connection the user did not enter (a 
 - **A signed-in session.** The pages were driven without the login screen, through a temporary check page (removed afterwards).
 - **Real weeks passing** for check-ins, nudge days, the group streak and the 7-day expiry, beyond tests with set dates.
 - **Anything on Vercel.**
+
+## 29. Calmer screens (24 October 2026)
+
+**What changed.** Every screen was audited for text that repeats the screen, restates a heading or explains what a control already shows. 447 cuts were proposed, each checked by a second reviewer so that no information, source label, honesty line or behaviour was lost, and approved one by one by the owner. About 38% of the fixed copy is gone (the privacy notice keeps every word). Nothing a button, form, route or AI action does has changed.
+
+**Shared pieces in `ui.jsx`**, so screens tuck text away the same way: `InfoTip` (an (i) that opens a short note on click, tap or Enter), `ShowMore` (a "Show more" or titled toggle for longer blocks), `Chips` (short facts as chips), `Spinner`, an optional `info` on `PageHead` and an optional `icon` on `Empty`. Every toggle is a button with `aria-expanded`; every icon-only button has an `aria-label` and a `title`.
+
+**Decisions worth knowing.**
+- Sidebar names: Pathways, CV and Interview (were Career pathways, Resume and Interview coach); routes are unchanged.
+- On a phone the avatar button now shows in the top bar and opens Account, which holds Sign out; before, a phone had no way to reach Account.
+- The privacy notice is in seven sections you open, with jump links; every section prints open.
+- Printed prep packs still show every question, its reason, each fact and the UK norms, whatever is open on screen.
+- Journal: a coach entry's text link reads "Full text", because a pasted background is filed as a coach entry too.
+- Not done, for the owner to decide: the privacy notice's "Who processes it" as a table, since blank cells in a legal notice could read as "nothing".
+
+**Verified, 24 October 2026.** Whole backend suite: 2,174 passed, 0 skipped. Frontend lints with no errors and builds. In a browser, signed out: Landing (212 words), sign-in and the privacy notice (all 7 sections open; about 1,370 words with all open, as before). Signed in, through a scratch backend with one made-up user in a transaction never committed: all 11 signed-in pages render with no crash and no sideways scroll at desktop width and at 375px, and every toggle opens to show its text (Pathways 155 words closed, 369 open). No `check-%@example.test` user left.
+
+**Not verified:** the sidebar and the phone avatar button (the check page has no app frame), anything signed in for real, print output on paper, and the screens with an AI result on them (the model was not called).

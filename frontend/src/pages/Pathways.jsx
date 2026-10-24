@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { post } from '../api'
-import { Empty, ErrorRetry, FamilyCard, PageHead, VISA_LABEL, attempt, fmtDate, useAction } from '../ui'
-import { SalaryFacts, SourcesLine, SponsorLine } from '../components/Visa'
+import { Empty, ErrorRetry, FamilyCard, PageHead, ShowMore, VISA_LABEL, attempt, fmtDate, useAction } from '../ui'
+import { RegisterLine, SalaryFacts, SponsorLine } from '../components/Visa'
 
 // Check an offer or an advert against the published facts: the salary figures and the sponsor register
 function OfferCheck() {
@@ -19,10 +19,10 @@ function OfferCheck() {
   return (
     <section className="card section">
       <h2>Check an offer</h2>
-      <p className="sub">See a salary beside the Skilled Worker visa figures, and whether an employer is on the register of licensed sponsors.</p>
+      <p className="sub">A salary beside the Skilled Worker visa figures, and an employer looked up on the sponsor register.</p>
       <form className="form-row" onSubmit={submit} noValidate>
-        <label className="field">Salary a year, in pounds<input type="number" min="0" step="500" value={salary} onChange={(e) => setSalary(e.target.value)} style={{ width: 170 }} /></label>
-        <label className="field">Employer name<input type="text" value={employer} onChange={(e) => setEmployer(e.target.value)} style={{ width: 240 }} maxLength={160} /></label>
+        <label className="field">Salary a year (£)<input type="number" min="0" step="500" value={salary} onChange={(e) => setSalary(e.target.value)} style={{ width: 170 }} /></label>
+        <label className="field">Employer<input type="text" value={employer} onChange={(e) => setEmployer(e.target.value)} style={{ width: 240 }} maxLength={160} /></label>
         <button className="btn" type="submit" disabled={check.loading}>{check.loading ? 'Checking' : 'Check'}</button>
       </form>
       {missing && <p className="error" role="alert" style={{ marginTop: 8 }}>Enter a salary, an employer, or both.</p>}
@@ -31,7 +31,7 @@ function OfferCheck() {
         <div className="stack" style={{ marginTop: 14 }}>
           {f.sponsor && <SponsorLine status={f.sponsor.status} name={f.sponsor.name} links={f.links} />}
           <SalaryFacts visa={f} advertised={f.advertised} />
-          <SourcesLine register={f.register} visa={f} />
+          {f.sponsor && <RegisterLine register={f.register} />}
         </div>
       )}
     </section>
@@ -46,16 +46,16 @@ export default function Pathways({ s, refresh, go, notify }) {
 
   return (
     <>
-      <PageHead title="Career pathways" lede="Role families that fit your profile: direct fits, near fits and a stretch. Pick 3 to 5 to target; each shows what UK employers expect and what you already evidence.">
-        {hasFamilies && <button className="btn ghost" disabled={suggest.loading} onClick={() => suggest.run()}>{suggest.loading ? 'Reading your profile' : 'Re-check fit from my profile'}</button>}
+      <PageHead title="Pathways" lede="Pick 3 to 5 roles to target.">
+        {hasFamilies && <button className="btn ghost" disabled={suggest.loading} onClick={() => suggest.run()}>{suggest.loading ? 'Checking' : 'Re-check fit'}</button>}
       </PageHead>
       <ErrorRetry error={suggest.error} onRetry={suggest.retry} />
 
       {s.achievements.length === 0 && (
-        <Empty title="Build your profile first" body="Role families are worked out from your achievements." action="Go to Profile" onAction={() => go('profile')} />
+        <Empty title="Add your achievements first" action="Go to Profile" onAction={() => go('profile')} />
       )}
       {s.achievements.length > 0 && !hasFamilies && (
-        <Empty title="See which roles fit you" body="We compare your achievements with what UK employers ask for." action={suggest.loading ? 'Reading your profile' : 'Find roles that fit my profile'} onAction={() => !suggest.loading && suggest.run()} />
+        <Empty title="See which roles fit you" action={suggest.loading ? 'Checking' : 'Find my roles'} onAction={() => !suggest.loading && suggest.run()} />
       )}
       {hasFamilies && (
         <div className="grid cols-3">
@@ -76,13 +76,21 @@ export default function Pathways({ s, refresh, go, notify }) {
         <section className="card">
           <h2>How the UK market works</h2>
           <div className="list" style={{ marginTop: 12 }}>
-            {s.content.uk_market.map((g) => <div key={g.title}><h3>{g.title}</h3><p className="small" style={{ marginTop: 2 }}>{g.body}</p></div>)}
+            {s.content.uk_market.map((g) => (
+              <ShowMore key={g.title} label={g.title} openLabel={g.title} heading="h3" buttonClassName="pathways-topic">
+                <p className="small" style={{ marginTop: 2 }}>{g.body}</p>
+              </ShowMore>
+            ))}
           </div>
         </section>
         <section className="card">
           <h2>Where to look</h2>
           <div className="list" style={{ marginTop: 12 }}>
-            {s.content.where_to_look.map((g) => <div key={g.name}><h3>{g.name}</h3><p className="small" style={{ marginTop: 2 }}>{g.tip}</p></div>)}
+            {s.content.where_to_look.map((g) => (
+              <ShowMore key={g.name} label={g.name} openLabel={g.name} heading="h3" buttonClassName="pathways-topic">
+                <p className="small" style={{ marginTop: 2 }}>{g.tip}</p>
+              </ShowMore>
+            ))}
           </div>
         </section>
       </div>

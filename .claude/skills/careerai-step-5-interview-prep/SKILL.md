@@ -79,7 +79,7 @@ A daily drill; longer or multi-interviewer mock interviews; salary negotiation; 
 
 **Where it starts.** A "Prepare" button on Interview coach next to the job picker, and on any application at the phone screen or interview stage.
 
-**Step 1: confirm the company.** The app shows up to five Companies House matches for the employer name (name, registered town, status, year incorporated) and a box for the website address. Choices: "This one", "None of these", and "It is not a UK company". The pack still works without a Companies House record and says so.
+**Step 1: confirm the company.** The app shows up to five Companies House matches for the employer name (name, registered town, status, year incorporated) and a box for the website address. Choices: "This one", "None of these", and "Not a UK company". The pack still works without a Companies House record and says so.
 
 **Step 2: the prep pack**, one page:
 

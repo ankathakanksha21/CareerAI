@@ -60,7 +60,7 @@ def test_upload_saves_achievements_from_the_cv_and_keeps_only_its_text(client, s
     s = state(client)
     assert all(a["source"] == "cv" for a in s["achievements"]) and s["profile"]["pitch"] == "I am a pitch."
     entry = s["journal"][0]
-    assert (entry["type"], entry["title"], entry["with_whom"]) == ("import", "Profile built from your uploaded CV", "")
+    assert (entry["type"], entry["title"], entry["with_whom"]) == ("import", "CV upload", "")
     assert client.get(f"/api/journal/{entry['id']}/transcript").json() == {"transcript": CV_TEXT}
     assert used(client) == 1
 
@@ -147,7 +147,7 @@ def test_upload_at_the_daily_limit_does_not_call_the_ai(client, stub, monkeypatc
 def test_a_long_file_is_cut_and_the_answer_says_so(client, stub):
     calls = stub("extract_achievements", {"items": ITEMS, "pitch": ""})
     body = upload(client, pdf([["Analysed delivery records for the operations team every single week. "] * 50 for _ in range(15)])).json()
-    assert body["cut"] is True and body["notice"] == "That file is long, so only the first part of it was read."
+    assert body["cut"] is True and body["notice"] == "Only the first part of this long file was read."
     assert len(calls[0][0]) == cvfile.MAX_CHARS
 
 
@@ -164,7 +164,7 @@ def test_upload_keeps_the_achievements_when_only_the_facts_call_fails(client, st
     stub("extract_facts", ai.AIError("cv facts"))
     body = upload(client, cv_pdf()).json()
     assert len(body["items"]) == 2 and body["facts"] is None
-    assert body["notice"] == "We could not pick out your education and work history this time. Add them on your Profile page."
+    assert body["notice"] == "We could not pick out your work history and education this time. Add them in Profile."
     assert len(state(client)["achievements"]) == 2
 
 
@@ -328,7 +328,7 @@ def test_importing_repositories_saves_project_achievements(client, gh, stub):
     s = state(client)
     assert s["profile"]["github_username"] == "zzqx-sample" and s["usage"]["ai"]["used"] == 1
     entry = s["journal"][0]
-    assert (entry["type"], entry["title"]) == ("import", "Projects imported from GitHub")
+    assert (entry["type"], entry["title"]) == ("import", "GitHub projects")
     assert "Builds a weekly delays report in SQL." in client.get(f"/api/journal/{entry['id']}/transcript").json()["transcript"]
 
 

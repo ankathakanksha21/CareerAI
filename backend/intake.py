@@ -10,7 +10,7 @@ import ai
 from parallel import together
 from sponsors import normalise
 
-FACTS_FAILED = "We could not pick out your education and work history this time. Add them on your Profile page."
+FACTS_FAILED = "We could not pick out your work history and education this time. Add them in Profile."
 MIN_NAME_CHARS = 4  # a shorter name found inside a longer one proves nothing ("IT" in "Zzqx IT Services")
 SMALL_WORDS = {"of", "the", "and", "in", "at", "for"}
 FILLABLE = {"work_history": ("job_title", "location", "country", "start_month", "end_month", "employer_context"),

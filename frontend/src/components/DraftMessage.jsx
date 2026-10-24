@@ -50,7 +50,7 @@ export default function DraftMessage({ s, c, kind, onSent, notify }) {
         )}
       </div>
       {type === 'thank_you' && (
-        <label className="field">One thing you learned in the chat
+        <label className="field">One thing you learned
           <input type="text" maxLength={500} placeholder="How the team tests its reports before they go out" value={learned} onChange={(e) => setLearned(e.target.value)} />
         </label>
       )}
@@ -60,19 +60,19 @@ export default function DraftMessage({ s, c, kind, onSent, notify }) {
           <span className="small muted" style={{ fontWeight: 400 }}>Left empty, the draft says only when your course ends.</span>
         </label>
       )}
-      {type === 'referral_ask' && <p className="small muted">Ask only once you have spoken, and only for a job saved in the app at their company.</p>}
-      {type === 'connection_note' && <p className="small muted">LinkedIn allows {NOTE_LIMIT} characters in a note. On a free account you can add a note to only a few invitations a month.</p>}
+      {type === 'referral_ask' && <p className="small muted">Ask only after you have spoken, and only for a saved job at their company.</p>}
+      {type === 'connection_note' && <p className="small muted">Up to {NOTE_LIMIT} characters. A free LinkedIn account gets only a few notes a month.</p>}
       <div className="row">
         <button type="button" className="btn small" disabled={write.loading || (type === 'thank_you' && !learned.trim())} onClick={() => write.run()}>
           {write.loading ? 'Writing' : r ? 'Write again' : 'Write a draft'}
         </button>
-        <span className="small muted">One AI action. Nothing is sent for you.</span>
+        <span className="chip muted">1 AI action</span>
       </div>
       <ErrorRetry error={write.error} onRetry={write.retry} />
       {r && (
         <div className="stack" style={{ gap: 6 }}>
           <textarea readOnly rows={type === 'connection_note' ? 5 : 9} value={r.message} aria-label="Draft message" />
-          <span className="small muted">{type === 'connection_note' ? `${r.characters} of ${NOTE_LIMIT} characters` : `${r.words} words`}. Read it, change what you like, then send it yourself.</span>
+          <span className="small muted">{type === 'connection_note' ? `${r.characters} of ${NOTE_LIMIT} characters` : `${r.words} words`}. Copy, edit and send it yourself.</span>
           <div className="row">
             <button type="button" className="btn small" onClick={copy}><Copy size={14} />Copy</button>
             {marked === type

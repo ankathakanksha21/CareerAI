@@ -164,6 +164,7 @@ def test_five_messages_and_no_replies_is_a_finding():
     [finding] = networking.findings(outreach, contacts)
     assert finding["id"] == "outreach-no-replies" and finding["type"] == "network"
     assert finding["evidence"] == "5 messages sent and no replies yet."
+    assert finding["action"] == "Send shorter messages asking for 15 minutes of advice, not a job."  # the button opens the guide
     assert finding["link"] == {"page": "networking", "label": "Read the guide", "tab": "guide"}
 
 

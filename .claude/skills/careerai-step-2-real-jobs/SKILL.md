@@ -88,12 +88,12 @@ Email alerts; scraping; graduate boards; applying on the user's behalf; salary n
 | Title, employer, location, source | With "View advert", which opens the original on Adzuna or Reed |
 | Posted | Date, and a "Posted in the last 48 hours" marker |
 | Salary | The advertised figure, or "Salary not stated". An Adzuna estimate is shown as "Estimated by Adzuna" and never used for the visa facts |
-| Fit | The label, the percentage, up to three things the user already shows (each naming the achievement) and up to three gaps |
+| Fit | The label and the percentage on the card; "Why" opens up to three things the user already shows (each naming the achievement) and up to three gaps (owner, 24 Oct 2026, to keep cards short) |
 | Sponsorship | One of: "On the sponsor register as <name> (Skilled Worker)", "Possible match on the register: <name>. Check before applying", "Not found on the register. Employers sometimes appear under a different registered name", "Advertised by a recruitment agency; the employer is not named" |
 | Salary fact | "Advertised salary £X. General Skilled Worker threshold £Y, new-entrant threshold £Z (gov.uk, checked on <date>). The rate for this occupation may be higher." |
 | Actions | Save job, Tailor CV, Practise interview, Add to tracker, Not for me |
 
-A line under the filters reads: "Sponsor register as of <date>. Visa rules checked on <date>. This is not immigration advice."
+A line under the filters reads: "Sponsor register as of <date>. Visa rules checked <date>. Not immigration advice."
 
 **Short descriptions.** Adzuna supplies only a snippet. Those jobs are scored on the title and snippet and marked "Fit based on a short summary". Saving one invites the user to paste the full description before tailoring a CV.
 

@@ -1,7 +1,8 @@
+import { BellRing, Check } from 'lucide-react'
 import { patch, post } from '../api'
-import { attempt, daysUntil, fmtDate } from '../ui'
+import { InfoTip, attempt, daysUntil, fmtDate } from '../ui'
 
-const due = (iso) => (daysUntil(iso) === 0 ? 'Follow up today.' : `Follow-up due since ${fmtDate(iso, { day: 'numeric', month: 'long' })}.`)
+const due = (iso) => (daysUntil(iso) === 0 ? 'Due today' : `Due since ${fmtDate(iso, { day: 'numeric', month: 'long' })}`)
 
 // Applications whose follow-up date has come, and those at Applied with no change for three weeks
 export default function FollowUps({ s, refresh, notify, onOpen }) {
@@ -13,21 +14,24 @@ export default function FollowUps({ s, refresh, notify, onOpen }) {
 
   return (
     <section className="card follow-ups">
-      <h2>Follow-ups due</h2>
-      <p className="sub">A short, polite message a week after applying keeps you in mind. Open one to draft it; nothing is sent for you.</p>
+      <div className="row" style={{ gap: 6 }}>
+        <h2>Follow-ups due</h2>
+        <InfoTip label="Why follow up">A short, polite message a week after applying keeps you in mind.</InfoTip>
+      </div>
+      <p className="sub">Open one to draft a message. Nothing is sent for you.</p>
       <div className="list">
         {items.map((f) => (
           <div key={f.id} className="entry">
             <div className="who">
               <div className="strong">{f.role}, {f.company}</div>
-              <div className="small muted">
-                {f.due && due(f.follow_up_on)}
-                {f.quiet_days && ` No change for ${f.quiet_days} days: if you have heard nothing, move it to No reply.`}
+              <div className="row small muted" style={{ gap: 6, marginTop: 2 }}>
+                {f.due && <span className="chip warn"><BellRing size={12} aria-hidden="true" />{due(f.follow_up_on)}</span>}
+                {f.quiet_days && <span>No change for {f.quiet_days} days. Heard nothing?</span>}
               </div>
             </div>
             <div className="acts">
               <button className="btn ghost small" onClick={() => onOpen(f.id)}>Open</button>
-              {f.due && <button className="btn ghost small" onClick={() => followedUp(f)}>Mark as followed up</button>}
+              {f.due && <button className="btn ghost small" title="Mark as followed up" onClick={() => followedUp(f)}><Check size={14} aria-hidden="true" />I followed up</button>}
               {f.quiet_days && <button className="btn ghost small" onClick={() => noReply(f)}>Move to No reply</button>}
             </div>
           </div>

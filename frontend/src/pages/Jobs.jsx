@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ExternalLink } from 'lucide-react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Bookmark, BookmarkCheck, Check, ChevronDown, ExternalLink } from 'lucide-react'
 import { api, post, put } from '../api'
-import { Empty, ErrorRetry, FIT_LABEL, PageHead, daysUntil, fmtDate, money, plural } from '../ui'
+import { Chips, Empty, ErrorRetry, FIT_LABEL, PageHead, daysUntil, fmtDate, money } from '../ui'
 import { SalaryFacts, SourcesLine, SponsorLine, VisaLine } from '../components/Visa'
+import { JobText } from '../components/Jobs'
 
 const MIN_MATCH = 40 // below this the server labels an advert "not a match"
 
@@ -10,24 +11,34 @@ const salaryText = (m) => {
   const low = m.salary_min ?? m.salary_max
   const high = m.salary_max ?? m.salary_min
   if (!low) return 'Salary not stated'
-  if (!m.salary_annual) return 'A rate, not an annual salary'
+  if (!m.salary_annual) return 'Rate, not annual salary'
   return `${low === high ? money(low) : `${money(low)} to ${money(high)}`} a year`
 }
 
-function Fit({ m }) {
+// One need on the fit box, marked the way the needs on a role family card are: a tick for shown, a hollow mark for a gap
+function Need({ shown, children }) {
+  return (
+    <li className="need">
+      <span className={`mark ${shown ? 'yes' : 'no'}`} aria-hidden="true">{shown ? <Check size={13} strokeWidth={3} /> : ''}</span>
+      <div><span className="sr-only">{shown ? 'You show: ' : 'Gap: '}</span>{children}</div>
+    </li>
+  )
+}
+
+// What the user shows and lacks for one advert. The box opens from Why beside the fit on the card
+function Fit({ m, id, open }) {
   if (!m.scored_at) return null
   if (m.fit_percent == null) return <p className="small muted">This advert says too little to judge your fit.</p>
+  if (!open) return null
   return (
-    <div className="fitbox">
+    <div className="fitbox" id={id}>
       <div>
-        <p className="small strong">You show</p>
         {m.shown.length === 0 && <p className="small muted">Nothing in your profile matches yet.</p>}
-        <ul className="dots small">{m.shown.map((x) => <li key={x.need}>{x.need} <span className="muted">from "{x.achievement}"</span></li>)}</ul>
+        <ul className="plain stack small" style={{ gap: 6 }}>{m.shown.map((x) => <Need key={x.need} shown>{x.need} <span className="muted">from "{x.achievement}"</span></Need>)}</ul>
       </div>
       <div>
-        <p className="small strong">Gaps</p>
-        {m.gaps.length === 0 && <p className="small muted">None found.</p>}
-        <ul className="dots small">{m.gaps.map((g) => <li key={g}>{g}</li>)}</ul>
+        {m.gaps.length === 0 && <p className="small muted">No gaps found.</p>}
+        <ul className="plain stack small" style={{ gap: 6 }}>{m.gaps.map((g) => <Need key={g}>{g}</Need>)}</ul>
       </div>
       {m.fit_from_summary && <p className="small muted" style={{ gridColumn: '1 / -1' }}>Fit based on a short summary of the advert.</p>}
     </div>
@@ -35,6 +46,8 @@ function Fit({ m }) {
 }
 
 function JobCard({ m, visa, newDays, tracked, pending, on }) {
+  const [why, setWhy] = useState(false)
+  const fitId = useId()
   const busy = pending === m.id
   const posted = -daysUntil(m.posted_on) // days ago
   const annual = m.salary_annual && (m.salary_min ?? m.salary_max)
@@ -46,25 +59,36 @@ function JobCard({ m, visa, newDays, tracked, pending, on }) {
         {m.status === 'new' && <span className="chip good">New</span>}
         {posted <= newDays && <span className="chip warn">Posted in the last 48 hours</span>}
         <span className="spacer" />
-        {m.fit_percent != null && <span className={`fit ${m.fit_label}`}>{FIT_LABEL[m.fit_label]}, {m.fit_percent}%</span>}
+        {m.fit_percent != null && (
+          <span className="jobcard-fit">
+            <span className={`fit ${m.fit_label}`}>{FIT_LABEL[m.fit_label]}, {m.fit_percent}%{m.fit_from_summary ? ', from a summary' : ''}</span>
+            {m.scored_at && (
+              <button type="button" className="linkish small showmore-btn" aria-expanded={why} aria-controls={why ? fitId : undefined} onClick={() => setWhy(!why)}>
+                Why<ChevronDown size={15} aria-hidden="true" className={why ? 'flip' : ''} />
+              </button>
+            )}
+          </span>
+        )}
       </div>
       <p className="small muted">
-        {[`${m.employer}${m.location ? `, ${m.location}` : ''}`, `Posted ${fmtDate(m.posted_on)}`, salaryText(m), 'From Reed'].join(' · ')}{' · '}
-        <a href={m.url} target="_blank" rel="noopener noreferrer">View advert <ExternalLink size={12} style={{ verticalAlign: '-1px' }} /></a>
+        {[`${m.employer}${m.location ? `, ${m.location}` : ''}`, `Posted ${fmtDate(m.posted_on)}`, salaryText(m)].join(' · ')}{' · '}
+        <a href={m.url} target="_blank" rel="noopener noreferrer">View on Reed <ExternalLink size={12} style={{ verticalAlign: '-1px' }} /></a>
       </p>
-      {!m.scored_at && m.snippet && <p className="small">{m.snippet}{m.snippet.length >= 300 ? '...' : ''}</p>}
-      <Fit m={m} />
+      {!m.scored_at && m.snippet && <JobText text={`${m.snippet}${m.snippet.length >= 300 ? '...' : ''}`} />}
+      <Fit m={m} id={fitId} open={why} />
       <SponsorLine status={m.sponsor_status} name={m.sponsor_name} links={visa.links} postedBy={m.posted_by} />
       {annual && !course && (
         <details className="small">
-          <summary>Salary and the Skilled Worker visa</summary>
+          <summary>Skilled Worker salary figures</summary>
           <SalaryFacts visa={visa} advertised={{ min: m.salary_min ?? m.salary_max, max: m.salary_max ?? m.salary_min }} />
         </details>
       )}
       <div className="row job-actions">
         {!course && (
           <>
-            <button className="btn ghost small" disabled={busy || m.status === 'saved'} onClick={() => on.save(m)}>{m.status === 'saved' ? 'Saved' : 'Save job'}</button>
+            <button className="btn ghost small" disabled={busy || m.status === 'saved'} onClick={() => on.save(m)}>
+              {m.status === 'saved' ? <><BookmarkCheck size={14} aria-hidden="true" />Saved</> : <><Bookmark size={14} aria-hidden="true" />Save</>}
+            </button>
             <button className="btn ghost small" disabled={busy} onClick={() => on.tailor(m)}>Tailor CV</button>
             <button className="btn ghost small" disabled={busy} onClick={() => on.practise(m)}>Practise interview</button>
             <button className="btn ghost small" disabled={busy || tracked} onClick={() => on.track(m)}>{tracked ? 'In Applications' : 'Add to tracker'}</button>
@@ -74,6 +98,22 @@ function JobCard({ m, visa, newDays, tracked, pending, on }) {
         <button className="linkish small" disabled={busy} onClick={() => on.hide(m)}>Not for me</button>
       </div>
     </article>
+  )
+}
+
+// While the saved adverts load: grey cards in the shape of job cards. Screen readers hear Loading
+function Skeleton() {
+  return (
+    <div className="stack jobs-skeleton" role="status">
+      <span className="sr-only">Loading</span>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="card jobcard" aria-hidden="true">
+          <span className="jobs-skeleton-line" style={{ width: '45%', height: 16 }} />
+          <span className="jobs-skeleton-line" style={{ width: '70%' }} />
+          <span className="jobs-skeleton-line" style={{ width: '90%' }} />
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -139,7 +179,7 @@ export default function Jobs({ s, refresh, go, notify }) {
     return job
   }
   const on = {
-    save: (m) => act(m, async () => { await saved(m); notify('Job saved. Tailor a CV for it from Resume.') }),
+    save: (m) => act(m, async () => { await saved(m); notify('Job saved') }),
     tailor: (m) => act(m, async () => { const job = await saved(m); go('resume', null, { jobId: job.id }) }),
     practise: (m) => act(m, async () => { const job = await saved(m); go('interview', null, { jobId: job.id }) }),
     track: (m) => act(m, async () => {
@@ -164,7 +204,7 @@ export default function Jobs({ s, refresh, go, notify }) {
   }
 
   const head = (
-    <PageHead title="Jobs" lede="Real, current adverts for your target roles, each compared with what your own profile shows.">
+    <PageHead title="Jobs" lede="Live adverts for your target roles.">
       {data && canSearch && data.configured && (
         <button className="btn ghost" disabled={!!working} onClick={() => check('search')}>{working === 'search' ? 'Searching Reed' : 'Check for new jobs'}</button>
       )}
@@ -172,16 +212,16 @@ export default function Jobs({ s, refresh, go, notify }) {
   )
 
   if (s.achievements.length === 0) {
-    return <>{head}<Empty title="Build your profile first" body="Jobs are compared with your achievements, so add those first." action="Go to Profile" onAction={() => go('profile')} /></>
+    return <>{head}<Empty title="Add your achievements first" action="Go to Profile" onAction={() => go('profile')} /></>
   }
   if (targeted.length === 0) {
-    return <>{head}<Empty title="Pick your target roles" body="Jobs are searched for the role families you tick in Career pathways." action="Go to Career pathways" onAction={() => go('pathways')} /></>
+    return <>{head}<Empty title="Pick your target roles" action="Go to Pathways" onAction={() => go('pathways')} /></>
   }
   if (!data) {
-    return <>{head}{error ? <ErrorRetry error={error} onRetry={() => { setError(null); load().catch(setError) }} /> : <p className="muted">Loading your jobs</p>}</>
+    return <>{head}{error ? <ErrorRetry error={error} onRetry={() => { setError(null); load().catch(setError) }} /> : <Skeleton />}</>
   }
   if (!data.configured && data.matches.length === 0) {
-    return <>{head}<Empty title="Job search is not set up yet" body="The server has no job search key. You can still add a job by pasting its advert." action="Add a job" onAction={() => go('resume')} /></>
+    return <>{head}<Empty title="Job search is not set up yet" body="You can still paste an advert." action="Add a job" onAction={() => go('resume')} /></>
   }
 
   const tracked = new Set(s.applications.map((a) => s.saved_jobs.find((j) => j.id === a.saved_job_id)?.listing_id).filter(Boolean))
@@ -222,28 +262,31 @@ export default function Jobs({ s, refresh, go, notify }) {
       </div>
       <SourcesLine register={data.register} visa={data.visa} />
 
-      {working === 'search' && <p className="note" role="status">Searching Reed for your target roles. This can take half a minute.</p>}
-      {working === 'score' && <p className="note" role="status">Comparing adverts with your profile.</p>}
+      {working === 'search' && <p className="note jobs-working" role="status"><span className="spinner" aria-hidden="true" />Searching Reed, can take half a minute</p>}
+      {working === 'score' && <p className="note jobs-working" role="status"><span className="spinner" aria-hidden="true" />Checking fit</p>}
       {!working && last?.notice && <p className="note" role="status">{last.notice}</p>}
       {!working && last?.remaining > 0 && (
-        <p className="small">{plural(last.remaining, 'search')} still to run. <button className="linkish" onClick={() => check('search')}>Search the remaining {last.remaining}</button></p>
+        <p className="small"><button className="linkish" onClick={() => check('search')}>Run {last.remaining} more {last.remaining === 1 ? 'search' : 'searches'}</button></p>
       )}
       <ErrorRetry error={error} onRetry={() => check('search')} />
 
       {data.matches.length === 0 && !working && !error && (
-        <Empty title="No jobs found yet" body={`No adverts posted in the last ${data.fresh_days} days matched your target roles. Check again tomorrow, or add a location in your profile.`}
+        <Empty title="No jobs found yet" body={`No matches posted in the last ${data.fresh_days} days. Try again tomorrow, or add a location on your Profile.`}
           action="Check again" onAction={() => check('search')} />
       )}
 
       {data.matches.length > 0 && (
-        <p className="small muted" style={{ marginTop: 14 }}>
-          {plural(matches.length, 'matching job')}{matches.length !== real.length ? ` of ${real.length} found` : ''}, newest first.
-          {seniorHidden > 0 && ` ${plural(seniorHidden, 'senior role')} hidden.`}
-        </p>
+        <div style={{ marginTop: 14 }}>
+          <Chips tone="muted" items={[
+            matches.length !== real.length ? `${matches.length} of ${real.length} match` : `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}`,
+            'Newest first',
+            ...(seniorHidden > 0 ? [`${seniorHidden} senior hidden`] : []),
+          ]} />
+        </div>
       )}
       <div className="stack" style={{ marginTop: 10 }}>{matches.map(card)}</div>
       {real.length > 0 && matches.length === 0 && unchecked.length === 0 && !working && (
-        <p className="muted" style={{ marginTop: 10 }}>None of these adverts is a match with these filters. Look under "Not a match" below, or change the filters.</p>
+        <p className="muted" style={{ marginTop: 10 }}>No matches with these filters. See "Not a match" below, or change the filters.</p>
       )}
 
       {unchecked.length > 0 && (
@@ -260,9 +303,8 @@ export default function Jobs({ s, refresh, go, notify }) {
 
       {notMatch.length > 0 && (
         <details className="section">
-          <summary className="strong">Not a match ({notMatch.length})</summary>
-          <p className="small muted" style={{ margin: '6px 0 10px' }}>Your profile shows less than {MIN_MATCH}% of what these adverts ask for.</p>
-          <div className="stack">{notMatch.map(card)}</div>
+          <summary className="strong">Not a match, under {MIN_MATCH}% fit ({notMatch.length})</summary>
+          <div className="stack" style={{ marginTop: 10 }}>{notMatch.map(card)}</div>
         </details>
       )}
 
@@ -270,7 +312,7 @@ export default function Jobs({ s, refresh, go, notify }) {
         <details className="section">
           <summary className="strong">Training programmes, not jobs ({courses.length})</summary>
           <p className="small muted" style={{ margin: '6px 0 10px' }}>
-            These adverts sell a training course or career programme rather than a job. They are not scored or counted. Check any cost before signing up.
+            Not scored or counted. Check any cost before signing up.
           </p>
           <div className="stack">{courses.map(card)}</div>
         </details>

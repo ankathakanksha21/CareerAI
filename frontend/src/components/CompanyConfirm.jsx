@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { post } from '../api'
-import { ErrorRetry, useAction } from '../ui'
+import { ErrorRetry, InfoTip, useAction } from '../ui'
 
 const year = (iso) => (iso ? iso.slice(0, 4) : '')
 
@@ -10,6 +10,7 @@ export default function CompanyConfirm({ target, onBuilt, onCancel }) {
   const [choice, setChoice] = useState('') // a Companies House number, "none" or "not_uk"
   const [website, setWebsite] = useState('')
   const [company, setCompany] = useState(null) // the research once done, so a failed pack is retried without researching again
+  const siteId = useId()
   const search = useAction(async (n) => {
     const r = await post('/api/companies/search', { name: n })
     setChoice(r.matches.length ? '' : 'none')
@@ -43,7 +44,7 @@ export default function CompanyConfirm({ target, onBuilt, onCancel }) {
     <section className="card stack">
       <div>
         <h2>Which company is it?</h2>
-        <p className="sub">For {target.role}. Check the company on the official register so the research is about the right one.</p>
+        <p className="sub">For {target.role}. Pick the right one on the official register.</p>
       </div>
       <div className="row">
         <input type="text" value={name} maxLength={160} onChange={(e) => changed(setName)(e.target.value)} aria-label="Company name" style={{ flex: 1 }} />
@@ -58,19 +59,23 @@ export default function CompanyConfirm({ target, onBuilt, onCancel }) {
             <span><span className="strong">{m.name}</span><span className="small muted"> {[m.town, m.status, m.incorporated_on && `since ${year(m.incorporated_on)}`].filter(Boolean).join(', ')}</span></span>
           </label>
         ))}
-        {search.result && !matches.length && <p className="small muted">Companies House has no company with that name.</p>}
+        {search.result && !matches.length && <p className="small muted">No match on Companies House.</p>}
         <label className="check"><input type="radio" name="company" checked={choice === 'none'} onChange={() => changed(setChoice)('none')} />None of these</label>
-        <label className="check"><input type="radio" name="company" checked={choice === 'not_uk'} onChange={() => changed(setChoice)('not_uk')} />It is not a UK company</label>
+        <label className="check"><input type="radio" name="company" checked={choice === 'not_uk'} onChange={() => changed(setChoice)('not_uk')} />Not a UK company</label>
       </fieldset>
-      <label className="field">Their website (optional)
-        <input type="text" value={website} maxLength={300} placeholder="acme.co.uk" disabled={working} onChange={(e) => changed(setWebsite)(e.target.value)} />
-        <span className="small muted" style={{ fontWeight: 400 }}>We read their home page and up to five pages such as About, Careers and News.</span>
-      </label>
-      {['none', 'not_uk'].includes(choice) && <p className="small muted">The pack still works without the register. It will say the company was not checked there.</p>}
+      {/* a div, not a wrapping label, so the label names only the input and not the (i) beside it */}
+      <div className="companyconfirm-field">
+        <span className="companyconfirm-label">
+          <label htmlFor={siteId}>Their website (optional)</label>
+          <InfoTip label="What we read from their website">We read their home page and up to five pages such as About, Careers and News.</InfoTip>
+        </span>
+        <input id={siteId} type="text" value={website} maxLength={300} placeholder="acme.co.uk" disabled={working} onChange={(e) => changed(setWebsite)(e.target.value)} />
+      </div>
+      {['none', 'not_uk'].includes(choice) && <p className="small muted">The pack still works without the register.</p>}
       <div className="row">
         <button className="btn" disabled={!choice || !name.trim() || working} onClick={start}>Build my pack</button>
         <button className="btn ghost" disabled={working} onClick={onCancel}>Cancel</button>
-        <span className="small muted">{research.loading ? `Researching ${name}: their website, Companies House and the news. About 30 seconds.`
+        <span className="small muted">{research.loading ? `Researching ${name}: website, Companies House, news. About 30 seconds.`
           : build.loading ? 'Writing your pack. About 30 seconds.' : 'One company search and one AI action.'}</span>
       </div>
       <ErrorRetry error={research.error} onRetry={start} />

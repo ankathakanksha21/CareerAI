@@ -43,7 +43,7 @@ export default function DetailsForm({ profile, onSaved, onCancel, submitLabel = 
     if (!form.full_name.trim()) e.full_name = 'Enter your full name.'
     if (!form.university.trim()) e.university = 'Enter your university.'
     if (!form.course.trim()) e.course = 'Enter your course.'
-    if (!form.grad_month || !form.grad_year) e.graduation = 'Choose the month and year you graduate or graduated.'
+    if (!form.grad_month || !form.grad_year) e.graduation = 'Choose your graduation month and year.'
     if (!form.visa_type) e.visa_type = 'Choose your visa type.'
     if (!form.visa_end_date) e.visa_end_date = 'Enter the date your visa ends.'
     if (locations.length === 0) e.locations = 'Add at least one location.'
@@ -67,12 +67,8 @@ export default function DetailsForm({ profile, onSaved, onCancel, submitLabel = 
   const err = (k) => errors[k] && <span className="error">{errors[k]}</span>
   return (
     <form className="stack" onSubmit={submit} noValidate>
-      <label className="field">Full name<input type="text" value={form.full_name} onChange={set('full_name')} autoComplete="name" />{err('full_name')}</label>
       <div className="grid cols-2">
-        <label className="field">University<input type="text" value={form.university} onChange={set('university')} />{err('university')}</label>
-        <label className="field">Course<input type="text" value={form.course} onChange={set('course')} placeholder="e.g. MSc Business Analytics" />{err('course')}</label>
-      </div>
-      <div className="grid cols-2">
+        <label className="field">Full name<input type="text" value={form.full_name} onChange={set('full_name')} autoComplete="name" />{err('full_name')}</label>
         <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend style={{ padding: 0, marginBottom: 4 }}>Graduation</legend>
           <div className="row" style={{ gap: 8 }}>
@@ -87,19 +83,29 @@ export default function DetailsForm({ profile, onSaved, onCancel, submitLabel = 
           </div>
           {err('graduation')}
         </fieldset>
+      </div>
+      <div className="grid cols-2">
+        <label className="field">University<input type="text" value={form.university} onChange={set('university')} />{err('university')}</label>
+        <label className="field">Course<input type="text" value={form.course} onChange={set('course')} placeholder="e.g. MSc Business Analytics" />{err('course')}</label>
+      </div>
+      <div className="grid cols-2">
+        <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend style={{ padding: 0, marginBottom: 6 }}>Visa type</legend>
+          <div className="row">
+            {[['student', 'Student'], ['graduate', 'Graduate']].map(([value, label]) => (
+              <label key={value} className="check"><input type="radio" name="visa_type" checked={form.visa_type === value} onChange={() => setForm({ ...form, visa_type: value })} />{label}</label>
+            ))}
+          </div>
+          {err('visa_type')}
+        </fieldset>
         <label className="field">Visa end date<input type="date" value={form.visa_end_date} onChange={set('visa_end_date')} />{err('visa_end_date')}</label>
       </div>
-      <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
-        <legend style={{ padding: 0, marginBottom: 6 }}>Visa type</legend>
-        <div className="row">
-          {[['student', 'Student visa'], ['graduate', 'Graduate visa']].map(([value, label]) => (
-            <label key={value} className="check"><input type="radio" name="visa_type" checked={form.visa_type === value} onChange={() => setForm({ ...form, visa_type: value })} />{label}</label>
-          ))}
-        </div>
-        {err('visa_type')}
-      </fieldset>
       <div className="field">
-        <label htmlFor="place">Preferred locations <span className="muted" style={{ fontWeight: 400 }}>(up to {MAX_LOCATIONS}; press Enter after each)</span></label>
+        <div className="row">
+          <label htmlFor="place">Preferred locations</label>
+          <span className="spacer" />
+          <span className="small muted">{form.locations.length}/{MAX_LOCATIONS}<span className="sr-only"> added</span></span>
+        </div>
         <div className="row">
           {form.locations.map((x) => (
             <span key={x} className="chip">{x}<button type="button" className="chip-x" aria-label={`Remove ${x}`} onClick={() => setForm({ ...form, locations: form.locations.filter((y) => y !== x) })}><X size={12} /></button></span>
