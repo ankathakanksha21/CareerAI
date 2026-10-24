@@ -2,7 +2,7 @@ import { Component, useCallback, useEffect, useState } from 'react'
 import { LogOut } from 'lucide-react'
 import { api, onSignedOut } from './api'
 import { getSupabase } from './supabase'
-import { Avatar, Brand, ErrorRetry, NAV, Spinner } from './ui'
+import { Avatar, Brand, ErrorRetry, NAV, Spinner, useScrollReveal } from './ui'
 import Landing from './pages/Landing'
 import Auth from './pages/Auth'
 import Privacy from './pages/Privacy'
@@ -47,6 +47,7 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [reset, setReset] = useState(isReset)
   const userId = session?.user?.id
+  useScrollReveal() // cards rise into place as they scroll into view, on every screen
 
   useEffect(() => {
     let unsubscribe = () => {}
