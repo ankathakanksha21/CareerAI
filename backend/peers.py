@@ -54,6 +54,7 @@ NUDGE = "{name} sent you a nudge: one step today keeps your week on track."
 CHECKIN_CHARS = 140
 DETAILS_CHARS = 500
 PROPOSAL_DAYS = 7
+PROPOSALS_A_DAY = 3  # new people proposed to one person in a London day; owner, 24 Oct 2026. Stops "Not this time" browsing everyone
 INACTIVE_DAYS = 21
 MAX_MEMBERS = 3
 TARGETS = ("applications", "practice", "outreach")
@@ -64,7 +65,7 @@ BAD_CONTACT_LINK = ("Use your LinkedIn profile address (https://www.linkedin.com
                     "or a WhatsApp link (https://wa.me/447700900123).")
 LINKEDIN_HOST = re.compile(r"(?:www\.|[a-z]{2}\.)?linkedin\.com")
 LINKEDIN_PATH = re.compile(r"/(?i:in)/([A-Za-z0-9\-_%]{3,100})/?")
-WHATSAPP_PATH = re.compile(r"/([0-9]{7,15})/?")
+WHATSAPP_PATH = re.compile(r"/([1-9][0-9]{6,14})/?")  # the international number: a leading 0 opens nobody's chat
 
 
 def contact_link(value: str) -> str:
@@ -89,6 +90,14 @@ def contact_link(value: str) -> str:
     if host == "wa.me" and (found := WHATSAPP_PATH.fullmatch(parts.path)):
         return f"https://wa.me/{found.group(1)}"
     raise ValueError(BAD_CONTACT_LINK)
+
+
+# ---------- the name buddies see ----------
+
+def first_name(full_name: str | None) -> str:
+    """The first word of the full name, as typed. A name typed surname-first shows the surname, so
+    the user is shown exactly this (peerdb.appears_as) and told to put their given name first."""
+    return ((full_name or "").split() or [""])[0]
 
 
 # ---------- this week, the group streak, inactivity ----------

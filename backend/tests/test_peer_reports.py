@@ -25,8 +25,9 @@ def new_user(conn) -> str:
 
 
 @pytest.fixture
-def reported(conn, own_transaction):
-    """A report by one test user about another's check-in, in a group of two."""
+def reported(conn, own_transaction, monkeypatch):
+    """A report by one test user about another's check-in, in a group of two. The script lists only
+    this report: real open reports never reach the test's captured output."""
     a, b = new_user(conn), new_user(conn)
     group = conn.execute("insert into peer_groups (status, active_since) values ('active', current_date) returning id").fetchone()["id"]
     for slot, user in enumerate((a, b), start=1):
@@ -37,6 +38,8 @@ def reported(conn, own_transaction):
                         (group, a)).fetchone()["id"]
     report = conn.execute("insert into peer_reports (reporter, about_user, group_id, checkin_id, checkin_text, reason, details) "
                           "values (%s, %s, %s, %s, 'Zzqx rude line', 'unkind', 'Zzqx details') returning id", (b, a, group, line)).fetchone()["id"]
+    real = peerdb.open_reports
+    monkeypatch.setattr(peerdb, "open_reports", lambda conn: [r for r in real(conn) if r["id"] == str(report)])
     return {"a": a, "b": b, "group": str(group), "report": str(report)}
 
 
@@ -68,3 +71,19 @@ def test_bars_a_user(conn, reported, capsys):
 def test_refuses_an_id_that_is_not_one(capsys):
     with pytest.raises(SystemExit):
         script().main(["--handled", "not-an-id"])
+
+
+def test_barring_an_id_nobody_has(own_transaction, capsys):
+    assert script().main(["--bar", str(uuid.uuid4())]) == 1
+    assert "No user has that id." in capsys.readouterr().out
+
+
+def test_a_reported_line_cannot_rewrite_the_listing(conn, reported, capsys):
+    """Terminal control characters in what a user wrote are printed as text, so a line cannot move
+    the cursor and erase itself or the 'About user' line."""
+    conn.execute("update peer_reports set checkin_text = %s, details = %s where id = %s",
+                 ("Zzqx line\x1b[1A\x1b[2K", "Zzqx\rdetails\x07", reported["report"]))
+    script().main([])
+    out = capsys.readouterr().out
+    assert "\x1b" not in out and "\r" not in out and "\x07" not in out
+    assert "Zzqx line\\x1b[1A\\x1b[2K" in out and "Zzqx\\rdetails\\x07" in out

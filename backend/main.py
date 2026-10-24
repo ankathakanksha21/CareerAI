@@ -1115,7 +1115,7 @@ def _in_peers(user: User, change) -> dict:
     with db.transaction() as conn:
         try:
             change(conn)
-        except LookupError:
+        except peerdb.Gone:
             raise HTTPException(404, GONE)
         return peerdb.status(conn, user.id)
 
@@ -1202,7 +1202,7 @@ def put_contact_link(body: ContactLinkIn, user: CurrentUser):
     with db.transaction() as conn:
         try:
             peerdb.set_contact_link(conn, user.id, body.link)
-        except LookupError:
+        except peerdb.Gone:
             raise HTTPException(409, PEERS_OFF)
         return peerdb.status(conn, user.id)
 

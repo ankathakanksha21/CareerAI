@@ -48,6 +48,7 @@ def test_contact_link_accepted_and_tidied(typed, stored):
     "https://wa.me/+44 7700 900123",
     "https://wa.me/12",
     "https://wa.me/1234567890123456",
+    "https://wa.me/07700900123",  # a number written the UK way: the link would open nobody's chat
     "https://www.linkedin.com/company/acme",
     "https://www.linkedin.com/in/ab",
     "https://www.linkedin.com/in/priya/details/experience",
@@ -59,6 +60,13 @@ def test_contact_link_accepted_and_tidied(typed, stored):
 def test_contact_link_refused(typed):
     with pytest.raises(ValueError, match="LinkedIn profile address"):
         peers.contact_link(typed)
+
+
+# ---------- the name buddies see ----------
+
+@pytest.mark.parametrize("full_name, shown", [("Priya Shah", "Priya"), ("Zhang Wei", "Zhang"), ("  Priya  ", "Priya"), ("", ""), (None, "")])
+def test_first_name_is_the_first_word_as_typed(full_name, shown):
+    assert peers.first_name(full_name) == shown
 
 
 # ---------- this week and the streaks ----------

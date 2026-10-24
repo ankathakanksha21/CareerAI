@@ -5,6 +5,7 @@ The model is replaced; the names cannot be real. Real accounts may be waiting in
 database, so the first of a pair is put on the list directly (no matching runs for them) and the
 second joins through the API sharing a city no real user has."""
 import json
+import re
 import uuid
 
 import pytest
@@ -117,6 +118,16 @@ def test_a_group_the_caller_is_not_in_is_404(client, conn, user_a, action):
     assert (r.status_code, r.json()["detail"]) == (404, GONE)
 
 
+def test_a_coding_error_is_not_dressed_up_as_gone(client, conn, user_a, monkeypatch):
+    account(conn, user_a)
+
+    def broken(*args, **kwargs):
+        raise KeyError("a bug")
+    monkeypatch.setattr(peerdb, "answer", broken)
+    with pytest.raises(KeyError):
+        client.post(f"/api/peers/groups/{ID}/accept")
+
+
 # ---------- switching on ----------
 
 def test_off_by_default(client):
@@ -177,6 +188,7 @@ def test_two_people_accept_and_see_only_the_permitted_details(client, conn, user
     shown = json.dumps(mine)
     for hidden in ("Patel", user_a, "student", "2027-01-31", "Zzqx Holdings", "churn", "applied", "example.test"):
         assert hidden not in shown, hidden
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", json.dumps(mine["group"]["members"]))  # no date of anyone's activity
 
 
 def test_switching_off_removes_the_user_in_the_same_request(client, conn, user_a, user_b, as_user):
@@ -321,10 +333,10 @@ def test_a_contact_link_needs_peers_on(client, conn, user_a):
 
 def test_after_leaving_the_link_and_the_person_are_gone(client, conn, user_a, user_b, as_user):
     account(conn, user_a, name="Zzqxasha Patel")
-    group = group_of(conn, user_a, account(conn, user_b))
+    group = group_of(conn, user_a, account(conn, user_b, name="Zzqxben Okafor"))  # b's own name is in b's state ("appears_as")
     client.put("/api/peers/contact-link", json={"link": "https://wa.me/447700900123"})
     client.post(f"/api/peers/groups/{group}/leave")
-    as_user(user_b)
+    as_user(user_b, "Zzqxben Okafor")
     shown = json.dumps(peers_of(client))
     assert "447700900123" not in shown and "Zzqxasha" not in shown
 

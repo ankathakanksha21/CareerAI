@@ -176,16 +176,42 @@ def test_inactive_after_three_weeks(conn):
     assert peerdb.peer_view(conn, b, a)["inactive"] is False
 
 
+SHOWN = ("first_name", "university", "course", "target_roles")
+
+
+def test_the_user_sees_themselves_exactly_as_buddies_do(conn):
+    a, b = person(conn, name="Zzqxzhang Wei"), person(conn)
+    group_of(conn, a, b)
+    mine, seen = peerdb.appears_as(conn, a), peerdb.peer_view(conn, b, a)
+    assert mine == {k: seen[k] for k in SHOWN}
+    assert mine["first_name"] == "Zzqxzhang"  # a name typed surname-first shows the surname: the user is shown this
+    assert peerdb.status(conn, a)["appears_as"] == mine
+
+
+def test_how_the_user_appears_is_shown_before_they_join(conn):
+    a = person(conn, name="Zzqxzhang Wei", on=False)
+    assert peerdb.status(conn, a)["appears_as"] == {"first_name": "Zzqxzhang", "university": "Zzqx University",
+                                                    "course": "MSc Zzqx Data Science", "target_roles": ["Zzqx Data Analyst"]}
+    assert peerdb.status(conn, new_user(conn))["appears_as"] is None  # no profile yet
+
+
 # ---------- switching on and off ----------
 
 def test_switching_on(conn):
     a = person(conn, on=False)
-    peerdb.switch_on(conn, a, field="finance")
+    peerdb.switch_on(conn, a, field="accounting")
     row = peerdb.get_profile(conn, a)
-    assert (row["enabled"], row["over_18"], row["field"]) == (True, True, "finance")
+    assert (row["enabled"], row["over_18"], row["field"]) == (True, True, "accounting")
     assert row["consented_at"] is not None
     with pytest.raises(peerdb.AlreadyOn):
         peerdb.switch_on(conn, a, field="data")
+
+
+def test_switching_on_needs_a_listed_field(conn):
+    a = person(conn, on=False)
+    with pytest.raises(ValueError):
+        peerdb.switch_on(conn, a, field="finance")
+    assert peerdb.get_profile(conn, a) is None
 
 
 def test_a_barred_user_cannot_switch_on(conn):
@@ -222,6 +248,42 @@ def test_switching_off_touches_nobody_elses_rows(conn):
     peerdb.leave_all(conn, a)
     assert peerdb.peer_view(conn, c, b)["checkin"]["id"] == line
     assert conn.execute("select count(*) as n from peer_nudges where from_user = %s and to_user = %s", (b, c)).fetchone()["n"] == 1
+
+
+def test_switching_off_leaves_the_group_found_after_waiting_for_the_lock(conn, monkeypatch, no_rematch):
+    """The race: a's membership is read, then another request (holding the group) closes it and
+    proposes a to x before switching off gets the lock. a must still end up in no group."""
+    a, b, x = person(conn), person(conn), person(conn)
+    old = group_of(conn, a, b)
+    stale = peerdb._live(conn, a)
+    conn.execute("update peer_groups set status = 'closed' where id = %s", (old,))
+    conn.execute("update peer_group_members set status = 'left' where group_id = %s", (old,))
+    new = group_of(conn, a, x, status="proposed", member_status="proposed")
+    reads, real_live = [], peerdb._live
+
+    def first_read_is_stale(conn, user_id):
+        reads.append(user_id)
+        return stale if len(reads) == 1 else real_live(conn, user_id)
+    monkeypatch.setattr(peerdb, "_live", first_read_is_stale)
+    peerdb.leave_all(conn, a)
+    assert live_group(conn, a) is None and peerdb.get_profile(conn, a)["enabled"] is False
+    assert group_status(conn, new) == "closed" and waiting(conn, x)
+
+
+def test_a_proposal_holding_someone_switched_off_closes_on_the_next_visit(conn, no_rematch):
+    a, x = person(conn), person(conn)
+    group = group_of(conn, a, x, status="proposed", member_status="proposed")
+    conn.execute("update peer_profiles set enabled = false where user_id = %s", (a,))  # as that race used to leave it
+    assert peerdb.status(conn, x)["status"] == "waiting"
+    assert group_status(conn, group) == "closed" and waiting(conn, x)
+
+
+def test_a_proposal_with_nobody_to_show_reads_as_waiting(conn):
+    a, x = person(conn), person(conn)
+    group_of(conn, a, x, status="proposed", member_status="proposed")
+    conn.execute("insert into peer_blocks (blocker, blocked) values (%s, %s)", (a, x))  # never through block(), which would also say no
+    mine = peerdb.status(conn, x)
+    assert (mine["status"], mine["proposal"]) == ("waiting", None)
 
 
 # ---------- matching, answering, expiry, leaving ----------
@@ -264,7 +326,8 @@ def test_two_in_the_same_field_are_proposed_to_each_other(conn):
     assert group and live_group(conn, a) == group and group_status(conn, group) == "proposed"
     rows = conn.execute("select user_id, status, slot from peer_group_members where group_id = %s order by slot", (group,)).fetchall()
     assert [(str(r["user_id"]), r["status"], r["slot"]) for r in rows] == [(b, "proposed", 1), (a, "proposed", 2)]
-    assert not waiting(conn, a) and not waiting(conn, b)
+    others = {c["id"] for c in peerdb._candidates(conn, person(conn), {"field": "data", "places": {place}, "university": ""})}
+    assert a not in others and b not in others  # proposed to each other, so nobody else's candidate
 
 
 def test_same_field_preferred(conn):
@@ -324,6 +387,7 @@ def test_both_yes_makes_an_active_group(conn):
     assert (row["status"], row["today"]) == ("active", True)
     assert membership(conn, group, a)["status"] == membership(conn, group, b)["status"] == "accepted"
     assert set(peerdb.peer_view(conn, b, a)) == FULL
+    assert not waiting(conn, a) and not waiting(conn, b)  # in a group now, so off the list
 
 
 def test_not_this_time(conn, monkeypatch):
@@ -377,12 +441,12 @@ def test_a_full_group_takes_nobody(conn):
 def test_nothing_to_answer(conn):
     a, b, c = person(conn), person(conn), person(conn)
     closed = group_of(conn, a, b, status="closed", member_status="left")
-    with pytest.raises(LookupError):
+    with pytest.raises(peerdb.Gone):
         peerdb.answer(conn, a, closed, yes=True)
     group = group_of(conn, b, c)
-    with pytest.raises(LookupError):
+    with pytest.raises(peerdb.Gone):
         peerdb.answer(conn, b, group, yes=True)  # accepted, and no newcomer to answer for
-    with pytest.raises(LookupError):
+    with pytest.raises(peerdb.Gone):
         peerdb.answer(conn, a, group, yes=True)  # not in it
 
 
@@ -393,7 +457,7 @@ def test_the_other_switched_off_before_my_yes(conn, no_rematch):
     peerdb.leave_all(conn, a)
     assert group_status(conn, group) == "closed" and waiting(conn, b)
     assert peerdb.peer_view(conn, b, a) is None
-    with pytest.raises(LookupError):
+    with pytest.raises(peerdb.Gone):
         peerdb.answer(conn, b, group, yes=True)
 
 
@@ -416,7 +480,7 @@ def test_leaving_a_pair_closes_it(conn, no_rematch):
     group = group_of(conn, a, b)
     peerdb.leave(conn, a, group)
     assert group_status(conn, group) == "closed" and waiting(conn, a) and waiting(conn, b) and passed(conn, a, b)
-    with pytest.raises(LookupError):
+    with pytest.raises(peerdb.Gone):
         peerdb.leave(conn, a, group)
 
 
@@ -439,6 +503,120 @@ def test_someone_on_with_no_group_goes_back_on_the_list(conn, no_rematch):
     a = person(conn)  # on, not waiting, in no group
     peerdb.tidy(conn, a)
     assert waiting(conn, a)
+
+
+# ---------- a fair queue ----------
+
+def since(conn, user):
+    return peerdb.get_profile(conn, user)["waiting_since"]
+
+
+def waited(conn, user, days=5):
+    conn.execute("update peer_profiles set waiting_since = now() - make_interval(days => %s) where user_id = %s", (days, user))
+    return since(conn, user)
+
+
+def test_someone_declined_keeps_their_place_on_the_list(conn, monkeypatch):
+    place = city()
+    a = person(conn, place=place, waiting=True)
+    before = waited(conn, a)
+    b = join(conn, place=place)
+    group = live_group(conn, a)
+    assert group and group == live_group(conn, b)
+    b_before = waited(conn, b, days=10)  # b had waited even longer than a
+    monkeypatch.setattr(peerdb, "propose", lambda conn, user_id: None)
+    peerdb.answer(conn, b, group, yes=False)
+    assert since(conn, a) == before  # a did nothing wrong
+    assert since(conn, b) > before > b_before  # b said no, so b goes to the back
+
+
+def test_a_newcomer_turned_away_keeps_their_place(conn, no_rematch):
+    a, b = person(conn), person(conn)
+    group = group_of(conn, a, b)
+    c = person(conn, waiting=True)
+    before = waited(conn, c)
+    conn.execute("insert into peer_group_members (group_id, user_id, slot, status) values (%s, %s, 3, 'proposed')", (group, c))
+    peerdb.answer(conn, a, group, yes=False)
+    assert since(conn, c) == before
+
+
+def test_after_a_lapse_whoever_said_yes_is_matched_first_and_keeps_their_place(conn, monkeypatch):
+    a, b = person(conn, waiting=True), person(conn, waiting=True)
+    before = waited(conn, a)
+    waited(conn, b)
+    group = group_of(conn, b, a, status="proposed", member_status="proposed")  # the silent b holds place 1, so is read first
+    conn.execute("update peer_group_members set yes_from = %s, proposed_at = now() - interval '8 days' where group_id = %s", ([a], group))
+    order = []
+    monkeypatch.setattr(peerdb, "propose", lambda conn, user_id: order.append(str(user_id)))
+    peerdb.tidy(conn, b)  # b, who never answered, is the one who opens the page
+    assert order[0] == a
+    assert since(conn, a) == before and since(conn, b) > before
+
+
+# ---------- at most three new proposals a London day ----------
+
+def proposed_today(conn, user, times):
+    """`times` proposals already made to the user today, in groups since closed."""
+    for _ in range(times):
+        group_of(conn, user, person(conn), status="closed", member_status="declined")
+
+
+def test_after_three_proposals_today_the_user_waits_until_tomorrow(conn):
+    place = city()
+    a = person(conn, place=place, waiting=True)
+    b = person(conn, place=place, on=False)
+    proposed_today(conn, b, 3)
+    peerdb.switch_on(conn, b, field="data")
+    assert live_group(conn, b) is None and live_group(conn, a) is None
+    mine = peerdb.status(conn, b)
+    assert (mine["status"], mine["again_tomorrow"]) == ("waiting", True)
+    conn.execute("update peer_group_members set proposed_at = proposed_at - interval '1 day' "  # tomorrow: those proposals were yesterday's
+                 "where group_id in (select group_id from peer_group_members where user_id = %s)", (b,))
+    assert peerdb.status(conn, b)["status"] == "proposed" and live_group(conn, a) == live_group(conn, b)
+
+
+def test_two_proposals_today_still_leave_room_for_a_third(conn):
+    place = city()
+    a = person(conn, place=place, waiting=True)
+    b = person(conn, place=place, on=False)
+    proposed_today(conn, b, 2)
+    peerdb.switch_on(conn, b, field="data")
+    assert live_group(conn, b) is not None and live_group(conn, b) == live_group(conn, a)
+    assert peerdb.status(conn, b)["again_tomorrow"] is False
+
+
+def test_someone_at_the_cap_is_nobodys_candidate(conn):
+    a = person(conn, waiting=True)
+    proposed_today(conn, a, 3)
+    found = peerdb._candidates(conn, person(conn), {"field": "data", "places": set(), "university": ""})
+    assert a not in {c["id"] for c in found}
+
+
+def pair_formed_yesterday(conn) -> tuple[str, str, str]:
+    a, b = person(conn), person(conn)
+    group = group_of(conn, a, b)
+    conn.execute("update peer_group_members set proposed_at = now() - interval '1 day' where group_id = %s", (group,))
+    return a, b, group
+
+
+def newcomers_turned_away_today(conn, group, times):
+    for _ in range(times):
+        conn.execute("insert into peer_group_members (group_id, user_id, slot, status) values (%s, %s, 3, 'declined')", (group, person(conn)))
+
+
+def test_a_newcomer_counts_as_a_new_person_for_those_already_in_the_group(conn):
+    a, b, group = pair_formed_yesterday(conn)
+    newcomers_turned_away_today(conn, group, 2)
+    assert peerdb.proposed_today(conn, a) == peerdb.proposed_today(conn, b) == 2
+
+
+def test_a_pair_that_turned_away_three_newcomers_today_takes_no_fourth(conn):
+    a, b, group = pair_formed_yesterday(conn)
+    newcomers_turned_away_today(conn, group, 2)
+    me = {"field": "data", "places": set(), "university": ""}
+    assert group in {c["id"] for c in peerdb._candidates(conn, person(conn), me)}  # the control: room for one more today
+    newcomers_turned_away_today(conn, group, 1)
+    assert group not in {c["id"] for c in peerdb._candidates(conn, person(conn), me)}
 
 
 # ---------- check-ins, nudges, contact links ----------
@@ -466,7 +644,7 @@ def test_only_someone_in_the_group_checks_in(conn, where):
     else:
         group_of(conn, a, b)
         group = group_of(conn, person(conn), person(conn))
-    with pytest.raises(LookupError):
+    with pytest.raises(peerdb.Gone):
         peerdb.set_checkin(conn, a, group, "Line")
 
 
@@ -497,7 +675,7 @@ def test_a_nudge_goes_only_to_someone_in_the_group(conn):
     other = group_of(conn, person(conn), person(conn))
     stranger = conn.execute("select id from peer_group_members where group_id = %s limit 1", (other,)).fetchone()["id"]
     for target in (member_id(conn, group, newcomer), member_id(conn, group, a), stranger, uuid.uuid4()):
-        with pytest.raises(LookupError):
+        with pytest.raises(peerdb.Gone):
             peerdb.nudge(conn, a, group, target)
 
 
@@ -513,6 +691,8 @@ def test_nudges_received_this_week_one_per_sender(conn):
     received = peerdb.status(conn, a)["nudges"]
     assert sorted(n["first_name"] for n in received) == ["Zzqx", "Zzqxcat"]
     assert {n["text"] for n in received} >= {"Zzqxcat sent you a nudge: one step today keeps your week on track."}
+    assert all(set(n) == {"member", "first_name", "text"} for n in received)  # no date of the sender's activity
+    assert {n["member"] for n in received} == {member_id(conn, group, b), member_id(conn, group, c)}
 
 
 def test_a_nudge_from_someone_no_longer_in_the_group_is_not_shown(conn):
@@ -545,8 +725,54 @@ def test_a_contact_link_is_shown_to_the_group_only(conn):
 
 def test_a_contact_link_needs_peers_on(conn):
     a = person(conn, on=False)
-    with pytest.raises(LookupError):
+    with pytest.raises(peerdb.Gone):
         peerdb.set_contact_link(conn, a, "https://wa.me/447700900123")
+
+
+@pytest.mark.parametrize("link", ["javascript:alert(1)", "https://evil.test/in/zzqx-priya", "http://wa.me/447700900123", "https://wa.me/07700900123"])
+def test_a_contact_link_is_checked_here_too(conn, link):
+    a = person(conn)
+    with pytest.raises(ValueError):
+        peerdb.set_contact_link(conn, a, link)
+    assert peerdb.get_profile(conn, a)["contact_link"] is None
+
+
+# ---------- what is out of sight, and what a page load costs ----------
+
+def test_out_of_sight_is_gone(conn):
+    a = person(conn)
+    for attempt in (lambda: peerdb.answer(conn, a, str(uuid.uuid4()), yes=True), lambda: peerdb.leave(conn, a, str(uuid.uuid4())),
+                    lambda: peerdb.set_checkin(conn, a, str(uuid.uuid4()), "Line"), lambda: peerdb.block(conn, a, uuid.uuid4()),
+                    lambda: peerdb.report(conn, a, member=uuid.uuid4(), reason="unkind")):
+        with pytest.raises(peerdb.Gone):
+            attempt()
+
+
+def statements(conn, monkeypatch) -> list[str]:
+    """Every statement the connection runs from now on."""
+    seen, real = [], conn.execute
+
+    def counted(query, *args, **kwargs):
+        seen.append(str(query))
+        return real(query, *args, **kwargs)
+    monkeypatch.setattr(conn, "execute", counted)
+    return seen
+
+
+def test_a_state_read_for_a_group_of_three_stays_small(conn, monkeypatch):
+    a, b, c = person(conn), person(conn), person(conn)
+    group_of(conn, a, b, c)
+    seen = statements(conn, monkeypatch)
+    peerdb.status(conn, a)
+    assert len(seen) <= 30, len(seen)
+
+
+def test_a_state_read_locks_no_group_when_nothing_changes(conn, monkeypatch):
+    a, b = person(conn), person(conn)
+    group_of(conn, a, b)
+    seen = statements(conn, monkeypatch)
+    peerdb.status(conn, a)
+    assert not [q for q in seen if "peer_groups" in q and "for update" in q]
 
 
 
@@ -585,7 +811,7 @@ def test_blocking_someone_out_of_sight_is_refused(conn):
     other = group_of(conn, person(conn), person(conn))
     stranger = conn.execute("select id from peer_group_members where group_id = %s limit 1", (other,)).fetchone()["id"]
     for target in (stranger, uuid.uuid4()):
-        with pytest.raises(LookupError):
+        with pytest.raises(peerdb.Gone):
             peerdb.block(conn, a, target)
 
 
@@ -613,9 +839,9 @@ def test_a_report_needs_someone_in_sight_and_their_own_line(conn):
     a, b, c = person(conn), person(conn), person(conn)
     group = group_of(conn, a, b, c)
     cs_line = checkin(conn, group, c)
-    with pytest.raises(LookupError):
+    with pytest.raises(peerdb.Gone):
         peerdb.report(conn, b, member=member_id(conn, group, a), reason="unkind", checkin_id=cs_line)
-    with pytest.raises(LookupError):
+    with pytest.raises(peerdb.Gone):
         peerdb.report(conn, b, member=uuid.uuid4(), reason="unkind")
 
 
@@ -641,3 +867,7 @@ def test_a_barred_user_is_out_and_stays_out(conn, no_rematch):
     assert group_status(conn, group) == "closed" and peerdb.peer_view(conn, b, a) is None
     with pytest.raises(peerdb.Barred):
         peerdb.switch_on(conn, a, field="data")
+
+
+def test_barring_nobody_says_so(conn):
+    assert peerdb.bar(conn, str(uuid.uuid4())) is False

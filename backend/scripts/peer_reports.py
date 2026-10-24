@@ -25,6 +25,12 @@ def _id(value: str) -> str:
         raise argparse.ArgumentTypeError("not an id") from None
 
 
+def _text(value: str) -> str:
+    """What a user wrote, with anything that is not printable shown as an escape (\\x1b, \\r), so a
+    line cannot move the cursor and rewrite or erase itself or the lines around it."""
+    return "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii") for c in value)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Review reports about buddy groups.")
     action = parser.add_mutually_exclusive_group()
@@ -37,7 +43,9 @@ def main(argv=None) -> int:
             print("Marked handled." if done else "No open report has that id.")
             return 0 if done else 1
         if args.bar:
-            peerdb.bar(conn, args.bar)
+            if not peerdb.bar(conn, args.bar):
+                print("No user has that id.")
+                return 1
             print("Barred: Peers is off for that user, and they cannot switch it on again.")
             return 0
         reports = peerdb.open_reports(conn)
@@ -49,9 +57,9 @@ def main(argv=None) -> int:
         print(f"  About user {r['about_user']} ({r['about_them']} open about them), from user {r['reporter']}")
         print(f"  Reason: {r['reason']}")
         if r["details"]:
-            print(f"  Details: {r['details']}")
+            print(f"  Details: {_text(r['details'])}")
         if r["checkin_text"]:
-            print(f"  The line reported: {r['checkin_text']}")
+            print(f"  The line reported: {_text(r['checkin_text'])}")
     print(f"{len(reports)} open. Mark one handled with --handled REPORT_ID, or bar a user with --bar USER_ID.")
     return 0
 
