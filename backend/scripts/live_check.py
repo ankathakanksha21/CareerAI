@@ -329,6 +329,9 @@ CHECKS = [
     *[(f"draft, {kind}", lambda kind=kind, who=who, extra=extra: _outreach(kind, who, **extra), _outreach_ok) for kind, who, extra in OUTREACH],
     ("event preparation", lambda: ai.event_prep(event={"name": "Leeds Data Meetup", "type": "meetup", "online": False}, about_me=ABOUT_ME),
      lambda r: len(r["openers"]) == 3 and 30 <= len(r["introduction"].split()) <= 90 and bool(r["goal"])),
+    # step 7: a broad field for buddy matching, from the user's target role names only
+    ("peers field, data", lambda: ai.suggest_field(["Data Analyst", "Business Intelligence Analyst"]), lambda r: r == "data"),
+    ("peers field, law", lambda: ai.suggest_field(["Trainee Solicitor", "Paralegal"]), lambda r: r == "law"),
 ]
 
 

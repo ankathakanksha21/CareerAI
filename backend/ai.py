@@ -12,6 +12,7 @@ import httpx
 
 import cv
 import networking
+import peers
 from llm import complete_json
 
 log = logging.getLogger("ai")
@@ -1393,3 +1394,17 @@ def event_prep(*, event: dict, about_me: str) -> dict:
                 required=("introduction", "goal"), check=usable)
     dashless = lambda t: DASHES.sub(", ", t.strip())  # noqa: E731
     return {"introduction": dashless(data["introduction"]), "openers": [dashless(o) for o in data["openers"]], "goal": dashless(data["goal"])}
+
+
+# ---------- peers: a broad field to match buddies on ----------
+
+def suggest_field(role_names: list[str]) -> str | None:
+    """One of peers.FIELDS for the user's target roles, or None when the model answers with
+    anything not on the list (the user then picks by hand). Only the role names are sent."""
+    labels = list(peers.FIELDS.values())
+    system = ("Choose the one broad area of work that best fits these job titles, from the list given. "
+              "Answer with the area exactly as it is written in the list.")
+    user = f"Areas: {_j(labels)}\nJob titles: {_j(role_names)}\n\nReturn {{\"field\": str (one area from the list, exactly as written)}}"
+    data = _run("peers_field", system, user, {"field": ""}, 200, required=("field",))
+    wanted = " ".join(data["field"].split()).lower()
+    return next((key for key, label in peers.FIELDS.items() if label.lower() == wanted), None)
