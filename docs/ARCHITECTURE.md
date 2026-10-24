@@ -27,8 +27,8 @@ Every step has a document holding its goal, every decision made for it, the desi
 | 3 | Full UK CV: all sections, editing in the app, Word and PDF | 1 | Built and merged into `main`. The owner's hand checks are left (section 20) | `careerai-step-3-full-uk-cv` |
 | 4 | Tracker detail, follow-ups, a lesson from each rejection, weekly goals, streaks, weekly plan | 0 | Built and merged into `main`. The owner's hand checks are left (section 22) | `careerai-step-4-tracker-and-habits` |
 | 5 | Interview prep: sourced company research, prep pack, questions matched to stories | 0 | Built and merged into `main`. The owner's hand checks are left (section 24) | `careerai-step-5-interview-prep` |
-| 6 | Hidden market: contacts, outreach drafts, saved events, referrals | 4 | Built on branch `step-6-hidden-market`. The owner's hand checks are left (section 26) | `careerai-step-6-hidden-market` |
-| 7 | Peers: opt-in buddy groups of two or three | 4 | Designed | `careerai-step-7-peers` |
+| 6 | Hidden market: contacts, outreach drafts, saved events, referrals | 4 | Built and merged into `main`. The owner's hand checks are left (section 26) | `careerai-step-6-hidden-market` |
+| 7 | Peers: opt-in buddy groups of two or three | 4 | Built on branch `step-7-peers`. The owner's three-account hand checks and terms of use are left (section 28) | `careerai-step-7-peers` |
 
 The documents live in `.claude/skills/<name>/SKILL.md`. The method every step follows is `careerai-building-a-step`, in the same folder. Project-wide rules are in `CLAUDE.md`.
 
@@ -160,6 +160,15 @@ Minimum versions: Node 20.19 or 22.12 (Vite 8 will not run on older), Python 3.1
 | Search links for people and events are built on the server from the profile and open on the other site; the app fetches nothing from LinkedIn, Meetup, Eventbrite or the professional bodies | No scraping and no terms to break | LinkedIn's search opens only for someone signed in there; what the links find is whatever those sites show | A site changes its addresses |
 | A reference is asked only of a tutor, lecturer or supervisor; a referral only for a saved job whose employer matches the contact's company by the register's name rules | The app never drafts a request that would embarrass the user | A contact at a parent company with another name cannot be asked for a referral | Users ask for it |
 | Chat questions are written by code from the contact's role and company; event preparation is saved on the event | Both are free to read again | Less variety in the chat questions | – |
+| One function, `peerdb.peer_view`, returns anything about another user, from an explicit field list; all peers SQL lives in `peerdb.py`, apart from `repo.py` | The one exception to "every user's data is private" is small enough to review in one place | Matching also reads other users' field, places, university and time waited (to choose, never returned) | A second feature needs to show one user to another |
+| Pages name a member by their membership row's id, never a user id | Nothing that identifies an account across groups reaches the browser | – | – |
+| A group never holds more than three live members: each holds one of three places, with a unique index; one live group per user, also by index | Two people accepting at the same moment cannot make four | A place freed by someone leaving is reused | – |
+| Everyone says yes before anyone sees progress or a link, including the current members when a third is proposed | Nobody shares their week with someone they did not accept | A third joins a little more slowly | – |
+| A different field is proposed only when nobody in the same field is waiting (owner's choice) | With few users, people are matched at all | A pairing across fields may suit less well; either can say not this time | Enough users to wait for the same field |
+| Declined, unanswered for 7 days, or left: that pairing is never proposed again; blocks hide both people from each other everywhere | Nobody is offered the same silent or unwanted person twice | Two people who would now get on are never paired again | – |
+| Matching runs on joining, on going back on the list, and when a waiting user opens Home or Peers; no scheduled job | No extra service; a missed match heals on the next visit | A few queries on every page load for someone waiting | Users wait long for a match that exists |
+| Switching Peers off deletes the user's check-ins and the nudges they sent and received, and clears their link; blocks, passes and reports stay | Others stop seeing them at once | – | – |
+| A report copies the line it reports | Editing or deleting the line later keeps the evidence | The copy goes when either account is deleted, as every row does | – |
 
 Smaller behaviours worth knowing:
 
@@ -206,6 +215,11 @@ Smaller behaviours worth knowing:
 - "Coming up" on Home lists the next three saved events the user is interested in or going to, from today on, by the London date: an event tonight stays until midnight.
 - The weekly plan adds "Follow up with <name>" once a message has had no reply for 14 days, and "Message <name>" (the person waiting longest at To contact) or "Find someone to message" while the outreach target is not met.
 - Five messages marked as sent with no reply, chat or referral from anyone become a finding that points to the guide.
+- Peers is always in the menu; only the field suggestion needs the model, and the user can pick a field by hand.
+- "Not this time" and leaving put the user straight back on the list, and matching runs for them at once (after the people left behind). Switching Peers off is how to stop.
+- Blocking a proposed newcomer turns them away and the blocker stays; blocking a member already in means the blocker leaves.
+- "Same city" means a shared preferred location, ignoring "Remote" and case. The CV's town is not used.
+- A member counts as inactive after 21 days with no application with a CV, mock interview, message marked as sent or check-in, once they have been in the group that long; the others are then offered "Find a new group", which is the same as leaving.
 
 ## 6. Code map
 
@@ -241,6 +255,8 @@ backend/
   prep.py          a prep pack's own rules: right-to-work line, edits, rebuilds, what the interviewer is told. Pure functions
   networking.py    the networking pipeline: how a contact moves on, the next step and when, follow-ups due, coming up, the no-replies finding, chat questions. Pure functions
   links.py         search links for people and events from fixed sites, professional bodies by field, safe addresses typed by the user. Pure functions
+  peers.py         buddy groups' rules: the 21 fields, the code of conduct, report reasons, the nudge's wording, contact links, ranking, progress, group streak, inactivity. Pure functions
+  peerdb.py        every peers query. peer_view is the ONLY function in the app that returns another user's information; matching, proposals, expiry, leaving, check-ins, nudges, blocks, reports, and the owner's report tools
   ai.py            one function per AI task: prompt, output shaping, quote checking
   llm.py           one call path to Bedrock, fallback model, JSON parsing
   voice.py         ElevenLabs token minting and transcript fetch (owner only)
@@ -275,12 +291,13 @@ frontend/src/
                    RejectQuestions (where a rejection ended, feedback, the lesson), FollowUps, ThisWeek (goals, streak), Plan, Milestones,
                    PrepPacks (the tab), CompanyConfirm (pick the company, research, build), PrepPack (the pack, printable), StoryCoverage,
                    ContactCard (one person: next step, steps so far, chat help), DraftMessage, PersonForm, FindPeople,
-                   NetworkingEvents (where to look, saved events, preparation, who did you meet), NetworkingGuide, ComingUp
+                   NetworkingEvents (where to look, saved events, preparation, who did you meet), NetworkingGuide, ComingUp,
+                   PeerConsent (what the group sees and never sees, the code of conduct, the field), PeerGroup (members, check-ins, nudges, link, report, block, leave), PeerCard (Home)
   tracker.js       the tracker's stage words and small rules, shared by Applications and Home
   prep.js          prep pack words and which pack belongs to a job or application
   networking.js    networking's labels and small rules: which drafts a contact can be sent, event times in London
   pages/           Landing, Auth, Privacy, Onboarding, Home, Profile, Pathways, Jobs, Resume,
-                   Interview, Applications, Networking, Journal, Account
+                   Interview, Applications, Networking, Peers, Journal, Account
 app.py             Vercel entry point: the API plus the built frontend
 ```
 
@@ -304,6 +321,14 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 | `contacts` | People the user added: name, role, company, how they know them (alumnus, tutor or lecturer, supervisor, met at an event, recruiter, introduced, no connection yet), profile link, notes, where they are in the pipeline, the saved event where they met. No email address or phone number |
 | `outreach_events` | One row per step with a contact: a message marked as sent with its kind, a reply, a chat booked or held, a referral offered, with its London day. Recorded once per person, step and day. A deleted contact's rows stay with the contact cleared |
 | `networking_events` | Events the user saved: name, start (London time), place or online, link, kind, Interested, Going or Attended, notes, and the last preparation written for it |
+| `peer_profiles` | One per user who has ever switched Peers on: on or off, when they consented (18 or over, the code of conduct), their field, their contact link, since when they are on the list, and whether the owner barred them |
+| `peer_groups` | A buddy group: proposed, active or closed, and the London day it first had two members |
+| `peer_group_members` | One row per person per group: their place (1 to 3), proposed, accepted, declined or left, and who has said yes to them. Its id is how pages name a member |
+| `peer_passes` | Pairings never proposed again: declined, left unanswered for 7 days, or left |
+| `peer_checkins` | One line (140 characters) per member per group per London week |
+| `peer_nudges` | Who nudged whom, in which group, on which London day. One a day from one person to another |
+| `peer_blocks` | Who blocked whom |
+| `peer_reports` | Reports for the owner to review: who, about whom, the reason, details, a copy of the reported line, handled or not. Deleted with either account |
 | `journal_entries` | Coach calls, mock interviews and imports (a CV upload, a GitHub import): summary, points, actions, scores, and the transcript or the text that was read |
 | `usage_events` | One row per AI action, voice session or newly researched company: the daily limits |
 | `prep_packs` | One per saved job (or per application without one): the role and company, a copy of the brief it was built from, talking points, the pitch, likely questions with the story for each, questions to ask and which are ticked, the right-to-work line, the interview type, and whether the user edited the pitch or the line |
@@ -315,7 +340,7 @@ All tables are in the `public` schema. Every row of a per-user table has `user_i
 | `job_matches` | One user's view of one advert: role family, fit percentage and label, what they show and lack, new, seen, saved or hidden |
 | `schema_migrations` | Which migration files have been applied |
 
-Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`), `006_full_cv`, `007_tracker_habits` (which also gives each open application without one a follow-up date a week after it was sent), `008_interview_prep` (which also tags existing stories whose one-word competency is exactly one of the eight), `009_networking` (which gives every account that existed then an outreach target of 0).
+Schema changes are numbered SQL files in `backend/migrations/`, applied with `python migrate.py`. Applied so far: `001_initial`, `002_journal_transcript`, `003_jobs` (which also adds `listing_id` and `posted_on` to `saved_jobs`, and `include_senior` to `profiles`), `004_training_adverts`, `005_profile_depth` (which also copies each existing user's current course into `education`), `006_full_cv`, `007_tracker_habits` (which also gives each open application without one a follow-up date a week after it was sent), `008_interview_prep` (which also tags existing stories whose one-word competency is exactly one of the eight), `009_networking` (which gives every account that existed then an outreach target of 0), `010_peers`.
 
 Adverts older than 30 days are deleted on each refresh. A saved job is a copy, so it stays.
 
@@ -371,6 +396,15 @@ A reference from one row to another (for example an application's CV version) is
 | `POST /api/ai/networking-events/{id}/prepare` | An introduction, three openers and a goal, saved on the event. One AI action |
 | `GET /api/networking/links` | Search links for people and events and professional bodies, built from the profile, target roles and saved jobs |
 | `PUT /api/profile/events-url` | The university's careers events page; empty clears it |
+| `GET /api/peers` | Where the caller stands in Peers (off, waiting, proposed, in a group) with what they may see of the others. Also in `/api/state` as `peers` |
+| `POST /api/peers/join` | Switch Peers on: `{over_18: true, conduct: true, field}`. 409 without university and course, or when already on; 403 when barred. Matching runs |
+| `POST /api/peers/leave-all` | Switch Peers off: out of any group, check-ins and nudges deleted, link cleared |
+| `POST /api/peers/groups/{id}/accept`, `/decline`, `/leave` | Yes or not this time to a proposal (or a newcomer); leave a group. 404 for a group the caller is not live in |
+| `PUT /api/peers/groups/{id}/checkin` | This week's line, 1 to 140 characters |
+| `POST /api/peers/groups/{id}/nudge` | `{to: member}`. 409 for a second nudge the same London day |
+| `PUT /api/peers/contact-link` | A LinkedIn (`linkedin.com/in/...`) or WhatsApp (`wa.me/<number>`) link over https, or empty to clear. 422 for anything else |
+| `POST /api/peers/block`, `POST /api/peers/report` | `{member}`; a report adds `{reason, details?, checkin_id?}`. 404 for someone the caller cannot see |
+| `POST /api/ai/peers/field` | A field from the caller's target role names, or null. One AI action; none without target roles |
 | `GET /api/journal/{id}/transcript` | What was said in that session |
 | `POST /api/ai/achievements` | Transcript or pasted text → achievements and pitch, plus proposed jobs, courses, skills and languages |
 | `POST /api/ai/achievements/upload` | A PDF or Word CV as the raw body → the same. The file is read and dropped |
@@ -446,7 +480,9 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 | Shared research | `companies` holds public facts about companies only. A user's pack, ticks and edits are in `prep_packs`, filtered by user id |
 | People the user adds | Name, role, company, how they know them, a profile link and notes; no email address or phone number is asked for. Only the role, company and how they know them go to the model for a draft. Nothing is sent to them: the user copies a draft |
 | Search links and typed addresses | Built on the server from fixed addresses on linkedin.com, meetup.com, eventbrite.co.uk and the listed professional bodies, with what the user typed escaped inside one query value or path segment; tested against `&`, `#`, `?`, `/`, `..` and accents. A profile link or events page must be http or https on a named public host with no user name, password or port; `javascript:` and the like are refused |
-| Right to erasure | "Delete my account" removes the login; cascading deletes remove every row |
+| What one user sees of another (Peers) | Only through `peerdb.peer_view`: first name, university, course and target roles; once both have said yes, targets met this week (never counts), streak, contact link, this week's line and whether they have been inactive. Nothing unless both are live in the same open group, neither blocked the other, and the member is switched on and not barred. Tested for a member with a surname, visa, applications and achievements. Matching never uses visa status |
+| Moderation | Fixed-wording nudges; a 140-character weekly line with Report beside it; reports reviewed by the owner with `scripts/peer_reports.py` (ids, reasons, the reported line; no names or emails), which can bar a user |
+| Right to erasure | "Delete my account" switches Peers off first (closing a group left with one member), then removes the login; cascading deletes remove every row |
 | Transparency | A privacy notice page lists what is collected, why, and who processes it. Sign-up requires agreeing to it |
 | Data location | Database and login in London. The language model runs in the United States; ElevenLabs processes audio outside the UK. The privacy notice says so |
 
@@ -459,6 +495,7 @@ To check the prompts against the real model: `python scripts/live_check.py` from
 5. ~~Add "not immigration advice" wording wherever visa rules appear.~~ Done in step 2.
 6. Read Reed's terms of use (they are not published on its developer page) and ask Reed about call limits.
 7. Re-read the gov.uk pages in `backend/data/visa_rules.json` and update the figures and the date. Nothing reminds you; the date on screen shows how old they are.
+8. Write terms of use before Peers is open to real users, and decide how often reports are reviewed (`python scripts/peer_reports.py`).
 
 ## 12. Running, testing and deploying
 
@@ -597,6 +634,11 @@ No test can reach the real model, Companies House, a website or Tavily: an AI ta
 - Meetup gets no link for a remote location; only Eventbrite's online search was checked.
 - Events are typed in by the user. Nothing is listed for them, and there are no email reminders.
 - A professional body is suggested only when a target role's name contains one of its words; a field with no match gets none.
+- With only a few users, most people who switch Peers on wait; a match needs someone else on the list.
+- A proposal lapses after 7 days only when someone in it next opens the app; until then it stays open.
+- There is no admin screen: reports are read and acted on with the script, and a report about someone goes when either account is deleted.
+- A WhatsApp link shows the user's phone number to their group; the consent screen and the link box say so.
+- The field suggestion is asked for each time the consent screen opens (once per AI action).
 
 ## 15. Jobs, sponsorship and visa facts (step 2)
 
@@ -959,3 +1001,40 @@ Every draft is also refused if it claims a connection the user did not enter (a 
 - **Real weeks passing** for the outreach target and streak, beyond tests with set dates.
 - **Anything on Vercel.**
 
+## 27. Peers (step 7)
+
+**The one exception to "every user's data is private".** This is the only part of the app in which one user sees anything about another. All of it goes through one function, `peerdb.peer_view(conn, viewer_id, member_id)`, which returns an explicit list of fields and nothing unless both people are live members of the same open group, neither has blocked the other, and the member has Peers switched on and is not barred. Members of a proposal (or a newcomer to a group) see only first name, university, course and target roles; members of an active group who have both said yes also see how many of the three weekly targets were met this week (`2 of 3`, never the counts), the streak in weeks, the contact link, this week's check-in line, and whether the member has done nothing that counts for three weeks. Pages name a member by the id of their membership row, never by user id. Matching (`peerdb._candidates`) also reads other users' field, preferred locations, university and time waited, and returns only the group it made. The owner's report tools (`open_reports`, `mark_handled`, `bar`) are called only from `scripts/peer_reports.py`. All peers SQL lives in `peerdb.py`, apart from `repo.py`, whose rule (every function touches only the caller's rows) stays true.
+
+**Switching on.** Peers is off by default. "Join a buddy group" shows, in two columns, what the group will see and never see, the code of conduct (approved by the owner on 15 October 2026), two ticks (18 or over; the code of conduct) and a field from a fixed list of 21. The field is suggested once from the user's target role names by the model (`ai.suggest_field`, one AI action; none without target roles; an answer off the list is ignored). Joining needs the profile's details complete. A barred user cannot join.
+
+**Matching** runs when someone joins, goes back on the list, or opens Home or Peers while waiting; there is no scheduled job. Same field first; within it a shared preferred location (not "Remote"), then the same university, then a waiting person before a pair with room, then whoever has waited longest. A pair takes a third only in the field of both members. A different field is the last resort (owner's choice). Visa status is never used. Never proposed together: the same person, anyone blocked either way, and pairings "passed": declined, left unanswered for 7 days, or left. With nobody suitable the user waits: "You are on the list".
+
+**Proposals.** Two people both say yes before a group forms. A third needs the yes of the newcomer and of each current member; until then each side sees only the other's first name, university, course and target roles. "Not this time" puts both back on the list, and matching runs again at once. A proposal unanswered for 7 days lapses on the next visit of anyone in it. A group never holds more than three live members: each holds one of three places, enforced by a unique index, so two people accepting at the same moment cannot make four.
+
+**The group page.** Each member's card: who they are, targets met this week, streak, this week's line with Report, the contact link as a button, Send a nudge (one a day to each member, fixed wording: "<name> sent you a nudge: one step today keeps your week on track."), Report and Block and leave. The group streak counts the weeks in a row, ending last week, in which every current member met all their targets, plus this week once all have, only since the group became active. The user's own card: their targets, streak, "What is your focus this week?" (140 characters, one per London week, editable that week) and an optional LinkedIn (`linkedin.com/in/...`) or WhatsApp (`wa.me/<number>`) link, refused for any other host or for anything but https. Home shows a small card with each member's first name and a tick for all targets met, and this week's nudges.
+
+**Ways out.** Leave group (back on the list for a new one; "Find a new group" is the same, shown when a member has been inactive for three weeks); Block and leave (the blocker leaves, the other two stay; never matched again; a blocked newcomer is turned away instead); Report (four fixed reasons and optional details; the reported line disappears for the reporter at once and is copied into the report); Switch Peers off (out of any group at once, contact link cleared, the user's check-ins and the nudges they sent and received deleted). A group left with one member closes and that member goes back on the list. Deleting the account switches Peers off first.
+
+**Reports** are reviewed by the owner with `scripts/peer_reports.py`: it lists open reports (ids, reasons, details, the reported line; no names or emails), marks one handled, or bars a user (Peers off, cannot be switched on again).
+
+## 28. Verification record for step 7
+
+| Check | Result | Date |
+|---|---|---|
+| Before building | 3 accounts in the database (the owner chose to build anyway); step 4's goals and streak take step 6's third target; LinkedIn's help page on profile addresses; WhatsApp's `wa.me` form from two guides citing its help page (the page itself did not load) | 15 Oct 2026 |
+| Migration `010_peers` | Applied to the real database | 15 Oct 2026 |
+| Tasks 1 to 3 | Whole backend suite: 2,030 passed, 0 failed, 0 errors | 15 Oct 2026 |
+| Tasks 4 to 9 | Each task's tests seen failing first, then passing; whole-suite result recorded with the commit | 15 Oct 2026 |
+| Real model (`live_check.py peers`) | 2 of 2: data roles gave "Data and analytics", solicitor roles gave "Law" | 15 Oct 2026 |
+| Peers, Home and the privacy notice against the real backend and model, as three temporary users whose data was never saved | Consent screen with both columns, the code of conduct and a suggested field; on the list; a proposal showing only first name, university, course and target roles; both accept; check-in; a lookalike LinkedIn address refused and a real one shown as a button; a nudge on Peers and on Home; a reported line hidden from the reporter; a third person proposed into the pair and accepted by all three; leaving; blocking (all three back on the list, none rematched with someone they left or blocked); switching off; no sideways scroll at phone width | 15 Oct 2026 |
+| Defects that check found, fixed | The link button read "Remove link" with nothing saved; a reported line read as if none had been written | 15 Oct 2026 |
+| A fresh review of the whole step (a separate reviewer, Opus) | Nothing leaks: every detail about another user goes through `peer_view`, and the database enforces the three-member limit. Ready with fixes. **Not yet fixed:** the consent wording overstates privacy before everyone says yes and omits the inactivity flag; a name typed surname-first shows the surname as the first name; a stale page answers 404 without refreshing; a rare race can leave someone who switched off in another's proposal; "Not this time" can be used to see many people in a row (a daily cap is for the owner to decide); and 11 smaller points | 15 Oct 2026 |
+| The database afterwards | No temporary user left; no peers rows from the checks | 15 Oct 2026 |
+
+**Not yet verified:**
+
+- **The review's findings,** listed above: none fixed yet.
+- **The owner's three-account hand checks** in the step document, signed in for real.
+- **A signed-in session.** The pages were driven without the login screen, through a temporary check page (removed afterwards).
+- **Real weeks passing** for check-ins, nudge days, the group streak and the 7-day expiry, beyond tests with set dates.
+- **Anything on Vercel.**

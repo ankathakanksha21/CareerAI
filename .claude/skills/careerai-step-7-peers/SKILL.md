@@ -5,7 +5,7 @@ description: Use when building, continuing or reviewing step 7 of the CareerAI r
 
 # Step 7: peers
 
-**Status:** Not started. Design approved by the owner, 12 October 2026. **Depends on:** step 4 (weekly goals and streak). **Size:** medium, with the highest privacy risk of any step.
+**Status:** Built on branch `step-7-peers`, 15 October 2026 (see "Where it stands" at the end). Design approved by the owner, 12 October 2026. **Depends on:** step 4 (weekly goals and streak). **Size:** medium, with the highest privacy risk of any step.
 **REQUIRED:** follow `careerai-building-a-step`.
 
 ## Goal
@@ -189,3 +189,27 @@ Three real accounts can form a group, see only the agreed details about each oth
 - The owner's plan for reviewing reports, and whether a code of conduct and terms of use are ready. Do not launch user-to-user features without them.
 - That step 4's weekly targets and streak exist, including the third target from step 6 if it has shipped.
 - WhatsApp and LinkedIn link formats to accept.
+
+## Verified at build time (15 October 2026)
+
+- **Users:** 3 accounts, probably all the owner's. Built anyway (owner's choice).
+- **Step 4's targets:** `habits.this_week` and `habits.streaks` take three targets, step 6's outreach included.
+- **LinkedIn link:** LinkedIn's help page: the custom part of a profile address is 3 to 100 letters or numbers; default ones add hyphens and digits. Accepted: `https://(www.|xx.)linkedin.com/in/<handle>`, stored as `https://www.linkedin.com/in/<handle>`.
+- **WhatsApp link:** `https://wa.me/<number>`, the full international number in digits. WhatsApp's own help page did not load; two guides citing it agree. Other WhatsApp forms (QR links, `api.whatsapp.com`) are left out rather than guessed.
+- **Reports and code of conduct:** agreed with the owner (table above). Terms of use: not ready; a launch blocker.
+
+## Changed at build time
+
+| What | Why |
+|---|---|
+| A third member needs the yes of the newcomer and of every current member | "Both people accept before a group forms": nobody shares their week with someone they did not accept |
+| Pairings declined, left unanswered for 7 days, or left are never proposed again | Re-proposing the same silent person, or someone just left, helps nobody |
+| Leaving (and "Find a new group") puts the user back on the list; switching Peers off is how to stop | One way out of a group, one way to stop |
+| Blocking a proposed newcomer turns them away and the blocker stays | Leaving one's own group because of a newcomer would punish the wrong person |
+| Matching also runs when a waiting user opens Home or Peers | A match missed when two people join at the same moment heals on the next visit, still with no scheduled job |
+| "Same city" is a shared preferred location, not the CV town | Every user has preferred locations |
+| Pages name a member by their membership id, never a user id | Nothing that identifies an account reaches the browser |
+
+## Where it stands
+
+Built, tested and checked in a browser with three temporary users (never saved). The owner's three-account hand checks, the terms of use, and a signed-in session are left. See ARCHITECTURE sections 27 and 28.
