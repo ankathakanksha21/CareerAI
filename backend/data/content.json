@@ -10,8 +10,7 @@
     {"name": "Graduate and early-career boards", "tip": "Prospects, Bright Network and Handshake list graduate schemes, internships and entry-level roles with fixed deadlines."},
     {"name": "Your university careers service", "tip": "Employers who post here already want graduates from your university, and advisers explain how UK recruitment works."},
     {"name": "LinkedIn and Indeed", "tip": "Set daily alerts for your target titles and apply within 48 hours of posting."},
-    {"name": "Company career pages", "tip": "Roles often appear here first. Check the employers you want every week."},
-    {"name": "Register of licensed sponsors (gov.uk)", "tip": "Check an employer before you spend time on a tailored application."}
+    {"name": "Company career pages", "tip": "Roles often appear here first. Check the employers you want every week."}
   ],
   "tone_phrases": [
     {"phrase": "Not bad at all.", "meaning": "Genuinely good. British praise is understated."},
@@ -20,15 +19,15 @@
     {"phrase": "We'd love to keep in touch.", "meaning": "Usually a polite no. Thank them and do not wait on it."},
     {"phrase": "That's quite interesting.", "meaning": "Often polite and lukewarm, not real enthusiasm."},
     {"phrase": "We'll be in touch.", "meaning": "Neutral. If no date was given, follow up after a week."},
-    {"phrase": "Do you have any questions for us?", "meaning": "You are expected to ask two or three thoughtful ones. Saying no reads as low interest."},
+    {"phrase": "Do you have any questions for us?", "meaning": "Ask two or three thoughtful ones. Saying no reads as low interest."},
     {"phrase": "Tell me about yourself.", "meaning": "A 90-second pitch: what you do now, what you did before, why this role."}
   ],
   "tone_norms": [
-    "Say 'I led' or 'I built', not 'I single-handedly'. Confident but understated works best.",
-    "Use 'we' for team results and 'I' for your part. UK interviewers listen for your exact contribution.",
-    "A little small talk at the start is normal. Ask how their week is going.",
-    "Feedback is often softened and indirect. If you are unsure where you stand, ask one specific follow-up question.",
-    "Address people by first name unless told otherwise. 'Sir' and 'Madam' sound overly formal."
+    "Confident but understated: 'I led', not 'I single-handedly'.",
+    "'We' for team results, 'I' for your exact part.",
+    "Expect a little small talk. Ask how their week is going.",
+    "Feedback is often indirect. If unsure where you stand, ask one specific follow-up.",
+    "Use first names unless told otherwise. 'Sir' and 'Madam' sound overly formal."
   ],
   "cv_rules": [
     "Two pages. No photo, date of birth or marital status.",
@@ -38,49 +37,49 @@
   ],
   "interview_day": {
     "phone": [
-      "Take the call somewhere quiet, with good signal and your phone charged.",
+      "Take the call somewhere quiet, with good signal and a charged phone.",
       "Have the advert, the CV you sent and this pack in front of you.",
-      "Note the name of the person who calls, and thank them by name at the end.",
-      "Keep each answer to about a minute. On the phone, long answers lose people."
+      "Note the caller's name and thank them by name at the end.",
+      "Keep answers to about a minute; long ones lose people."
     ],
     "video": [
       "Test the link, camera and microphone 15 minutes before.",
-      "Sit facing a window or a lamp, with a plain background behind you.",
-      "Look at the camera, not the screen, when you are speaking.",
+      "Face a window or lamp, with a plain background behind you.",
+      "Look at the camera, not the screen, when speaking.",
       "Close other apps and turn off notifications.",
-      "Keep the advert and your questions open beside the call, but do not read your answers."
+      "Keep the advert and your questions open, but do not read your answers."
     ],
     "in_person": [
-      "Plan the journey to arrive 10 minutes early, and keep the interviewer's name and number to hand in case of delays.",
+      "Arrive 10 minutes early. Keep the interviewer's name and number to hand for delays.",
       "Bring a copy of the CV you sent and your questions on paper.",
       "A handshake and first names are normal. Follow the interviewer's lead.",
-      "If they ask to check your right to work, they will ask for a share code. You can get one at gov.uk/prove-right-to-work."
+      "If they check your right to work, they will ask for a share code: get one at gov.uk/prove-right-to-work."
     ]
   },
   "networking_guide": [
     {
       "id": "stranger-to-referral",
       "title": "From stranger to referral in six steps",
-      "intro": "Most people are glad to give 15 minutes of advice to someone who asks well. A referral comes later, from someone who already knows you a little.",
+      "intro": "Most people will give 15 minutes of advice to someone who asks well. A referral comes later, from someone who knows you a little.",
       "steps": [
-        "Pick ten people: alumni of your university at companies you like, people already in the role you want, and anyone you have met at an event.",
-        "Connect with a short note that says who you are and what you have in common. A free LinkedIn account can add a note to only a few invitations a month, so keep notes for the people who matter most.",
-        "Once they accept or reply, ask for 15 minutes of advice. Not a job, and not a referral.",
-        "Prepare three questions, keep to the time you asked for, and end by asking who else you should talk to.",
-        "Thank them within 24 hours, mentioning one thing you learned, and stay in touch every month or two with something useful to them.",
-        "When a role opens at their company, apply through the advert and ask whether they would be comfortable referring you. Make it easy for them to say no."
+        "Pick ten people: alumni at companies you like, people in the role you want, and anyone you met at an event.",
+        "Connect with a short note: who you are and what you have in common. A free LinkedIn account can add a note to only a few invitations a month, so save notes for the people who matter most.",
+        "Once they accept or reply, ask for 15 minutes of advice: not a job, not a referral.",
+        "Prepare three questions, keep to time, and end by asking who else you should talk to.",
+        "Thank them within 24 hours with one thing you learned. Every month or two, send them something useful.",
+        "When a role opens at their company, apply through the advert and ask whether they would be happy to refer you. Make it easy to say no."
       ],
-      "note": "Two weeks with no reply is normal. Send one short follow-up, then move on to the next person."
+      "note": "No reply in two weeks is normal. Send one short follow-up, then move on."
     },
     {
       "id": "recruiters",
       "title": "Working with recruiters",
       "points": [
         "Agency recruiters are paid by the employer. Under UK rules, recruitment agencies cannot charge you a fee for finding or trying to find you work.",
-        "An agency may offer paid extras, such as CV writing or training, but it cannot make you pay for them as a condition of finding you work.",
-        "Tell a recruiter what you are looking for, where, and when you can start. If you will need a visa sponsor, ask early which of their clients can sponsor. This is not immigration advice.",
-        "Ask a recruiter to check with you before sending your CV anywhere, and keep a note of where it has gone, so an employer never receives it twice.",
-        "Stay in touch. A recruiter who knows what you want will think of you when a role comes in."
+        "An agency may sell extras, such as CV writing or training, but cannot make them a condition of finding you work.",
+        "Say what you want, where, and when you can start. If you will need a visa sponsor, ask early which of their clients can sponsor. This is not immigration advice.",
+        "Ask them to check with you before sending your CV anywhere, and note where it has gone so no employer gets it twice.",
+        "Stay in touch, so they think of you when a role comes in."
       ],
       "sources": [
         {
@@ -94,11 +93,10 @@
       "title": "One UK project, internship or volunteering role",
       "intro": "One piece of UK experience, paid or not, gives you something local to talk about and a UK referee.",
       "points": [
-        "A short project, a part-time job, an internship or a volunteering role all count. Ask your university careers service first: many run projects with local employers.",
-        "Skills-based volunteering puts what you studied to work for a charity. Reach Volunteering lists such roles, though it asks for three years' professional experience.",
-        "GOV.UK lists where to find volunteering, from national sites to NHS volunteering.",
-        "On a Student visa, volunteering is not the same as voluntary work. Voluntary work is a kind of unpaid employment and counts toward your weekly hours, so check with the organisation and your university's international student advisers before you start. This is not immigration advice.",
-        "Whatever you do, note what you did and what changed because of it. It becomes an achievement on your profile."
+        "Projects, part-time jobs, internships and volunteering all count. Ask your university careers service first: many run projects with local employers.",
+        "Skills-based volunteering puts your studies to work for a charity. Reach Volunteering lists such roles, but asks for three years' professional experience.",
+        "On a Student visa, voluntary work is not volunteering: it is a kind of unpaid employment and counts toward your weekly hours. Check with the organisation and your university's international student advisers before you start. This is not immigration advice.",
+        "Note what you did and what changed because of it: it becomes an achievement on your profile."
       ],
       "sources": [
         {
@@ -106,7 +104,7 @@
           "url": "https://www.ukcisa.org.uk/student-advice/working/student-work/"
         },
         {
-          "label": "GOV.UK: volunteering",
+          "label": "GOV.UK: where to volunteer",
           "url": "https://www.gov.uk/government/get-involved/take-part/volunteer"
         },
         {
@@ -124,11 +122,11 @@
       "title": "Who can give a reference",
       "intro": "UK employers often ask for two referees, usually once they have made an offer.",
       "points": [
-        "A student or recent graduate usually gives one academic referee, such as a tutor, lecturer or dissertation supervisor, and one from work: a manager or supervisor from a job, placement or volunteering role.",
-        "A UK referee helps, because an employer can reach them easily and knows how to read what they say.",
+        "Usually one academic referee (a tutor, lecturer or dissertation supervisor) and one from work (a manager or supervisor from a job, placement or volunteering role).",
+        "A UK referee helps: an employer can reach them easily and knows how to read what they say.",
         "Friends and family are not referees.",
-        "Always ask first, say which roles you are applying for, and send them the CV you are using.",
-        "Keep in touch with the people who could act as referees, so the request never comes as a surprise."
+        "Ask first, say which roles you are applying for, and send them the CV you are using.",
+        "Keep in touch with possible referees, so a request never comes as a surprise."
       ]
     }
   ]

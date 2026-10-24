@@ -96,19 +96,20 @@ def diagnose(apps, cv_versions, stories, by_family, by_source, timing, fam_names
         if own_cv:
             detail = ""
         elif used <= {None}:
-            detail = " None of them used a tailored CV."
+            detail = " None used a tailored CV."
         elif fam is None:
             detail = ""
         else:
             names = ", ".join(sorted(cv_names[c] for c in used if c))
-            detail = f" They used a CV written for another role ({names})."
+            detail = f" They used a CV for another role ({names})."
         subject = f"{row['label']} applications" if fam else "Applications without a role family"
+        replies = f"{row['responses']} {'reply' if row['responses'] == 1 else 'replies'}"  # plural() would write "replys"
         findings.append({
             "id": f"cv-{fam or 'none'}", "type": "cv", "severity": 3,
             "title": f"{subject} are not getting replies",
-            "evidence": f"{plural(row['responses'], 'response')} from {plural(row['applied'], 'application')}.{detail}",
-            "action": (f"Tailor a {row['label']} CV from your profile, then send the next batch with it." if fam
-                       else "Tailor a CV to each job from your profile, then send the next batch with it."),
+            "evidence": f"{replies} from {plural(row['applied'], 'application')}.{detail}",
+            "action": (f"Send the next batch with a tailored {row['label']} CV." if fam
+                       else "Send the next batch with a CV tailored to each job."),
             "link": {"page": "resume", "label": "Tailor a CV"},
         })
 
@@ -124,9 +125,9 @@ def diagnose(apps, cv_versions, stories, by_family, by_source, timing, fam_names
             note = "Your STAR stories are complete, so practise saying them out loud."
         findings.append({
             "id": "story", "type": "story", "severity": 3,
-            "title": "You reach interviews but they are not turning into offers",
+            "title": "Interviews are not turning into offers",
             "evidence": f"{plural(funnel['interviews'], 'interview')}, 0 offers. {note}",
-            "action": "Run a mock interview and strengthen your STAR stories before the next one.",
+            "action": "Do a mock interview and strengthen your STAR stories.",
             "link": {"page": "interview", "label": "Practise an interview"},
         })
 
@@ -139,7 +140,7 @@ def diagnose(apps, cv_versions, stories, by_family, by_source, timing, fam_names
             "id": "network", "type": "network", "severity": 2,
             "title": "Referrals work for you, but you rarely use them",
             "evidence": f"Referrals got replies {ref['responses']} of {ref['applied']} times. Job boards: {board_row['responses']} of {board_row['applied']}.",
-            "action": "Ask people you know inside companies that are hiring for a referral before you apply.",
+            "action": "Before you apply, ask someone you know at the company for a referral.",
             "link": {"page": "networking", "label": "Find people"},
         })
 
@@ -159,9 +160,9 @@ def diagnose(apps, cv_versions, stories, by_family, by_source, timing, fam_names
 
 MIN_LESSONS = 3  # lessons from rejections that point to the same page before they make a finding
 LESSON_PAGES = {
-    "resume": ("your CV", "Open Resume"),
+    "resume": ("your CV", "Open CV"),
     "interview": ("your interview answers", "Practise an interview"),
-    "profile": ("the evidence on your profile", "Open your profile"),
+    "profile": ("the evidence on your profile", "Open profile"),
 }
 
 
@@ -185,7 +186,7 @@ def lesson_findings(apps):
         findings.append({
             "id": f"lessons-{page}", "type": "lessons", "severity": 3,
             "title": f"{len(rejected)} of your rejections point to {what}",
-            "evidence": f"The lessons from {_names([a['company'] for a in rejected])} each suggest a change to {what}.",
+            "evidence": f"Lessons from {_names([a['company'] for a in rejected])}.",
             "action": rejected[-1]["lesson"]["one_change"],
             "link": {"page": page, "label": label},
         })
@@ -205,20 +206,20 @@ def sponsor_findings(families, market):
         findings.append({
             "id": f"sponsor-{family['id']}", "type": "sponsor", "severity": 2,
             "title": f"Few {family['name']} roles come from licensed sponsors",
-            "evidence": f"{figures['listed']} of {figures['named']} current adverts that name their employer are from employers on the sponsor register.",
-            "action": "Turn on Sponsors only in Jobs, or look at a neighbouring role where more employers sponsor.",
+            "evidence": f"{figures['listed']} of {figures['named']} current adverts naming their employer are from employers on the sponsor register.",
+            "action": "Turn on Sponsors only in Jobs, or try a neighbouring role with more sponsors.",
             "link": {"page": "jobs", "label": "Open Jobs"},
         })
     return findings
 
 
 NEXT_STEPS = (
-    ("profile", "Build your profile", "Your CVs, stories and interview practice are all built from it.", "profile"),
-    ("roles", "Pick your target roles", "Your targets decide what the app prepares you for.", "pathways"),
+    ("profile", "Build your profile", "Your CVs, stories and practice all come from it.", "profile"),
+    ("roles", "Pick your target roles", "They decide what the app prepares you for.", "pathways"),
     ("job", "Save a job you want", "Pick one from Jobs, or paste an advert, so your CV and practice fit a real role.", "jobs"),
     ("cv", "Tailor a CV for it", "UK employers shortlist on evidence that matches the job description.", "resume"),
     ("interview", "Practise an interview", "Most UK interviews expect STAR answers, said out loud.", "interview"),
-    ("application", "Log your first application", "The tracker can only tell you what to fix once it has your applications.", "applications"),
+    ("application", "Log your first application", "The tracker needs your applications to show what to fix.", "applications"),
 )
 
 

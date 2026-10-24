@@ -6,7 +6,7 @@ import content
 def test_content_sections_and_sizes():
     c = content.load()
     assert {k: len(v) for k, v in c.items()} == {
-        "uk_market": 5, "where_to_look": 5, "tone_phrases": 8, "tone_norms": 5, "cv_rules": 4, "interview_day": 3, "networking_guide": 4}
+        "uk_market": 5, "where_to_look": 4, "tone_phrases": 8, "tone_norms": 5, "cv_rules": 4, "interview_day": 3, "networking_guide": 4}
 
 
 def test_interview_day_has_every_type():

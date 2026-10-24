@@ -19,20 +19,20 @@ MAX_TASKS = 5
 APPLICATION_COUNTS = (1, 10, 25, 50)
 STREAK_WEEKS = (4, 8)
 MILESTONES = {  # id: the banner, shown once
-    "applications-1": "You logged your first application. From here the tracker can tell you what to fix.",
+    "applications-1": "First application logged.",
     "applications-10": "10 applications logged.",
     "applications-25": "25 applications logged.",
     "applications-50": "50 applications logged.",
     "first-reply": "Your first reply from an employer.",
     "first-interview": "Your first interview.",
     "first-offer": "Your first offer. Congratulations.",
-    "first-mock-interview": "Your first mock interview is done.",
+    "first-mock-interview": "First mock interview done.",
     "story-bank-6": "Six STAR stories in your bank, enough for most competency questions.",
     "streak-4": "Four weeks in a row at your goal.",
     "streak-8": "Eight weeks in a row at your goal.",
-    "first-message-sent": "Your first message to a contact is sent. Most people who reply do so within two weeks.",
+    "first-message-sent": "First message to a contact sent. Most replies come within two weeks.",
     "first-contact-reply": "Your first reply from a contact.",
-    "first-chat": "Your first chat with someone in your field is done.",
+    "first-chat": "First chat with someone in your field done.",
     "first-referral": "Your first referral offered. Link it to your application.",
 }
 
@@ -169,8 +169,9 @@ def milestones(*, applications: list, events: list, practice_count: int, story_c
     return [m for m in MILESTONES if m in reached]
 
 
-def _task(id: str, text: str, why: str, page: str, label: str, tab: str | None = None) -> dict:
-    return {"id": id, "text": text, "why": why, "page": page, "tab": tab, "label": label}
+def _task(id: str, text: str, why: str | None, page: str, label: str, tab: str | None = None, count: str | None = None) -> dict:
+    """A task gives either a reason (why) or, for a weekly goal, how far along it is (count, shown as a chip)."""
+    return {"id": id, "text": text, "why": why, "count": count, "page": page, "tab": tab, "label": label}
 
 
 def weekly_plan(*, follow_ups: list, findings: list, fresh_jobs: int, week: dict, story_count: int, missing_numbers: int,
@@ -186,36 +187,35 @@ def weekly_plan(*, follow_ups: list, findings: list, fresh_jobs: int, week: dict
     if contact_follow_ups:
         people = contact_follow_ups
         text = f"Follow up with {people[0]['name']}" if len(people) == 1 else f"Follow up with {len(people)} people"
-        tasks.append(_task("contact-follow-ups", text, "Two weeks without a reply: one short, friendly follow-up often gets one.",
+        tasks.append(_task("contact-follow-ups", text, "No reply in two weeks. A short follow-up often gets one.",
                            "networking", "Open People", tab="people"))
     for f in findings:
         if f.get("link"):
             tasks.append(_task(f"finding-{f['id']}", f["action"], f["evidence"], f["link"]["page"], f["link"]["label"], tab=f["link"].get("tab")))
     if fresh_jobs:
-        tasks.append(_task("new-jobs", f"Look at {plural(fresh_jobs, 'new matching job')} posted in the last 48 hours",
-                           "Roles get most of their applications in the first few days.", "jobs", "See jobs"))
+        tasks.append(_task("new-jobs", f"Look at {plural(fresh_jobs, 'new matching job')} from the last 48 hours",
+                           "Most applications arrive in the first few days.", "jobs", "See jobs"))
     goal, have = week["goal"]["applications"], week["applications"]
     if have < goal:
         jobs = "jobs" in pages
-        tasks.append(_task("applications", f"Send {plural(goal - have, 'more application')} with a tailored CV",
-                           f"Your goal is {goal} this week and {have} {'has' if have == 1 else 'have'} a CV recorded.",
-                           "jobs" if jobs else "resume", "See jobs" if jobs else "Tailor a CV"))
+        tasks.append(_task("applications", f"Send {plural(goal - have, 'more application')} with a tailored CV", None,
+                           "jobs" if jobs else "resume", "See jobs" if jobs else "Tailor a CV", count=f"{have} of {goal} done"))
     goal, done = week["goal"]["practice"], week["practice"]
     if done < goal:
-        tasks.append(_task("practice", f"Do {plural(goal - done, 'more mock interview')}",
-                           f"Your goal is {plural(goal, 'practice session')} this week and you have done {done}.", "interview", "Practise"))
+        tasks.append(_task("practice", f"Do {plural(goal - done, 'more mock interview')}", None, "interview", "Practise",
+                           count=f"{done} of {goal} done"))
     goal, sent = week["goal"]["outreach"], week["outreach"]
     if sent < goal:
-        why = f"Your target is {plural(goal, 'message')} this week and you have sent {sent}."
+        count = f"{sent} of {goal} sent"
         if to_message:
-            tasks.append(_task("outreach", f"Message {to_message['name']}", why, "networking", "Open People", tab="people"))
+            tasks.append(_task("outreach", f"Message {to_message['name']}", None, "networking", "Open People", tab="people", count=count))
         else:
-            tasks.append(_task("outreach", "Find someone to message", why, "networking", "Find people", tab="people"))
+            tasks.append(_task("outreach", "Find someone to message", None, "networking", "Find people", tab="people", count=count))
     if story_count < STORY_TARGET:
         missing = STORY_TARGET - story_count
         tasks.append(_task("stories", f"Write {missing} more STAR {'story' if missing == 1 else 'stories'}",
-                           "Six stories cover most of the competency questions UK employers ask.", "interview", "Open stories", tab="stories"))
+                           "Six stories cover most UK competency questions.", "interview", "Open stories", tab="stories"))
     if missing_numbers:
         tasks.append(_task("numbers", f"Add a number to {plural(missing_numbers, 'achievement')}",
-                           "A result with a figure is what UK employers look for on a CV.", "profile", "Open profile"))
+                           "UK employers look for results with figures on a CV.", "profile", "Open profile"))
     return [t for t in tasks if t["page"] in pages][:MAX_TASKS]

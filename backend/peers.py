@@ -50,7 +50,7 @@ REPORT_REASONS = {
     "other": "Something else",
 }
 
-NUDGE = "{name} sent you a nudge: one step today keeps your week on track."
+NUDGE = "{name} nudged you: one step today keeps your week on track."
 CHECKIN_CHARS = 140
 DETAILS_CHARS = 500
 PROPOSAL_DAYS = 7

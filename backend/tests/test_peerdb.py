@@ -690,7 +690,7 @@ def test_nudges_received_this_week_one_per_sender(conn):
                  (group, b, a, peerdb.week_start(conn) - timedelta(days=1)))  # last week's
     received = peerdb.status(conn, a)["nudges"]
     assert sorted(n["first_name"] for n in received) == ["Zzqx", "Zzqxcat"]
-    assert {n["text"] for n in received} >= {"Zzqxcat sent you a nudge: one step today keeps your week on track."}
+    assert {n["text"] for n in received} >= {"Zzqxcat nudged you: one step today keeps your week on track."}
     assert all(set(n) == {"member", "first_name", "text"} for n in received)  # no date of the sender's activity
     assert {n["member"] for n in received} == {member_id(conn, group, b), member_id(conn, group, c)}
 

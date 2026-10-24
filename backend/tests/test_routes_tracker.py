@@ -16,7 +16,7 @@ AI_FAILED = "The AI did not respond properly. Try again."
 NOTHING_TO_COMPARE = ("No CV or job description was recorded for this application, so there is nothing to compare. "
                       "Attach both next time.")
 ENDED = "This application has ended, so there is nothing to follow up."
-CHANGED = "This application changed while the lesson was being written, so it was not saved. Ask for it again from the application."
+CHANGED = "This application changed while the lesson was written, so it was not saved. Ask again from the application."
 LESSON = {"likely_reason": "The CV may not have shown enough SQL.", "one_change": "Put SQL in the first bullet.", "page": "resume"}
 DRAFT = {"subject": "Zzqx Analyst application", "message": "Dear Zzqx Person,\n\nIs there any news?\n\nKind regards,\nTest Person"}
 APP = {"company": "Zzqx Holdings Ltd", "role": "Zzqx Analyst", "source": "Company site"}

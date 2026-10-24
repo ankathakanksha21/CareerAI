@@ -23,7 +23,7 @@ PUBLIC_URL = "https://find-and-update.company-information.service.gov.uk/company
 NUMBER = re.compile(r"^[A-Z0-9]{8}$")
 MAX_MATCHES = 5
 TIMEOUT_S = 10
-UNREACHABLE = "We could not reach Companies House. You can carry on without it."
+UNREACHABLE = "We could not reach Companies House."  # the search screen adds how to carry on
 NOT_FOUND = "Companies House has no company with that number."
 SIC_FILE = Path(__file__).parent / "data" / "sic_codes.json"
 
