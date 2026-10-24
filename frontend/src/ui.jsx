@@ -47,6 +47,56 @@ export function InfoButton({ open, label, controls, onClick }) {
 // Whether the person has asked their device for less motion: then nothing waits for an animation to finish
 const lessMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
+// What rises into place as it scrolls into view
+const REVEAL = '.card, .stats4 > div, .land-section .steps3 > div, .land-section > h2'
+
+// Scroll reveal: whatever is out of view when it first appears waits, faded and lowered (data-reveal="wait"), and rises
+// into place the first time it scrolls into view, a few at a time with a short stagger. The observer's first report,
+// made after layout, decides: anything on screen then is left alone, so nothing visible ever disappears. Items that
+// arrive later (data loading, a new page) are picked up as they appear. A data attribute rather than a class, so React
+// re-rendering a className never clears or traps it.
+export function useScrollReveal() {
+  useEffect(() => {
+    if (lessMotion() || !('IntersectionObserver' in window)) return
+    const done = (el) => { el.removeAttribute('data-reveal'); el.style.transitionDelay = '' }
+    const io = new IntersectionObserver((entries) => {
+      const coming = []
+      for (const e of entries) {
+        const el = e.target
+        if (!el.dataset.reveal) { // its first report
+          if (e.isIntersecting) io.unobserve(el) // on screen as it appeared: stays as it is
+          else el.dataset.reveal = 'wait'
+        } else if (el.dataset.reveal === 'wait' && e.isIntersecting) coming.push(el)
+      }
+      coming.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top || a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+      coming.forEach((el, i) => {
+        io.unobserve(el)
+        el.style.transitionDelay = `${Math.min(i, 5) * 70}ms`
+        el.dataset.reveal = 'in'
+        const ended = (e) => { if (e.target === el) { el.removeEventListener('transitionend', ended); done(el) } } // not a child's own transition
+        el.addEventListener('transitionend', ended)
+        setTimeout(() => { el.removeEventListener('transitionend', ended); done(el) }, 1400) // in case no transition runs
+      })
+    }, { rootMargin: '0px 0px -6% 0px', threshold: 0.06 })
+    const seen = new WeakSet()
+    const scan = () => document.querySelectorAll(REVEAL).forEach((el) => {
+      if (seen.has(el)) return
+      seen.add(el)
+      if (el.closest('.backdrop, .info-pop')) return
+      io.observe(el)
+    })
+    scan()
+    let queued = false
+    const mo = new MutationObserver(() => {
+      if (queued) return
+      queued = true
+      requestAnimationFrame(() => { queued = false; scan() })
+    })
+    mo.observe(document.body, { childList: true, subtree: true })
+    return () => { io.disconnect(); mo.disconnect() }
+  }, [])
+}
+
 // Open at once; close after the closing animation (index.css .closing), so a toggle or note leaves as gently as it came
 function useOpenClose(initial, closeMs) {
   const [open, setOpen] = useState(initial)

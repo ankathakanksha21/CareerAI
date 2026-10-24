@@ -828,16 +828,51 @@ a.source::after { content: ")"; }
 /* a panel or dialog that opens later is not part of the page's arrival */
 .page-enter > .backdrop { animation: none; }
 
-/* as you scroll, each card rises into place (owner, 24 Oct 2026). Driven by the scroll itself, so a card already on
-   screen is simply there; browsers without scroll-linked animation show every card at once, as before */
-@supports (animation-timeline: view()) {
-  .main .card:not(.page-enter > .card), .landing .card, .land-section .steps3 > div {
-    animation: rise linear both;
-    animation-timeline: view();
-    animation-range: entry 0% entry 60%;
-  }
-}
-@keyframes rise { from { opacity: 0.35; transform: translateY(18px); } }
+/* ---------- hover: quiet, quick responses everywhere (owner, 25 Oct 2026) ---------- */
+/* every card answers the pointer with a deeper border and a soft shadow; a card you can click also lifts (above) */
+.card { transition: box-shadow var(--t-mid) var(--ease-out), border-color var(--t-mid) var(--ease-out), transform var(--t-mid) var(--ease-out); }
+.card:hover { border-color: var(--line-2); box-shadow: 0 1px 2px rgba(12, 15, 13, 0.04), 0 12px 30px -18px rgba(12, 15, 13, 0.24); }
+.card.tint:hover { border-color: transparent; box-shadow: none; }
+/* button icons: arrows slide forward, a plus turns */
+.btn svg { transition: transform var(--t-mid) var(--ease-out); }
+.btn:hover .lucide-arrow-right, .btn:hover .lucide-chevron-right, .btn:hover .lucide-external-link { transform: translateX(3px); }
+.btn:hover .lucide-plus { transform: rotate(90deg); }
+/* links: the underline draws in from the left */
+.linkish { background-image: linear-gradient(currentColor, currentColor); background-size: 0% 1.5px; background-position: 0 100%; background-repeat: no-repeat; padding-bottom: 1px; transition: background-size var(--t-mid) var(--ease-out), color var(--t-fast) var(--ease-out); }
+.linkish:hover { text-decoration: none; background-size: 100% 1.5px; }
+/* menu: the icon nudges as the pill fades in */
+.nav-item svg { transition: transform var(--t-mid) var(--ease-out), color var(--t-fast) var(--ease-out); }
+.nav-item:hover svg { transform: translateX(2px); }
+.brand-mark { transition: transform var(--t-mid) var(--ease-out); }
+.brand:hover .brand-mark { transform: rotate(-8deg) scale(1.05); }
+button.me { transition: background var(--t-fast) var(--ease-out); }
+button.me:hover { background: var(--soft); border-color: transparent; }
+/* tiles, chips and pills */
+.stats4 > div, .datebox { transition: background var(--t-fast) var(--ease-out), transform var(--t-mid) var(--ease-out); }
+.stats4 > div:hover, .datebox:hover { background: var(--fill-2); transform: translateY(-1px); }
+.chip { transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out); }
+.chip-btn:hover, button.chip:hover { background: var(--fill-3); }
+.feature .icon-box, .icon-box { transition: background var(--t-mid) var(--ease-out), color var(--t-mid) var(--ease-out), transform var(--t-mid) var(--ease-out); }
+.feature:hover .icon-box { background: var(--green); color: #fff; transform: scale(1.04); }
+/* icon buttons grow a touch and press in */
+.icon-btn, .info-btn { transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out); }
+.icon-btn:hover, .info-btn:hover { transform: scale(1.08); }
+.icon-btn:active, .info-btn:active { transform: scale(0.94); }
+/* tabs: the line under the open tab slides in; hovering another hints at it */
+.tab { position: relative; border-bottom-color: transparent; transition: color var(--t-fast) var(--ease-out); }
+.tab.active { border-bottom-color: transparent; }
+.tab::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 2px; background: var(--green); transform: scaleX(0); transition: transform var(--t-mid) var(--ease-out), background var(--t-fast); }
+.tab:hover::after { transform: scaleX(0.35); background: var(--line-2); }
+.tab.active::after { transform: scaleX(1); background: var(--green); }
+
+/* ---------- scroll reveal (owner, 25 Oct 2026): ui.jsx useScrollReveal marks what waits below the fold ---------- */
+/* placed after the hover rules, so while a card rises its own soft timing wins */
+[data-reveal="wait"] { opacity: 0; transform: translateY(28px) scale(0.985); }
+[data-reveal="in"] { transition: opacity 700ms var(--ease-out), transform 800ms var(--ease-out); }
+@media print { [data-reveal] { opacity: 1 !important; transform: none !important; } }
+
 @media (prefers-reduced-motion: reduce) {
-  .main .card, .landing .card, .land-section .steps3 > div { animation: none !important; }
+  [data-reveal] { opacity: 1 !important; transform: none !important; }
+  .nav-item:hover svg, .brand:hover .brand-mark, .stats4 > div:hover, .datebox:hover, .feature:hover .icon-box,
+  .icon-btn:hover, .info-btn:hover, .btn:hover svg { transform: none; }
 }
