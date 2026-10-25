@@ -1,11 +1,12 @@
 import { Component, useCallback, useEffect, useState } from 'react'
-import { LogOut } from 'lucide-react'
+import { LogOut, Mail } from 'lucide-react'
 import { api, onSignedOut } from './api'
 import { getSupabase } from './supabase'
 import { Avatar, Brand, ErrorRetry, NAV, Spinner, useScrollReveal } from './ui'
 import Landing from './pages/Landing'
 import Auth from './pages/Auth'
 import Privacy from './pages/Privacy'
+import Contact from './pages/Contact'
 import Onboarding from './pages/Onboarding'
 import Home from './pages/Home'
 import Profile from './pages/Profile'
@@ -93,6 +94,7 @@ export default function App() {
   const toastEl = toast && <div className="toast" role="status">{toast}</div>
   if (session === undefined && !error) return <div className="main app-loading"><Spinner /></div>
   if (nav.page === 'privacy') return <Privacy go={go} signedIn={!!session} />
+  if (nav.page === 'contact') return <Contact go={go} signedIn={!!session} />
 
   if (!session) {
     if (error) return <div className="main"><p className="error">{error}</p></div>
@@ -124,6 +126,7 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <button className="nav-item side-contact" onClick={() => go('contact')}><Mail size={17} strokeWidth={1.9} aria-hidden="true" />Contact us</button>
         <div className="side-foot">
           <button className="me" onClick={() => go('account')} aria-label="Your account" title="Your account">
             <Avatar name={s.profile.full_name} size="sm" />

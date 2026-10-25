@@ -71,7 +71,7 @@ export default function Landing({ go, signedIn }) {
         <div className="row" style={{ marginTop: 28 }}><button className="btn large" onClick={start}>{signedIn ? 'Open dashboard' : 'Get started'}</button></div>
       </section>
 
-      <footer className="land-foot"><a href="#privacy">Privacy</a></footer>
+      <footer className="land-foot"><a href="#privacy">Privacy</a><a href="#contact">Contact us</a></footer>
     </div>
   )
 }
